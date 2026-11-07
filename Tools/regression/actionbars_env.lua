@@ -193,7 +193,7 @@ local function InstallGame(env, opts)
 	local g = {
 		slots = {}, bindings = {}, overrides = {}, used = {}, pet = {}, petExists = false, forms = {},
 		procs = {}, page = 1, style = 0, cursor = nil, rangeChecks = {}, picked = {}, placed = {},
-		autocastToggled = {}, lockActionBars = true, modified = false, maxSlot = opts.maxSlot or 180,
+		autocastToggled = {}, lockActionBars = true, modified = false, maxSlot = opts.maxSlot or 180, spells = {},
 	}
 	env._game = g
 	env._blocked = {}
@@ -353,13 +353,19 @@ local function InstallGame(env, opts)
 	env.PlaceAction = function(n)
 		Block(env, "PlaceAction")
 		g.placed[#g.placed + 1] = n
+		if type(g.cursor) == "table" and not (g.refuse and g.refuse[n]) then
+			g.cursor, g.slots[n] = g.slots[n], g.cursor
+		end
 	end
 	env.PickupPetAction = function(n)
 		Block(env, "PickupPetAction")
 		g.picked[#g.picked + 1] = "pet" .. n
 	end
 	env.GetCursorInfo = function()
-		return g.cursor
+		return type(g.cursor) == "table" and g.cursor.type or g.cursor
+	end
+	env.ClearCursor = function()
+		g.cursor = nil
 	end
 	env.GetCVarBool = function(name)
 		if name == "lockActionBars" then
@@ -458,6 +464,12 @@ local function InstallGame(env, opts)
 	end
 	env.C_Spell.GetSpellTexture = function(id)
 		return 1000000 + id
+	end
+	for api, field in pairs({ GetSpellName = "name", GetSpellSubtext = "subtext" }) do
+		env.C_Spell[api] = function(id) return g.spells[id] and g.spells[id][field] end
+	end
+	env.C_Spell.PickupSpell = function(id)
+		g.cursor = { type = "spell", id = id, texture = 1000000 + id }
 	end
 	env.GameTooltip_SetDefaultAnchor = function(tooltip, owner)
 		tooltip:SetOwner(owner)

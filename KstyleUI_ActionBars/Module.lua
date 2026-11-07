@@ -150,6 +150,11 @@ local function OnSpells()
 	ns.Flyout.QueueRefresh()
 end
 
+local function OnLearned(_, spellID)
+	ns.Flyout.QueueRefresh()
+	ns.Ranks.Learned(spellID)
+end
+
 local function OnUsableChanged(_, changes)
 	if ns.IsSecret(changes) or type(changes) ~= "table" then
 		ForActions(ns.Button.UpdateUsable)
@@ -246,6 +251,9 @@ local function OnSetting(_, module, key)
 	if module ~= MODULE or type(key) ~= "string" or key == "editBar" or key == "tooltips" then
 		return
 	end
+	if key == "ranks" and ns.Config("ranks") == "off" then
+		ns.Ranks.Stop()
+	end
 	local barKey, field = key:match("^(%w+)%.(.+)$")
 	if barKey and ns.BAR[barKey] then
 		if field ~= "showEmpty" and field ~= "fade" and field ~= "fadeAlpha" and field ~= "hotkey" and field ~= "count" and field ~= "macro" and field ~= "cooldown" then
@@ -307,7 +315,7 @@ local EVENTS = {
 	PLAYER_CONTROL_GAINED = UpdatePets,
 	INPUT_DEVICE_INTERFACE_TRANSITION = OnTransition,
 	SPELLS_CHANGED = OnSpells,
-	LEARNED_SPELL_IN_SKILL_LINE = OnSpells,
+	LEARNED_SPELL_IN_SKILL_LINE = OnLearned,
 	SPELL_FLYOUT_UPDATE = OnSpells,
 	VEHICLE_UPDATE = ns.Vehicle.Update,
 	UPDATE_BONUS_ACTIONBAR = ns.Vehicle.Update,
@@ -360,6 +368,7 @@ local function Disable()
 		end
 	end
 	ns.Flyout.Close()
+	ns.Ranks.Stop()
 	ns.RestoreBlizzard()
 	gridShown.action, gridShown.pet, ns.grid = false, false, 0
 end
