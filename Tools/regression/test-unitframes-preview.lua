@@ -79,6 +79,22 @@ assert(last[1] == 0.3 and last[2] == 0.6 and last[3] == 0.9, "a custom colour sh
 K.Options.Write("UnitFrames", "target.castbar", false)
 settle()
 assert(not preview.casts.target.frame:IsShown(), "switching the cast bar off hides it in the preview")
+assert(preview.auraCount == 0, "the target sample shows no auras while they are off")
+K.Options.Write("UnitFrames", "target.auras", true)
+settle()
+assert(preview.auraCount > 0 and preview.auraIcons.target[1]:IsShown(), "switching target auras on shows sample aura icons")
+K.Options.Write("UnitFrames", "target.auraPosition", "RIGHT")
+K.Options.Write("UnitFrames", "target.auraGrowth", "LEFT_DOWN")
+settle()
+local sampleHost = preview.auraHosts.target
+local hp, hrel, hrp = sampleHost:GetPoint(1)
+assert(hp == "TOPLEFT" and hrel == preview.holders.target and hrp == "TOPRIGHT", "the sample aura row sits right of the frame, as live")
+for i, icon in ipairs(preview.auraIcons.target) do
+	if icon:IsShown() then
+		local ip, irel = icon:GetPoint(1)
+		assert(irel == sampleHost and ip == "TOPRIGHT", "sample icon " .. i .. " grows from the row's right corner, inside the row")
+	end
+end
 K.Options.Write("UnitFrames", "edit", "boss")
 settle()
 assert(preview.kind == "boss" and U.Shown(env, preview.views.boss.levelText) == "??", "the boss sample shows a skull level")
