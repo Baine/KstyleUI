@@ -416,13 +416,17 @@ class PackageTextTest(unittest.TestCase):
         self.assertIn(SET_A.reference, text)
 
 
-def png(width=128, height=128, colour_type=0):
-    """A minimal PNG: the signature and an IHDR chunk are all verify_package reads."""
+def png(width=128, height=128, colour_type=2, pixel=(128, 128, 128, 255)):
+    """A small PNG whose every pixel is pixel: the signature, IHDR, one IDAT and IEND."""
     import struct
     import zlib
-    body = struct.pack(">IIBBBBB", width, height, 8, colour_type, 0, 0, 0)
-    ihdr = struct.pack(">I", len(body)) + b"IHDR" + body + struct.pack(">I", zlib.crc32(b"IHDR" + body))
-    return b"\x89PNG\r\n\x1a\n" + ihdr
+
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+    row = b"\x00" + bytes(pixel[:{0: 1, 2: 3, 6: 4}[colour_type]]) * width
+    header = struct.pack(">IIBBBBB", width, height, 8, colour_type, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(row * height))
 
 
 XML_WITHOUT_DATA = '<Ui xmlns="http://www.blizzard.com/wow/ui/">\r\n\t<Script file="Init.lua"/>\r\n</Ui>\r\n'
@@ -492,13 +496,18 @@ class VerifyPackageTest(unittest.TestCase):
         self.write_set()
         self.assertEqual(self.problems(), [])
 
-    def test_rejects_a_colour_or_wrong_size_png(self):
+    def test_rejects_a_greyscale_or_wrong_size_png(self):
         self.write_set()
-        (self.icons / "135812.png").write_bytes(png(colour_type=2))
+        (self.icons / "135812.png").write_bytes(png(colour_type=0))
         (self.icons / "132089.png").write_bytes(png(width=64, height=64))
         problems = "\n".join(self.problems())
-        self.assertIn("135812.png is not an 8-bit greyscale PNG", problems)
+        self.assertIn("135812.png is not an 8-bit RGB PNG", problems)
         self.assertIn("132089.png is 64x64, not 128x128", problems)
+
+    def test_rejects_a_set_a_png_with_colour(self):
+        self.write_set()
+        (self.icons / "135812.png").write_bytes(png(pixel=(200, 60, 60)))
+        self.assertIn("Icons/135812.png is not luminance only", self.problems())
 
     def test_rejects_an_icon_with_no_ability_or_no_provenance_row(self):
         self.write_set()
@@ -535,8 +544,8 @@ class SetBVerifyTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_accepts_an_rgb_png(self):
-        (self.icons / "135812.png").write_bytes(png(colour_type=2))
+    def test_accepts_an_rgb_png_in_colour(self):
+        (self.icons / "135812.png").write_bytes(png(pixel=(200, 60, 60)))
         self.assertEqual(iconset.verify_package(SET_B, self.groups, self.repo), [])
 
     def test_rejects_a_greyscale_or_alpha_png(self):

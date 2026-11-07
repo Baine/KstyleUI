@@ -14,7 +14,7 @@ Icon set A: white light art on black for every ability, tinted in game by class 
 These come from the [design spec](../docs/superpowers/specs/2026-11-07-kstyleui-design.md). The roadmap's Global Constraints and [AGENTS.md](../AGENTS.md) apply too.
 
 - The addon holds data only: a table from icon file ID to texture path that `KstyleUI.Icons` reads. It creates no frames and registers no events.
-- Icons are 128x128 PNG and keep luminance only.
+- Icons are 128x128 8-bit RGB PNGs that keep luminance only: R, G and B hold the same value. The first in-game test showed set B's RGB art on the action bars but not set A's 8-bit greyscale PNGs, so both sets ship as RGB. `test-icons-set-a.lua` and `iconset.py verify` check the format.
 - Every icon has a row in [`PROVENANCE.md`](PROVENANCE.md): the file ID it replaces, the spells that use it, model, prompt, Higgsfield job and date. The model exposes no seed.
 - Strings go through `KstyleUI.L`. Translations go in `Locale.lua` in this folder, loaded by `Icons.xml`.
 
@@ -27,7 +27,7 @@ These come from the [design spec](../docs/superpowers/specs/2026-11-07-kstyleui-
 | Generate | `iconset.py generate` | One Higgsfield `gpt_image_2_5` image per icon group in `Tools/data/abilities.json`, at `1:1 --resolution 1k --quality high` with `docs/design/mockups/icons_A_luminous.jpg` as the style reference. Raw images and one record per icon stay in `~/.local/share/wow-dev/icons/A/raw`, so a rerun skips finished icons. The run stops before the credit balance would fall below `--floor` (1300 by default). |
 | Check | runs inside `generate`; `Tools/icons/check_icons.py <png>...` alone | Rejects blank, small, clipped, off-black, coloured and text-bearing images. A rejected icon is rerolled at most twice. |
 | Review | `iconset.py sheets` | Contact sheets of 64 icons in `~/.local/share/wow-dev/icons/A/sheets`. `iconset.py generate --reroll <fileID>...` makes a fresh image for the icons marked on a sheet. |
-| Package | `iconset.py package` | Writes `Icons/<fileID>.png` (128x128, greyscale), `PROVENANCE.md` and `Data.lua`, and adds `Data.lua` to `Icons.xml`. |
+| Package | `iconset.py package` | Writes `Icons/<fileID>.png` (128x128 RGB, luminance only), `PROVENANCE.md` and `Data.lua`, and adds `Data.lua` to `Icons.xml`. |
 | Verify | `iconset.py verify` | Checks the PNGs, the provenance rows and `Data.lua` against each other. `Tools/tests/test_iconset.py` runs it. |
 
 An icon group with no accepted image has no entry in `Data.lua`, so the game's icon stays for it.
@@ -93,8 +93,15 @@ The `IconsColour` switch in `Features.modules` exists because every module folde
 | `Apply(texture, fileID, school) -> custom` | Sets `texture` to the custom icon, or to `fileID` when there is none, and returns whether it is custom. Set A is tinted with `SetVertexColor`: the class colour, the colour of `school` (else the data's school, else the class colour), or white. An additive copy of the art, white at the `highlight` alpha, sits one sublevel above the icon on the same parent, shares its masks and texture coordinates, and shows and hides with it. Set B and Blizzard's icons are not tinted. |
 | `Shade(texture, r, g, b, desaturated)` | Multiplies the tint by `r, g, b` and sets the desaturation, for widgets that dim or grey an icon. `IconButton` calls it on every paint instead of `SetVertexColor`, so hover, press and the unusable state keep the tint. On a texture `Apply` never saw, it is `SetVertexColor(r, g, b)` and `SetDesaturated(desaturated)`. A `nil` `desaturated` leaves the desaturation alone. |
 | `Reset(texture)` | Forgets the custom icon: the tint goes and the copy hides. `IconButton:SetIcon` calls it. Call `Apply` or `Reset` whenever you change an icon that `Apply` set. |
+| `Watch(texture) -> watched` | For a Blizzard texture that Blizzard's code keeps redrawing. It hooks the texture's `SetTexture` and `SetVertexColor` with `hooksecurefunc` and applies the custom icon to the file ID it shows now and to every file ID Blizzard sets later. Blizzard's vertex colour multiplies the tint instead of replacing it, and a redraw keeps the texture's current alpha. A secret file ID or a file ID the set lacks keeps Blizzard's art and colour. When the set changes or the module stops, a watched texture gets the right art or Blizzard's last file ID back. Watching twice does nothing. |
 | `SchoolColor(mask) -> r, g, b` or `nil` | The token colour of a school mask. A mixed mask takes its first magic school in the order holy, fire, nature, frost, shadow, arcane; physical counts only alone. |
 | `ActiveSet() -> "A"`, `"B"` or `nil` | The loaded set while the module runs. |
 | `defaults`, `schema` | The tables registered with `Modules` and `Options`. |
 
-Per-texture state lives in a weak-keyed table. The copy is made on the texture's parent and the service hooks the texture's `Show`, `Hide` and `SetShown` with `hooksecurefunc`, so use `Apply` on KstyleUI's own textures. The school colours are the `school*` tokens in `Core/Tokens.lua`.
+Per-texture state lives in a weak-keyed table. The copy is made on the texture's parent and the service hooks the texture's `Show`, `Hide`, `SetShown`, `SetAlpha`, `SetTexCoord`, `AddMaskTexture` and `RemoveMaskTexture` with `hooksecurefunc`, so the copy follows the icon's visibility, alpha, crop and masks. Forever keeps one alpha per texture, which `SetAlpha` and the fourth `SetVertexColor` argument both write, so the copy's alpha is the highlight strength times the icon's alpha. Use `Apply` on KstyleUI's own textures and `Watch` on Blizzard's. The service never writes a field onto a Blizzard texture and never calls `SetScript`, `Hide` or `SetParent` on one; its own calls on a watched texture are flagged so its hooks ignore them. The school colours are the `school*` tokens in `Core/Tokens.lua`.
+
+### Blizzard's icons
+
+`Core/IconHooks.lua` watches the spellbook's icons. When the `Icons` module starts, it hooks `Blizzard_PlayerSpells` at once if that addon is loaded, else on its `ADDON_LOADED`: every shown item's `Button.Icon` on `PlayerSpellsFrame.SpellBookFrame.PagedSpellsFrame`, through `ForEachFrame` and a hook on `DisplayViewsForCurrentPage`. That covers every category and the pet tab. The hooks stay for the session and change nothing while the module is off.
+
+Other surfaces: KstyleUI's action, pet and stance bars and flyouts, the cooldown mirror, the player cast bar and the tooltip icon use `Apply`. Not covered: the talent tree, Blizzard's spell flyout and the class trainer list are follow-ups; Blizzard's action bars are replaced by the Action Bars module; Cooldown Manager viewers on the reskin path can take icons from aura data, secret in combat, so their art would switch sets mid-fight; the aura engine sets buff and debuff icons in C, where no Lua hook sees the file ID; target and enemy cast bars show creature spells, which the sets do not cover; the macro icon picker must show the real icons.

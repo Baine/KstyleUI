@@ -8,8 +8,8 @@ Icon set A. Every icon in `Icons/` has a row below. `Tools/icons/iconset.py pack
 | Settings | `--aspect_ratio 1:1 --resolution 1k --quality high` |
 | Style reference | `docs/design/mockups/icons_A_luminous.jpg`, passed as `image_references` |
 | Seed | The model exposes none; the Higgsfield job ID identifies each image |
-| Post-processing | Pillow: Lanczos downscale from 1024 to 128 pixels, luminance only (greyscale PNG) |
-| Checks | `Tools/icons/check_icons.py`: no blank, small, clipped, off-black, coloured or text-bearing image is accepted |
+| Post-processing | Pillow: Lanczos downscale from 1024 to 128 pixels, luminance only (RGB PNG with R = G = B) |
+| Checks | `Tools/icons/check_icons.py --set A`: no blank, small, clipped, off-black, coloured or text-bearing image is accepted |
 
 Each prompt is the row's prompt text followed by this style block:
 

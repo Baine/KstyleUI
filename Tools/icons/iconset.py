@@ -41,6 +41,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -599,7 +600,7 @@ def _cell(text):
 
 def render_provenance(icon_set, entries):
     entries = sorted(entries, key=lambda e: e["group"]["icon"])
-    tone = "luminance only (greyscale PNG)" if icon_set.greyscale else "full colour (RGB PNG)"
+    tone = "luminance only (RGB PNG with R = G = B)" if icon_set.greyscale else "full colour (RGB PNG)"
     lines = [
         f"# {icon_set.addon} provenance",
         "",
@@ -646,7 +647,7 @@ def downscale(source, target, greyscale):
     with Image.open(source) as image:
         image = image.convert("L" if greyscale else "RGB")
         image = image.resize((ICON_SIZE, ICON_SIZE), Image.LANCZOS)
-        image.save(target, optimize=True)
+        image.convert("RGB").save(target, optimize=True)
 
 
 def package(icon_set, groups, raw_dir, repo=REPO, data=True, log=print):
@@ -680,6 +681,27 @@ def _png_header(path):
     return width, height, depth, colour
 
 
+def _luminance_only(path):
+    """True when every pixel of a 128x128 8-bit RGB PNG has R = G = B. PNG filters work on each channel
+    alone, so the filtered bytes of a pixel match exactly when its channels do: no unfiltering needed."""
+    data, rows, at = Path(path).read_bytes(), b"", 8
+    while at + 8 <= len(data):
+        length, kind = struct.unpack(">I4s", data[at:at + 8])
+        if kind == b"IDAT":
+            rows += data[at + 8:at + 8 + length]
+        at += length + 12
+    try:
+        raw = zlib.decompress(rows)
+    except zlib.error:
+        return False
+    stride = ICON_SIZE * 3 + 1
+    for start in range(0, len(raw), stride):
+        row = raw[start + 1:start + stride]
+        if row[0::3] != row[1::3] or row[0::3] != row[2::3]:
+            return False
+    return len(raw) == stride * ICON_SIZE
+
+
 def verify_package(icon_set, groups, repo=REPO):
     """List what is wrong with the packaged set: PNG format, file IDs, provenance rows and Data.lua."""
     addon = Path(repo) / icon_set.addon
@@ -700,10 +722,10 @@ def verify_package(icon_set, groups, repo=REPO):
         width, height, depth, colour = header
         if (width, height) != (ICON_SIZE, ICON_SIZE):
             problems.append(f"Icons/{path.name} is {width}x{height}, not {ICON_SIZE}x{ICON_SIZE}")
-        if icon_set.greyscale and (depth, colour) != (8, 0):
-            problems.append(f"Icons/{path.name} is not an 8-bit greyscale PNG")
-        if not icon_set.greyscale and (depth, colour) != (8, 2):
+        if (depth, colour) != (8, 2):
             problems.append(f"Icons/{path.name} is not an 8-bit RGB PNG")
+        elif icon_set.greyscale and (width, height) == (ICON_SIZE, ICON_SIZE) and not _luminance_only(path):
+            problems.append(f"Icons/{path.name} is not luminance only")
         if icon not in known:
             problems.append(f"Icons/{path.name} is not an icon file ID in Tools/data/abilities.json")
 
