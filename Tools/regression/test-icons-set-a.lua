@@ -59,6 +59,10 @@ for id, path in pairs(data.icons) do
 	assert(type(id) == "number" and id > 0 and id % 1 == 0, "icon keys are file IDs: " .. tostring(id))
 	assert(path == PREFIX .. id .. ".png", "the path names the icon's own PNG: " .. tostring(path))
 	assert(exists("KstyleUI_Icons/Icons/" .. id .. ".png"), "Icons/" .. id .. ".png exists")
+	local handle = assert(io.open("KstyleUI_Icons/Icons/" .. id .. ".png", "rb"))
+	local ihdr = handle:read(26) or ""
+	handle:close()
+	assert(ihdr:byte(25) == 8 and ihdr:byte(26) == 2, "Icons/" .. id .. ".png is an 8-bit RGB PNG, the format the game draws, not colour type " .. tostring(ihdr:byte(26)))
 	first = first and math.min(first, id) or id
 end
 assert(count > 0, "set A has icons")

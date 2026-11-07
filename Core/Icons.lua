@@ -28,9 +28,14 @@ local defaults = { enabled = false, set = "A", tint = "class", highlight = 0.25 
 local cache = {}
 local active, activeSet, lastProblem
 local state = setmetatable({}, { __mode = "k" })
+local own = false
 
 local function isSecret(value)
 	return issecretvalue ~= nil and issecretvalue(value) == true
+end
+
+local function isNumber(value)
+	return not isSecret(value) and type(value) == "number"
 end
 
 local function log(message)
@@ -138,6 +143,27 @@ local function syncCopy(texture)
 	end
 end
 
+local function syncGlow(texture)
+	local st = state[texture]
+	if st.glow > 0 then
+		local alpha = texture:GetAlpha()
+		st.copy:SetVertexColor(st.dimR, st.dimG, st.dimB, st.glow * (isNumber(alpha) and alpha or 1))
+	end
+end
+
+local function syncCrop(texture)
+	state[texture].copy:SetTexCoord(texture:GetTexCoord())
+end
+
+local function addMask(texture, mask)
+	state[texture].copy:AddMaskTexture(mask)
+end
+
+local function removeMask(texture, mask)
+	local copy = state[texture].copy
+	pcall(copy.RemoveMaskTexture, copy, mask)
+end
+
 local function makeCopy(texture, st)
 	local parent = texture:GetParent()
 	if type(parent) ~= "table" or type(parent.CreateTexture) ~= "function" then
@@ -163,10 +189,15 @@ local function makeCopy(texture, st)
 		end
 	end
 	st.copy = copy
+	syncCrop(texture)
 	if type(hooksecurefunc) == "function" then
 		hooksecurefunc(texture, "Show", syncCopy)
 		hooksecurefunc(texture, "Hide", syncCopy)
 		hooksecurefunc(texture, "SetShown", syncCopy)
+		hooksecurefunc(texture, "SetAlpha", syncGlow)
+		hooksecurefunc(texture, "SetTexCoord", syncCrop)
+		hooksecurefunc(texture, "AddMaskTexture", addMask)
+		hooksecurefunc(texture, "RemoveMaskTexture", removeMask)
 	end
 	return copy
 end
@@ -186,10 +217,12 @@ local function draw(texture, st)
 		tr, tg, tb = tintColor(st.school)
 		glow = setting("highlight")
 	end
+	own = true
 	if st.desat ~= nil then
 		texture:SetDesaturated(st.desat)
 	end
-	texture:SetVertexColor(tr * st.dimR, tg * st.dimG, tb * st.dimB)
+	texture:SetVertexColor(tr * st.dimR, tg * st.dimG, tb * st.dimB, select(4, texture:GetVertexColor()))
+	own = false
 	st.glow = glow
 	local copy = st.copy
 	if glow > 0 and not copy then
@@ -202,14 +235,9 @@ local function draw(texture, st)
 		if st.copyPath ~= st.path then
 			copy:SetTexture(st.path)
 			st.copyPath = st.path
-			st.crop = true
-		end
-		if st.crop then
-			copy:SetTexCoord(texture:GetTexCoord())
-			st.crop = false
 		end
 		copy:SetDesaturated(st.desat == true)
-		copy:SetVertexColor(st.dimR, st.dimG, st.dimB, glow)
+		syncGlow(texture)
 	end
 	syncCopy(texture)
 end
@@ -239,17 +267,19 @@ function Icons.Apply(texture, fileID, school)
 	end
 	local st = entry(texture)
 	local path = Icons.Resolve(fileID)
+	own = true
 	if path then
 		texture:SetTexture(path)
 		if isSecret(school) or type(school) ~= "number" then
 			local schools = active.schools
 			school = type(schools) == "table" and schools[fileID] or nil
 		end
-		st.custom, st.set, st.path, st.school, st.crop = true, activeSet, path, school, true
+		st.custom, st.set, st.path, st.school = true, activeSet, path, school
 	else
 		texture:SetTexture(fileID)
 		st.custom, st.set, st.path, st.school = false, nil, nil, nil
 	end
+	own = false
 	draw(texture, st)
 	return path ~= nil
 end
@@ -274,6 +304,55 @@ function Icons.Reset(texture)
 	end
 end
 
+local function follow(texture, fileID)
+	local st = state[texture]
+	st.file = fileID
+	if st.custom or Icons.Resolve(fileID) then
+		Icons.Apply(texture, fileID)
+	end
+end
+
+local function onSetTexture(texture, fileID)
+	if not own then
+		follow(texture, fileID)
+	end
+end
+
+local function onVertexColor(texture, r, g, b)
+	if own or not (isNumber(r) and isNumber(g) and isNumber(b)) then
+		return
+	end
+	local st = state[texture]
+	st.dimR, st.dimG, st.dimB = r, g, b
+	if st.custom then
+		draw(texture, st)
+	end
+end
+
+function Icons.Watch(texture)
+	if type(texture) ~= "table" or type(texture.GetTextureFileID) ~= "function" or type(hooksecurefunc) ~= "function" then
+		return false
+	end
+	local st = entry(texture)
+	if not st.watched then
+		st.watched = true
+		onVertexColor(texture, texture:GetVertexColor())
+		hooksecurefunc(texture, "SetTexture", onSetTexture)
+		hooksecurefunc(texture, "SetVertexColor", onVertexColor)
+		follow(texture, texture:GetTextureFileID())
+	end
+	return true
+end
+
+local function changed()
+	for texture, st in pairs(state) do
+		if st.watched then
+			follow(texture, st.file)
+		end
+	end
+	ns.Callbacks.Fire("IconsChanged")
+end
+
 function Icons.SchoolColor(mask)
 	local token = schoolToken(mask)
 	if token then
@@ -296,7 +375,7 @@ local function onSetting(_, module, key)
 		return
 	end
 	repaint()
-	ns.Callbacks.Fire("IconsChanged")
+	changed()
 end
 
 local function onTheme()
@@ -308,7 +387,7 @@ end
 local function onProfile()
 	activate()
 	repaint()
-	ns.Callbacks.Fire("IconsChanged")
+	changed()
 end
 
 local function Enable()
@@ -316,12 +395,12 @@ local function Enable()
 	ns.Callbacks.Register("SettingChanged", MODULE, onSetting)
 	ns.Callbacks.Register("ThemeChanged", MODULE, onTheme)
 	ns.Callbacks.Register("ProfileChanged", MODULE, onProfile)
-	ns.Callbacks.Fire("IconsChanged")
+	changed()
 end
 
 local function Disable()
 	active, activeSet = nil, nil
-	ns.Callbacks.Fire("IconsChanged")
+	changed()
 end
 
 local function isOff(settings)

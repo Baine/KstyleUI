@@ -283,10 +283,12 @@ Work through the modules in any order. Every module has the same three checks at
 ### Custom icons
 
 - [ ] General > Icons: turn on **Custom icons**. Action buttons, cooldown icons, cast bar icons and tooltip icons show the light art (set A), tinted in your class colour.
-- [ ] The art shows as glowing light art, not as blank, black or green squares. If it does not render, say so: set A's PNGs are 8-bit greyscale and can be repackaged as RGB.
+- [ ] The art shows as glowing light art, not as blank, black or green squares. Set A's PNGs are RGB now, like set B's; before, they were 8-bit greyscale.
+- [ ] Open the spellbook (`P`): every ability shows the same custom art as on the bars, including spells you have not learned yet, which stay dimmed. Page forward, and open the pet tab if you have one: those icons change too.
 - [ ] Switch the tint between class colour, spell school and white. Fireball turns fire-coloured under spell school.
-- [ ] Switch to **Full colour** (set B): the painted art shows untinted, with no reload and no visible hitch.
-- [ ] Turn custom icons off: Blizzard's icons come back.
+- [ ] Switch to **Full colour** (set B): the painted art shows untinted on the bars and in the spellbook, with no reload and no visible hitch.
+- [ ] Turn custom icons off: Blizzard's icons come back on the bars and in the spellbook.
+- [ ] Hearthstone, potions, mounts and other items keep Blizzard's icons. The sets cover abilities only.
 
 ## Run the smoke checks
 

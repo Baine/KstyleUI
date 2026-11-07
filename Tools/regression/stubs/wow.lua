@@ -348,6 +348,12 @@ end
 function Object:GetNumMaskTextures() return self._masks and #self._masks or 0 end
 function Object:GetMaskTexture(i) return self._masks and self._masks[i] end
 
+-- The file ID a texture shows: the number SetTexture last got, as the game reports it.
+function Object:GetTextureFileID()
+	local stored = self._state.Texture
+	return stored and type(stored[1]) == "number" and stored[1] or nil
+end
+
 for name in pairs(Object) do
 	assert(METHODS[name], "stub method " .. name .. " is not a Forever widget method")
 end
