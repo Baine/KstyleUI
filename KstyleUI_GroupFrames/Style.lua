@@ -1,4 +1,4 @@
--- Style.lua: builds a group frame's look on any frame and lays it out from the settings: glass tile, portrait, bars, texts and highlights.
+-- Style.lua: builds a group frame's look on any frame and lays it out from the settings: glass tile, portrait, bars, texts and the chamfered highlight rings.
 local _, ns = ...
 
 local K = KstyleUI
@@ -9,13 +9,14 @@ local Style = {}
 ns.Style = Style
 
 local TEXT_LEVEL = 4
-local HIGHLIGHT_LINES = 2
 local NAME_LINE_EXTRA = 2
 local NAME_RESERVE_EMS = 3.4
 local LEVEL_SHARE = 0.36
 local RING_OUTSET = 1
 local PORTRAIT_INSET = 2
 local HOVER_ALPHA = 0.6
+local RING = { "bevelTileOuter", "bevelTileInner" }
+local WASH = "chamferTile"
 
 local logged = {}
 local function LogOnce(key, message)
@@ -26,40 +27,93 @@ local function LogOnce(key, message)
 end
 Style.LogOnce = LogOnce
 
-local function Outline(parent, layer)
-	local lines = {}
-	for i = 1, 4 do
-		local line = parent:CreateTexture(nil, layer or "OVERLAY")
-		line:SetColorTexture(Tokens.Color("white"))
-		lines[i] = line
-	end
-	return lines
-end
-Style.Outline = Outline
+local CORNER_POINTS = { "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT" }
 
-function Style.LayoutOutline(lines, owner, thickness)
-	local top, bottom, left, right = lines[1], lines[2], lines[3], lines[4]
-	for i = 1, 4 do
-		lines[i]:ClearAllPoints()
-	end
-	top:SetPoint("TOPLEFT", owner, "TOPLEFT")
-	top:SetPoint("TOPRIGHT", owner, "TOPRIGHT")
-	top:SetHeight(thickness)
-	bottom:SetPoint("BOTTOMLEFT", owner, "BOTTOMLEFT")
-	bottom:SetPoint("BOTTOMRIGHT", owner, "BOTTOMRIGHT")
-	bottom:SetHeight(thickness)
-	left:SetPoint("TOPLEFT", top, "BOTTOMLEFT")
-	left:SetPoint("BOTTOMLEFT", bottom, "TOPLEFT")
-	left:SetWidth(thickness)
-	right:SetPoint("TOPRIGHT", top, "BOTTOMRIGHT")
-	right:SetPoint("BOTTOMRIGHT", bottom, "TOPRIGHT")
-	right:SetWidth(thickness)
+local function Corner(owner, path, layer, sublevel, x0, x1, y0, y1)
+	local texture = owner:CreateTexture(nil, layer, nil, sublevel)
+	texture:SetTexture(path)
+	texture:SetTexCoord(x0, x1, y0, y1)
+	return texture
 end
 
-function Style.ColorOutline(lines, r, g, b, a)
-	for i = 1, 4 do
-		lines[i]:SetVertexColor(r, g, b, a)
+function Style.Ring(owner, layer, sublevel)
+	layer, sublevel = layer or "OVERLAY", sublevel or 0
+	local ring = {}
+	for i, name in ipairs(RING) do
+		local path, texels = Tokens.Texture(name)
+		local f = texels / Widgets.TEXTURE_TEXELS[name]
+		local line = {
+			Corner(owner, path, layer, sublevel, 0, f, 0, f),
+			Corner(owner, path, layer, sublevel, 1 - f, 1, 0, f),
+			Corner(owner, path, layer, sublevel, 0, f, 1 - f, 1),
+			Corner(owner, path, layer, sublevel, 1 - f, 1, 1 - f, 1),
+		}
+		for side = 5, 8 do
+			local edge = owner:CreateTexture(nil, layer, nil, sublevel)
+			edge:SetColorTexture(Tokens.Color("white"))
+			line[side] = edge
+		end
+		ring[i] = line
 	end
+	return ring
+end
+
+local function PlaceLine(line, owner, size, inset, thick)
+	local tl, tr, bl, br = line[1], line[2], line[3], line[4]
+	local top, bottom, left, right = line[5], line[6], line[7], line[8]
+	for i = 1, 8 do
+		line[i]:ClearAllPoints()
+	end
+	for i = 1, 4 do
+		line[i]:SetSize(size, size)
+		line[i]:SetPoint(CORNER_POINTS[i], owner, CORNER_POINTS[i], 0, 0)
+	end
+	top:SetPoint("TOPLEFT", tl, "TOPRIGHT", 0, -inset)
+	top:SetPoint("TOPRIGHT", tr, "TOPLEFT", 0, -inset)
+	top:SetHeight(thick)
+	bottom:SetPoint("BOTTOMLEFT", bl, "BOTTOMRIGHT", 0, inset)
+	bottom:SetPoint("BOTTOMRIGHT", br, "BOTTOMLEFT", 0, inset)
+	bottom:SetHeight(thick)
+	left:SetPoint("TOPLEFT", tl, "BOTTOMLEFT", inset, 0)
+	left:SetPoint("BOTTOMLEFT", bl, "TOPLEFT", inset, 0)
+	left:SetWidth(thick)
+	right:SetPoint("TOPRIGHT", tr, "BOTTOMRIGHT", -inset, 0)
+	right:SetPoint("BOTTOMRIGHT", br, "TOPRIGHT", -inset, 0)
+	right:SetWidth(thick)
+end
+
+function Style.LayoutRing(ring, owner)
+	local _, _, units = Tokens.Texture(RING[1])
+	local size = K.Scale.Snap(K.Scale.Border() * units) / Widgets.ScaleFactor(owner)
+	local border = Widgets.Border(owner)
+	for i, line in ipairs(ring) do
+		PlaceLine(line, owner, size, border * (i - 1), border)
+	end
+end
+
+function Style.ColorRing(ring, r, g, b, a)
+	for _, line in ipairs(ring) do
+		for _, piece in ipairs(line) do
+			piece:SetVertexColor(r, g, b, a)
+		end
+	end
+end
+
+function Style.Pieces(ring, fn)
+	for i = 1, #ring do
+		for _, piece in ipairs(ring[i]) do
+			fn(piece)
+		end
+	end
+end
+
+function Style.Wash(owner, layer, sublevel)
+	return Widgets.NineSlice(owner, WASH, layer, sublevel)
+end
+
+function Style.LayoutWash(wash, owner)
+	local _, _, corner = Tokens.Texture(WASH)
+	Widgets.LayoutSlice(wash, owner, corner, 0)
 end
 
 function Style.Build(f, kind)
@@ -86,7 +140,7 @@ function Style.Build(f, kind)
 	f.healthText:SetWordWrap(false)
 	f.target = CreateFrame("Frame", nil, f.text)
 	f.target:SetAllPoints(f)
-	f.targetLines = Outline(f.target)
+	f.targetRing = Style.Ring(f.target, "OVERLAY")
 	f.target:SetAlpha(0)
 	return f
 end
@@ -224,7 +278,7 @@ function Style.Apply(f, width, height)
 	end
 	LayoutPortrait(f, parts)
 	LayoutTexts(f, k, parts)
-	Style.LayoutOutline(f.targetLines, f, Widgets.Border(f) * HIGHLIGHT_LINES)
+	Style.LayoutRing(f.targetRing, f.target)
 	f.chrome:Restyle()
 	for i = 1, #Style.appliers do
 		Style.appliers[i](f, parts, k)
@@ -237,7 +291,7 @@ Style.painters = {}
 
 function Style.Paint(f)
 	local r, g, b = Style.Accent()
-	Style.ColorOutline(f.targetLines, r, g, b, 1)
+	Style.ColorRing(f.targetRing, r, g, b, 1)
 	if f.hovered then
 		f.chrome:SetEdgeRGBA(r, g, b, HOVER_ALPHA)
 	else
