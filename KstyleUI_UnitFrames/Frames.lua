@@ -10,6 +10,8 @@ ns.Frames = Frames
 local MODULE = Settings.MODULE
 local BOSS_COUNT = 5
 local BOSS_GAP = 10
+local CAST_GAP = { focus = 4, boss = 2 }
+local MIN_FRAME_HEIGHT = 20
 local POLL_INTERVAL = 0.2
 
 local FULL_LIMITS = { minWidth = 120, minHeight = 24, maxWidth = 640, maxHeight = 160 }
@@ -125,6 +127,7 @@ local function RefreshKind(kind, instant)
 			Refresh(view, instant)
 		end
 	end
+	ns.CastBars.Refresh(kind)
 end
 
 local function OnEnter(button)
@@ -194,6 +197,9 @@ local function NewView(uf, unit)
 	button.view = view
 	button:HookScript("OnShow", OnButtonShow)
 	button:HookScript("OnHide", OnButtonHide)
+	if CAST_GAP[uf.kind] then
+		ns.CastBars.Attach(view)
+	end
 	return view
 end
 
@@ -287,13 +293,26 @@ function Frames.Relayout(uf)
 		return
 	end
 	local slots = Slots(uf, w, h)
+	local gap = CAST_GAP[uf.kind]
+	local castH = gap and uf.s.castbar and uf.s.castbarHeight or 0
 	for i, view in ipairs(uf.views) do
 		local slot = slots[i]
 		local button = view.button
 		button:ClearAllPoints()
 		button:SetPoint("TOPLEFT", uf.holder, "TOPLEFT", slot.x, -slot.y)
 		button:SetSize(slot.w, slot.h)
-		Style.Layout(view, uf.s, slot.w, slot.h)
+		local room = castH > 0 and math.min(castH, math.max(0, slot.h - gap - MIN_FRAME_HEIGHT)) or 0
+		local frameH = room > 0 and slot.h - room - gap or slot.h
+		local g = Style.Layout(view, uf.s, slot.w, frameH)
+		local cb = view.castbar
+		if cb then
+			cb.frame:ClearAllPoints()
+			cb.frame:SetPoint("TOPLEFT", button, "TOPLEFT", g.panel.x, -(frameH + gap))
+			cb.frame:SetSize(g.panel.w, room)
+			cb.noRoom = room <= 0
+			cb.frame:SetShown(room > 0 and cb.active == true)
+			ns.CastBars.Layout(cb, g.panel.w, room)
+		end
 	end
 end
 
@@ -337,7 +356,10 @@ function Frames.Apply(uf)
 	end
 	uf.active = want and true or false
 	if want then
-		uf.holder:Show()
+		if uf.hiddenByModule then
+			uf.hiddenByModule = false
+			uf.holder:Show()
+		end
 		Frames.Restyle(uf)
 	end
 	for _, view in ipairs(uf.views) do
@@ -373,9 +395,14 @@ local function OnSettingChanged(_, module, key)
 	if uf then
 		if rest == "enabled" then
 			Frames.Apply(uf)
+			ns.CastBars.Apply()
 			ns.Blizzard.Apply(running)
 		elseif uf.active then
 			Frames.Restyle(uf)
+		end
+		if rest:find("^castbar") or rest:find("^fonts%.cast") then
+			ns.CastBars.Apply()
+			ns.Blizzard.Apply(running)
 		end
 		return
 	end
@@ -399,17 +426,24 @@ local function RestyleAll()
 		end
 	end)
 	ns.Resource.Restyle()
+	ns.CastBars.Apply()
 end
 
 local function OnProfileChanged()
 	ForEach(Frames.Apply)
 	ns.Resource.Restyle()
+	ns.CastBars.Apply()
 	ns.Blizzard.Apply(running)
 end
 
 local function OnLayoutChanged(_, key)
 	if key == ns.Resource.KEY then
 		ns.Resource.Layout()
+	end
+	for kind, castKey in pairs(Settings.CAST_ELEMENTS) do
+		if key == castKey then
+			ns.CastBars.LayoutElement(kind)
+		end
 	end
 	ForEach(function(uf)
 		if Settings.ELEMENTS[uf.kind] == key and uf.active then
@@ -485,6 +519,7 @@ function Frames.Enable()
 	RegisterEvents()
 	ForEach(Frames.Apply)
 	ns.Resource.Enable()
+	ns.CastBars.Enable()
 	ns.Blizzard.Apply(true)
 end
 
@@ -494,9 +529,11 @@ function Frames.Disable()
 		Frames.Apply(uf)
 		if not Protected() then
 			uf.holder:Hide()
+			uf.hiddenByModule = true
 		end
 	end)
 	ns.Resource.Disable()
+	ns.CastBars.Disable()
 	ns.Blizzard.Apply(false)
 end
 

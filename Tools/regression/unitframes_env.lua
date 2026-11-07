@@ -310,6 +310,70 @@ function U.Install(env)
 		assert(unit == "player" and target == "target", "GetComboPoints reads the player's points on the target")
 		return secretWhen(env._restricted, env._comboPoints)
 	end
+	-- Casts: u.cast and u.channel = { name, text, texture, start, finish (ms), notInterruptible, spellID }.
+	-- u.secretCast makes every cast value secret but isTradeSkill, which Forever never makes secret.
+	env._time = 1
+	function env.GetTime()
+		return env._time
+	end
+	local function castValues(u, info)
+		local function wrap(value)
+			if u.secretCast and value ~= nil then
+				return env.Secret(value)
+			end
+			return value
+		end
+		return wrap(info.name), wrap(info.text or info.name), wrap(info.texture), wrap(info.start), wrap(info.finish), wrap(info.notInterruptible or false), wrap(info.spellID)
+	end
+	function env.UnitCastingInfo(token)
+		local u = unitOf(token)
+		if not (u and u.cast) then
+			return
+		end
+		local name, text, texture, start, finish, locked, spell = castValues(u, u.cast)
+		return name, text, texture, start, finish, false, "Cast-1", locked, spell, u.cast.barID or 1, 0
+	end
+	function env.UnitChannelInfo(token)
+		local u = unitOf(token)
+		if not (u and u.channel) then
+			return
+		end
+		local name, text, texture, start, finish, locked, spell = castValues(u, u.channel)
+		return name, text, texture, start, finish, false, locked, spell, false, 0, u.channel.barID or 1
+	end
+	local function duration(u, info)
+		local d = { start = info.start / 1000, finish = info.finish / 1000 }
+		function d:GetRemainingDuration()
+			local left = math.max(0, self.finish - env._time)
+			if u.secretCast then
+				return env.Secret(left)
+			end
+			return left
+		end
+		if u.secretDuration then
+			return env.Secret(d)
+		end
+		return d
+	end
+	function env.UnitCastingDuration(token)
+		local u = unitOf(token)
+		if u and u.nilDuration then
+			return env.Secret(nil)
+		end
+		if u and u.cast then
+			return duration(u, u.cast)
+		end
+	end
+	function env.UnitChannelDuration(token)
+		local u = unitOf(token)
+		if u and u.channel then
+			return duration(u, u.channel)
+		end
+	end
+	env.Enum.StatusBarTimerDirection = { ElapsedTime = 0, RemainingTime = 1 }
+	function env.CreateColor(r, g, b, a)
+		return { r = r, g = g, b = b, a = a or 1 }
+	end
 	function env.UnitFrame_OnEnter(frame)
 		env._tooltip = frame.unit
 	end
@@ -318,7 +382,7 @@ function U.Install(env)
 	end
 
 	-- Blizzard's frames that the module hides. Each is a stub frame on UIParent.
-	for _, name in ipairs({ "PlayerFrame", "TargetFrame", "FocusFrame", "PetFrame", "BossTargetFrameContainer" }) do
+	for _, name in ipairs({ "PlayerFrame", "TargetFrame", "FocusFrame", "PetFrame", "BossTargetFrameContainer", "PlayerCastingBarFrame" }) do
 		env.CreateFrame("Button", name, env.UIParent)
 	end
 	for i = 1, 5 do
@@ -339,6 +403,24 @@ function U.Hook(env)
 	env.RunStateDrivers = function()
 		run()
 		env.RunUnitWatches()
+	end
+end
+
+-- SizeEvents(env) makes SetSize run a frame's OnSizeChanged script, as the engine does when the size changes.
+function U.SizeEvents(env)
+	local create = env.CreateFrame
+	env.CreateFrame = function(...)
+		local frame = create(...)
+		local setSize = frame.SetSize
+		frame.SetSize = function(self, w, h)
+			local ow, oh = self:GetSize()
+			setSize(self, w, h)
+			local script = self:GetScript("OnSizeChanged")
+			if script and (ow ~= w or oh ~= h) then
+				script(self, w, h)
+			end
+		end
+		return frame
 	end
 end
 
