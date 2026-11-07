@@ -11,7 +11,9 @@ Window.__index = Window
 ns.Window = Window
 
 local MIN_CONTENT_WIDTH = 240
+local MIN_SEARCH_WIDTH = 120
 local SORT_WIDTH = 64
+local REFRESH_DELAY = 0.2
 local FOOTER_HEIGHT = 20
 local DIVIDER_ALPHA = 0.55
 local STRATA = "MEDIUM"
@@ -45,7 +47,7 @@ local function NewSection(win, spec)
 end
 
 function Window.New(spec)
-	local win = setmetatable({ spec = spec, sections = {}, slots = {}, query = nil, shownBags = {} }, Window)
+	local win = setmetatable({ spec = spec, sections = {}, slots = {}, query = nil, shownBags = {}, buttons = {} }, Window)
 	local panel = Widgets.Panel(Scale.Root(), {
 		title = spec.title,
 		close = true,
@@ -218,14 +220,21 @@ function Window:Layout(force)
 	if not Widgets.MayMove(panel) then
 		return
 	end
-	local columns = Settings.Get("columns")
+	local columns = Settings.Get(self.spec.columns or "columns")
 	local rowsLimit = Settings.Get("rows")
 	local size, spacing = Snap(self, Settings.Get("slotSize")), Snap(self, Settings.Get("spacing"))
 	self.geometry = { size = size, spacing = spacing, growth = Settings.Get("growth") }
 	local pad = Snap(self, Tokens.Size("panelPadding"))
 	local gap = Snap(self, Tokens.Size("gapMedium"))
 	local rowHeight = Snap(self, Tokens.Size("rowHeight") + Tokens.Size("gapSmall"))
-	local contentWidth = Snap(self, MIN_CONTENT_WIDTH)
+	local sortWidth = Snap(self, SORT_WIDTH)
+	local buttonsWidth = 0
+	for _, button in ipairs(self.buttons) do
+		if button:IsShown() then
+			buttonsWidth = buttonsWidth + (Plain(button:GetWidth()) or SORT_WIDTH) + gap
+		end
+	end
+	local contentWidth = max(Snap(self, MIN_CONTENT_WIDTH), Snap(self, MIN_SEARCH_WIDTH) + gap + sortWidth + buttonsWidth)
 	for _, section in ipairs(self.sections) do
 		local count = #section.order
 		section.cols, section.rows = Data.Grid(count, columns)
@@ -239,17 +248,30 @@ function Window:Layout(force)
 	end
 	local content = panel.content
 	local top = 0
-	local sortWidth = Snap(self, SORT_WIDTH)
-	local searchWidth = max(1, contentWidth - sortWidth - gap)
+	if self.spec.above then
+		top = self.spec.above(self, content, top, contentWidth)
+	end
+	local searchWidth = max(1, contentWidth - sortWidth - gap - buttonsWidth)
 	if force or self.search.opts.width ~= searchWidth or self.search.opts.height ~= rowHeight then
 		self.search.opts.width, self.search.opts.height = searchWidth, rowHeight
 		self.search:Restyle()
 	end
 	self.search:ClearAllPoints()
-	self.search:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
+	self.search:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -top)
 	self.sortButton:ClearAllPoints()
-	self.sortButton:SetPoint("TOPRIGHT", content, "TOPLEFT", contentWidth, 0)
+	self.sortButton:SetPoint("TOPRIGHT", content, "TOPLEFT", contentWidth, -top)
+	local anchor = self.sortButton
+	for _, button in ipairs(self.buttons) do
+		if button:IsShown() then
+			button:ClearAllPoints()
+			button:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -gap, 0)
+			anchor = button
+		end
+	end
 	top = top + rowHeight + gap
+	if self.spec.below then
+		top = self.spec.below(self, content, top, contentWidth)
+	end
 	for _, section in ipairs(self.sections) do
 		local shown = #section.order > 0
 		section.view:SetShown(shown)
@@ -376,6 +398,9 @@ function Window:Refresh(force)
 	for _, section in ipairs(self.sections) do
 		self:Ensure(section)
 	end
+	if self.spec.refresh then
+		self.spec.refresh(self)
+	end
 	self:Layout(force)
 	for _, section in ipairs(self.sections) do
 		for _, slot in ipairs(section.order) do
@@ -383,6 +408,24 @@ function Window:Refresh(force)
 		end
 	end
 	self:UpdateFooter()
+end
+
+function Window:RefreshSoon()
+	if self.refreshQueued then
+		return
+	end
+	self.refreshQueued = true
+	C_Timer.After(REFRESH_DELAY, function()
+		self.refreshQueued = false
+		if self.open then
+			self:Refresh()
+		end
+	end)
+end
+
+function Window:AddButton(button)
+	self.buttons[#self.buttons + 1] = button
+	return button
 end
 
 function Window:Prepare()
