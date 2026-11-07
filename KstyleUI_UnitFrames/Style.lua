@@ -3,7 +3,7 @@ local _, ns = ...
 
 local K = KstyleUI
 local Widgets, Tokens = K.Widgets, K.Tokens
-local Settings, Geometry = ns.Settings, ns.Geometry
+local Settings, Geometry, Indicators = ns.Settings, ns.Geometry, ns.Indicators
 
 local Style = {}
 ns.Style = Style
@@ -92,6 +92,7 @@ function Style.New(parent, kind)
 	for key in pairs(TEXTS) do
 		view[key] = NewText(top, key)
 	end
+	Indicators.New(view)
 	return view
 end
 
@@ -173,6 +174,7 @@ function Style.Layout(view, s, width, height)
 	PlaceText(view, view.name, g.name)
 	PlaceText(view, view.healthText, g.healthText)
 	PlaceText(view, view.powerText, g.powerText)
+	Indicators.Layout(view, g, s)
 	return g
 end
 
@@ -218,6 +220,7 @@ end
 function Style.Accent(view)
 	local r, g, b = Settings.Accent()
 	view.ring:SetVertexColor(r, g, b, 1)
+	view.icons.resting:SetTextColor(r, g, b, 1)
 	view.badgeRing:SetVertexColor(r, g, b, BADGE_RING_ALPHA)
 	local br, bg, bb = Tokens.Color("raised")
 	view.portraitBack:SetVertexColor(br, bg, bb, PORTRAIT_BACK_ALPHA)
