@@ -238,6 +238,7 @@ assert(lines > 2, "the sample text needs more than two 100-unit lines at 10 unit
 assert(paragraphItem.rect[4] >= 3 * lineH - 1e-3, "a wrapped text is as tall as its wrapped lines, got " .. tostring(paragraphItem.rect[4]) .. " for a line of " .. tostring(lineH))
 near(underItem.rect[2], paragraphItem.rect[2] + paragraphItem.rect[4], "the next text sits under the whole paragraph")
 assert(paragraphItem.natural == nil or paragraphItem.natural.height == nil, "the page keeps the solver's height instead of re-deriving one line")
+assert(paragraphItem.grow == "top", "a wrapped text anchored at its top grows down from it, so the page draws a shorter measured block at the top, not centred: " .. tostring(paragraphItem.grow))
 local noWrap = column:CreateFontString(nil, "ARTWORK")
 noWrap:SetFont("Interface\\AddOns\\KstyleUI\\Media\\Fonts\\SourceSans3-Semibold.ttf", 10, "")
 noWrap:SetWordWrap(false)
@@ -305,6 +306,89 @@ sized:Hide()
 unknown:Hide()
 missing:Hide()
 resized:Hide()
+
+-- A Blizzard texture named by file path draws from the texture cache's paths folder under a key that ignores
+-- case, the separator and the extension; a path the cache lacks stays a grey box and is logged with the command
+-- that fetches it; an addon's own file and a path outside Interface never look in the cache.
+assert(Scene.PathKey("Interface\\TargetingFrame\\UI-RaidTargetingIcons") == "interface/targetingframe/ui-raidtargetingicons", "a key is lowercased with forward slashes")
+assert(Scene.PathKey("interface/targetingframe/UI-RaidTargetingIcons.BLP") == "interface/targetingframe/ui-raidtargetingicons", "and drops the extension")
+assert(Scene.PathKey("Interface\\AddOns\\KstyleUI\\Media\\Textures\\Dot.png") == nil, "an addon's file is not a client path")
+assert(Scene.PathKey("Fonts\\FRIZQT__.TTF") == nil, "a font is not a texture path")
+assert(Scene.PathKey(136235) == nil, "a file ID is not a path")
+local pathsDir = "Tools/render/out/paths-test"
+os.execute("mkdir -p " .. pathsDir .. "/interface/test")
+do
+	local source = assert(io.open("Media/Textures/Dot.png", "rb"))
+	local bytes = source:read("*a")
+	source:close()
+	local copy = assert(io.open(pathsDir .. "/interface/test/glyph.png", "wb"))
+	copy:write(bytes)
+	copy:close()
+end
+Scene.PATHS_DIR = pathsDir
+local byPath = f:CreateTexture(nil, "ARTWORK")
+byPath:SetSize(10, 10)
+byPath:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+byPath:SetTexture("Interface\\Test\\GLYPH.blp")
+local bySlash = f:CreateTexture(nil, "ARTWORK")
+bySlash:SetSize(10, 10)
+bySlash:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+bySlash:SetTexture("interface/test/glyph")
+local noSuch = f:CreateTexture(nil, "ARTWORK")
+noSuch:SetSize(10, 10)
+noSuch:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+noSuch:SetTexture("Interface\\Test\\NotCached")
+local cellOf = f:CreateTexture(nil, "ARTWORK")
+cellOf:SetSize(10, 10)
+cellOf:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+cellOf:SetTexture("Interface\\Test\\Glyph")
+cellOf:SetSpriteSheetCell(env.Secret(8), 4, 4)
+scene = Scene.Build(env)
+assert(find(scene, byPath).file == pathsDir .. "/interface/test/glyph.png", "a path texture draws the cached PNG, got " .. tostring(find(scene, byPath).file))
+assert(find(scene, bySlash).file == pathsDir .. "/interface/test/glyph.png", "whatever the separator, case and extension")
+local noSuchItem = find(scene, noSuch)
+assert(noSuchItem.file == nil and noSuchItem.missing == "Interface\\Test\\NotCached", "a path the cache lacks stays a grey box")
+local sawPath = false
+for _, line in ipairs(scene.log) do
+	sawPath = sawPath or (line:find("Interface\\Test\\NotCached", 1, true) ~= nil and line:find("grey box", 1, true) ~= nil and line:find("atlas.py paths", 1, true) ~= nil)
+end
+assert(sawPath, "the missing path is logged as a grey box with the fetch command")
+local cellCoords = find(scene, cellOf).texCoord
+assert(cellCoords, "a sprite sheet cell sets the texture coordinates")
+near(cellCoords[1], 0.75, "cell 8 of a 4 by 4 sheet: left")
+near(cellCoords[2], 1, "right")
+near(cellCoords[3], 0.25, "top")
+near(cellCoords[4], 0.5, "bottom")
+-- A flat colour set after a file replaces it, so the region draws the colour and is not a missing texture; a file
+-- set after the colour draws the file.
+local recoloured = f:CreateTexture(nil, "ARTWORK")
+recoloured:SetSize(10, 10)
+recoloured:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+recoloured:SetTexture("Interface\\Test\\NotCached")
+recoloured:SetColorTexture(0.1, 0.2, 0.3, 1)
+local refiled = f:CreateTexture(nil, "ARTWORK")
+refiled:SetSize(10, 10)
+refiled:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+refiled:SetColorTexture(0.1, 0.2, 0.3, 1)
+refiled:SetTexture("Interface\\Test\\Glyph")
+scene = Scene.Build(env)
+local recolouredItem = find(scene, recoloured)
+assert(recolouredItem.missing == nil and recolouredItem.file == nil and recolouredItem.color, "a colour set after the file draws the colour alone")
+local notCachedLines = 0
+for _, line in ipairs(scene.log) do
+	if line:find("NotCached", 1, true) and line:find("grey box", 1, true) then
+		notCachedLines = notCachedLines + 1
+	end
+end
+assert(notCachedLines == 1, "only the uncoloured missing texture is logged as a grey box, got " .. notCachedLines .. " lines")
+assert(find(scene, refiled).file == pathsDir .. "/interface/test/glyph.png", "a file set after the colour draws the file")
+Scene.PATHS_DIR = nil
+byPath:Hide()
+bySlash:Hide()
+noSuch:Hide()
+cellOf:Hide()
+recoloured:Hide()
+refiled:Hide()
 
 -- A playing animation group moves and fades its frame as the game would at the scene's clock: a Translation
 -- shifts the frame by its offset times its progress, an Alpha animation scales the frame's alpha, a start delay
