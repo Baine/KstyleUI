@@ -271,6 +271,8 @@ do
 	end)
 	assert(Hidden(made.border) and Hidden(made.headerArt), "the dialog border and header art are hidden")
 	assert(Skinned(K, made.menu, "Backdrop"), "a glass panel behind the menu")
+	local menuChrome = K.Skin.Parts(made.menu).backdrop.chrome
+	assert(menuChrome.shapeName == "window" and menuChrome.fillName == "surface" and menuChrome.shadowOn, "the menu is window-grade glass with a shadow, as every Blizzard window")
 	assert(made.menu.Header.Text:GetFont() == (ns.Style.Font("heading")), "the title takes the module's heading font")
 	for _, button in ipairs(made.buttons) do
 		assert(Skinned(K, button, "Button"), "each menu button is a KstyleUI tile")
@@ -292,7 +294,8 @@ do
 		local parent = B.frame("Frame", nil, "LFGParentFrame")
 		parent:Hide()
 		P.Button(B, parent, "LFGParentFrameCloseButton")
-		parent.Tab1, parent.Tab2, parent.Tab3 = P.Button(B, parent), P.Button(B, parent), P.Button(B, parent)
+		parent.Tab1, parent.Tab2, parent.Tab3 = P.Button(B, parent, "LFGParentFrameTab1"), P.Button(B, parent, "LFGParentFrameTab2"), P.Button(B, parent, "LFGParentFrameTab3")
+		parent.numTabs = 2
 		parent.ListingTab, parent.BrowsingTab, parent.WhoListingTab = P.SideTab(B, parent), P.SideTab(B, parent), P.SideTab(B, parent)
 		local listing = P.Window(B, "LFGListingFrame", parent)
 		listing.BackButton, listing.PostButton = P.Button(B, listing), P.Button(B, listing)
@@ -321,13 +324,17 @@ do
 		return { parent = parent, listing = listing, browse = browse, who = who, row = row }
 	end)
 	assert(Skinned(K, made.listing, "Window") and Skinned(K, made.browse, "Window") and Skinned(K, made.who, "Window"), "each page is a glass window")
-	assert(Skinned(K, made.parent.Tab1, "Tab"), "the bottom tabs get the accent underline")
+	assert(Skinned(K, made.parent.Tab1, "Tab") and Skinned(K, made.parent.Tab3, "Tab"), "the bottom tabs get the accent underline")
+	local strip = K.Skin.Parts(made.parent).strip
+	assert(strip and strip.chrome.fillName == "buttonFill", "the bottom tabs sit on the button-body strip, as every window's")
 	assert(ns.Parts.RimOf(made.parent.ListingTab) and Hidden(made.parent.ListingTab.Background), "the side tabs get the shared rimmed side tab")
 	assert(Skinned(K, made.listing.BackButton, "Button") and Skinned(K, made.listing.ActivityView.ScrollBar, "ScrollBar"))
 	assert(Hidden(made.listing.ActivityView.BarTop), "the activity view's art is hidden")
-	assert(Skinned(K, made.listing.ActivityView.Comment, "Backdrop"), "the comment box is a raised tile")
+	assert(Skinned(K, made.listing.ActivityView.Comment, "Backdrop"), "the comment box is a tile")
+	assert(K.Skin.Parts(made.listing.ActivityView.Comment).backdrop.chrome.fillName == "buttonFill", "on the dark button body, as every text input")
 	assert(Hidden(made.row.ResultBG) and Hidden(made.row.Selected), "a result row loses Blizzard's bars")
 	assert(Skinned(K, made.row, "Backdrop"), "and becomes a tile")
+	assert(K.Skin.Parts(made.row).backdrop.chrome.fillName == "surface", "on the glass surface, as every list row")
 	assert(Skinned(K, made.who.EditBox, "EditBox"), "the who search box is skinned")
 	assert(Skinned(K, made.browse.RefreshButton, "Backdrop") and not Hidden(made.browse.RefreshButton.Icon), "the refresh button keeps its icon")
 end
@@ -404,7 +411,7 @@ do
 	end)
 	for _, slot in ipairs(made.slots) do
 		assert(Hidden(slot.SlotTexture) and Skinned(K, slot, "Backdrop"), "each item row is a tile")
-		assert(W.SameColor(K.Skin.Parts(slot).backdrop.chrome.fill[5], K.Tokens.Color("buttonFill")), "on the near-black button body")
+		assert(K.Skin.Parts(slot).backdrop.chrome.fillName == "surface", "on the glass surface, as every list row; the icon alone sits on the button body")
 		assert(K.Safe.Side(slot.ItemButton).partBItem, "each item gets a rim")
 	end
 	assert(K.Safe.Side(made.buyback.ItemButton).partBItem, "the buyback item too")
@@ -500,8 +507,9 @@ do
 	assert(Skinned(K, made.frame, "Window"))
 	assert(ns.Parts.RimOf(made.frame.ProfessionsOverviewTab) and ns.Parts.RimOf(made.frame.rightProfessionTabs[1]), "the side tabs get the shared rimmed side tab")
 	assert(Hidden(made.page.art) and Hidden(made.list.Background), "the page and recipe list art is hidden")
-	assert(Skinned(K, made.list, "Backdrop") and Skinned(K, made.list.SearchBox, "EditBox"), "the recipe list is a raised tile with a KstyleUI search box")
-	assert(Skinned(K, made.page.SchematicForm, "Backdrop"))
+	assert(Skinned(K, made.list, "Backdrop") and Skinned(K, made.list.SearchBox, "EditBox"), "the recipe list is a glass tile with a KstyleUI search box")
+	assert(K.Skin.Parts(made.list).backdrop.chrome.fillName == "surface", "a list body is the glass surface")
+	assert(Skinned(K, made.page.SchematicForm, "Backdrop") and K.Skin.Parts(made.page.SchematicForm).backdrop.chrome.fillName == "surface", "the schematic form too")
 	local bar = K.Safe.Side(made.page.RankBar).partBBar
 	assert(bar and bar.fill, "the skill bar is a KstyleUI bar")
 	made.page.RankBar:Update({ skillLevel = 75, maxSkillLevel = 150 })
