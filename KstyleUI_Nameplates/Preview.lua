@@ -8,7 +8,7 @@ local Settings, Plates = ns.Settings, ns.Plates
 local Preview = {}
 ns.Preview = Preview
 
-local ROW_GAP = 30
+local ROW_GAP = 12
 local SAMPLE_Y = 160
 local SIZE_LIMITS = { minWidth = 40, maxWidth = 320, minHeight = 4, maxHeight = 40 }
 
@@ -29,18 +29,40 @@ Preview.SAMPLES = {
 	},
 }
 
+local function Stack(frame)
+	local above, below = 0, 0
+	for _, plate in ipairs(frame.plates) do
+		local up, down = ns.Auras.Extent(plate)
+		local overhang = (plate.level:GetHeight() - ns.state.height) / 2
+		above = math.max(above, up, overhang)
+		below = math.max(below, down, overhang)
+	end
+	local pitch = above + ns.state.height + below + ROW_GAP
+	local count = #frame.plates
+	local room = frame:GetHeight()
+	if type(room) == "number" and room > 0 then
+		count = math.max(1, math.min(count, math.floor((room + ROW_GAP) / pitch)))
+	end
+	for i, plate in ipairs(frame.plates) do
+		local holder = plate:GetParent()
+		holder:ClearAllPoints()
+		holder:SetPoint("CENTER", frame, "CENTER", 0, ((count + 1) / 2 - i) * pitch + (below - above) / 2)
+		holder:SetShown(i <= count)
+	end
+end
+
 function Preview.Build(parent)
 	local frame = CreateFrame("Frame", nil, parent)
 	frame.plates = {}
-	local count = #Preview.SAMPLES
 	for i, sample in ipairs(Preview.SAMPLES) do
 		local holder = CreateFrame("Frame", nil, frame)
 		holder:SetSize(1, 1)
-		holder:SetPoint("CENTER", frame, "CENTER", 0, ((count + 1) / 2 - i) * ROW_GAP * 2)
 		local plate = ns.NewPlate(holder, sample)
 		Plates.AddSample(plate)
 		frame.plates[i] = plate
 	end
+	Stack(frame)
+	frame:SetScript("OnSizeChanged", Stack)
 	function frame.Refresh()
 		Settings.Invalidate()
 		if not Plates.running then
@@ -49,6 +71,7 @@ function Preview.Build(parent)
 		for _, plate in ipairs(frame.plates) do
 			plate:Restyle()
 		end
+		Stack(frame)
 	end
 	return frame
 end
