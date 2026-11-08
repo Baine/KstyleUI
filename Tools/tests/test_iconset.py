@@ -814,7 +814,7 @@ class PackageTextTest(unittest.TestCase):
         text = iconset.render_provenance(SET_A, self.entries())
         rows = [line for line in text.splitlines() if line.startswith("| `")]
         self.assertEqual(len(rows), 2)
-        self.assertIn("| File ID | Spells | Model | Method | Prompt | Blizzard BLP sha256 | Job | Date |", text)
+        self.assertIn("| File ID | Spells or items | Model | Method | Prompt | Blizzard BLP sha256 | Job | Date |", text)
         self.assertTrue(rows[0].startswith("| `132089` | Prowl, Shadowmeld | gpt_image_2_5 | style | Icon for \"Prowl\" |  | job-1 |"))
         self.assertIn('Icon for "Fireball" \\| hot', rows[1])
         self.assertIn("job-2", rows[1])
@@ -1099,10 +1099,290 @@ class JudgeWrapperTest(unittest.TestCase):
 
 class ShippedSetsTest(unittest.TestCase):
     def test_every_packaged_set_in_the_repository_is_consistent(self):
-        groups = iconset.ordered_groups(json.loads(iconset.ABILITIES.read_text()))
+        groups = iconset.ordered_groups({"icons": iconset.load_groups()})
         for icon_set in iconset.SETS.values():
             self.assertEqual(iconset.verify_package(icon_set, groups), [], icon_set.addon)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def item_group(icon=134829, name="Minor Healing Potion", kind="Consumable (Potions)", rank=1, items=None):
+    items = items or [{"id": 118, "name": name, "classID": 0, "subclassID": 1, "quality": 1, "level": 1}]
+    return {"icon": icon, "category": "item", "name": name, "kind": kind, "rank": rank, "count": len(items), "items": items}
+
+
+class ItemGroupTest(unittest.TestCase):
+    def test_item_is_the_last_category(self):
+        self.assertEqual(iconset.CATEGORIES[-1], "item")
+
+    def test_item_groups_come_after_the_spell_groups_in_rank_then_count_order(self):
+        data = {"icons": [item_group(5, rank=2), item_group(4, rank=1), group(9, "Shoot", "general"), group(2, "Frostbolt"),
+                          item_group(3, rank=1, items=[{"id": 1, "name": "a"}, {"id": 2, "name": "b"}])]}
+        self.assertEqual([g["icon"] for g in iconset.ordered_groups(data)], [2, 9, 3, 4, 5])
+        self.assertEqual([g["icon"] for g in iconset.ordered_groups(data, ["item"])], [3, 4, 5])
+
+    def test_every_class_sees_the_item_groups(self):
+        data = {"icons": [item_group(4), group(2, "Frostbolt")]}
+        self.assertEqual([g["icon"] for g in iconset.ordered_groups(data, owner="WARRIOR", race="Orc")], [4])
+
+    def test_load_groups_merges_the_two_data_files_and_an_ability_keeps_a_shared_icon(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            abilities_path, items_path = Path(tmp) / "abilities.json", Path(tmp) / "items.json"
+            abilities_path.write_text(json.dumps({"icons": [group(135812, "Fireball"), group(134829, "Healing Touch")]}))
+            items_path.write_text(json.dumps({"icons": [item_group(134829), item_group(134830, "Lesser Healing Potion")]}))
+            groups = iconset.load_groups(abilities_path, items_path)
+            self.assertEqual([(g["icon"], g["category"]) for g in groups],
+                             [(135812, "class"), (134829, "class"), (134830, "item")])
+            self.assertEqual([g["icon"] for g in iconset.load_groups(abilities_path, Path(tmp) / "missing.json")],
+                             [135812, 134829])
+
+    def test_an_item_faithful_lead_says_item_icon_and_names_the_kind(self):
+        lead, prompt = iconset.prompt_for(FAITHFUL, item_group())
+        self.assertTrue(lead.startswith(
+            'Image 1 is a World of Warcraft item icon, "Minor Healing Potion", a Consumable (Potions). Image 2 shows'), lead)
+        self.assertIn("so a player recognises the item instantly. Keep", lead)
+        self.assertNotIn("ability", lead)
+        self.assertEqual(prompt, f"{lead} {FAITHFUL.style}")
+
+    def test_a_spell_faithful_lead_is_unchanged(self):
+        lead, _ = iconset.prompt_for(FAITHFUL, group(132337, "Charge"))
+        self.assertTrue(lead.startswith('Image 1 is a World of Warcraft ability icon, "Charge". Image 2 shows'), lead)
+        self.assertIn("so a player recognises it instantly. Keep", lead)
+
+    def test_an_item_subject_sentence_follows_the_kind(self):
+        lead, _ = iconset.prompt_for(FAITHFUL, item_group(), subjects={134829: "a red potion flask"})
+        self.assertIn("recognises the item instantly: a red potion flask. Keep", lead)
+
+    def test_an_item_style_lead_names_the_item_and_its_kind(self):
+        self.assertEqual(iconset.lead_for(item_group(kind="Weapon (One-Handed Swords)", name="Worn Shortsword")),
+                         'Fantasy game item icon for "Worn Shortsword", a Weapon (One-Handed Swords).')
+        self.assertEqual(iconset.lead_for(item_group(kind="Armor (Shield)")), 'Fantasy game item icon for "Minor Healing Potion", an Armor (Shield).')
+
+    def test_data_lua_lists_no_school_for_an_item(self):
+        entries = [{"group": item_group(), "attempt": {}}, {"group": group(135812, "Fireball", school=4), "attempt": {}}]
+        lines = iconset.render_data_lua(SET_B, entries).split("\r\n")
+        self.assertIn('\t\t[134829] = "Interface\\\\AddOns\\\\KstyleUI_IconsColour\\\\Icons\\\\134829.png",', lines)
+        self.assertIn("\t\t[135812] = 4,", lines)
+        self.assertEqual(sum(1 for line in lines if line.startswith("\t\t[134829] = ")), 1)
+
+    def test_a_provenance_row_lists_the_items_and_how_many_more_share_the_icon(self):
+        many = [{"id": i, "name": f"Recipe {i}"} for i in range(1, 4)]
+        g = item_group(134939, "Recipe 1", items=many)
+        g["count"] = 10
+        text = iconset.render_provenance(SET_B, [{"group": g, "attempt": {
+            "lead": 'Image 1 is "Recipe 1"', "job": "job-9", "model": "gpt_image_2_5", "date": "2026-11-08",
+            "mode": "subject_reference", "source": {"fileID": 134939, "blp_sha256": "ab" * 32}}}])
+        self.assertIn("| File ID | Spells or items | Model |", text)
+        rows = [line for line in text.splitlines() if line.startswith("| `")]
+        self.assertTrue(rows[0].startswith("| `134939` | Recipe 1, Recipe 2, Recipe 3 and 7 more items | gpt_image_2_5 | subject_reference |"), rows[0])
+
+    def test_verify_knows_an_item_file_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            icons = repo / SET_B.addon / "Icons"
+            icons.mkdir(parents=True)
+            (icons / "134829.png").write_bytes(png())
+            entries = [{"group": item_group(), "attempt": {"lead": "x", "job": "j", "model": "m", "date": "d"}}]
+            (repo / SET_B.addon / "PROVENANCE.md").write_text(iconset.render_provenance(SET_B, entries))
+            (repo / SET_B.addon / "Data.lua").write_bytes(iconset.render_data_lua(SET_B, entries).encode())
+            (repo / SET_B.addon / SET_B.xml).write_text(iconset.include_data(XML_WITHOUT_DATA))
+            self.assertEqual(iconset.verify_package(SET_B, [item_group()], repo), [])
+            self.assertIn("Icons/134829.png is not an icon file ID in Tools/data/abilities.json or items.json",
+                          iconset.verify_package(SET_B, [], repo))
+
+
+def blp2_bgra(width, height, pixels):
+    """A BLP2 file in encoding 3, raw BGRA after the 148-byte header and the 1024-byte palette, as some of
+    Forever's item icons are stored; Pillow reads only encodings 1 and 2."""
+    import struct
+
+    header = b"BLP2" + struct.pack("<IBBBBII", 1, 3, 8, 0, 0, width, height)
+    header += struct.pack("<16I", 148 + 1024, *([0] * 15)) + struct.pack("<16I", width * height * 4, *([0] * 15))
+    return header + bytes(1024) + b"".join(bytes(pixel) for pixel in pixels)
+
+
+@unittest.skipUnless(has_pillow(), "needs Pillow")
+class BlpDecodeTest(unittest.TestCase):
+    def test_decodes_a_raw_bgra_blp_pillow_cannot_read_and_composites_it_over_black(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as tmp:
+            blp, png = Path(tmp) / "x.blp", Path(tmp) / "x.png"
+            blp.write_bytes(blp2_bgra(2, 2, [(255, 0, 0, 255), (0, 0, 255, 128), (0, 0, 0, 255), (0, 255, 0, 0)]))
+            iconset.decode_blp(blp, png, size=2)
+            with Image.open(png) as image:
+                self.assertEqual((image.mode, image.size), ("RGB", (2, 2)))
+                self.assertEqual(image.getpixel((0, 0)), (0, 0, 255), "BGRA becomes RGB")
+                red = image.getpixel((1, 0))
+                self.assertEqual((red[1], red[2]), (0, 0))
+                self.assertTrue(126 <= red[0] <= 130, "half alpha over black halves the colour")
+                self.assertEqual(image.getpixel((1, 1)), (0, 0, 0), "a transparent pixel is black")
+
+    def test_a_blp_nobody_can_read_is_an_extract_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            blp = Path(tmp) / "x.blp"
+            blp.write_bytes(b"BLP2" + bytes(200))
+            with self.assertRaises(iconset.ExtractError):
+                iconset.decode_blp(blp, Path(tmp) / "x.png")
+
+
+class ExtractAllTest(unittest.TestCase):
+    def test_reports_an_icon_it_cannot_extract_or_decode_and_goes_on(self):
+        logged = []
+
+        def extract(icon, cache_dir):
+            if icon == 2:
+                raise iconset.ExtractError("TACTTool failed for 2")
+            if icon == 3:
+                raise iconset.ExtractError("x.blp: unknown BLP encoding 9")
+            return {"png": f"{cache_dir}/{icon}.png", "blp_sha256": "ab"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            sources = iconset.extract_all([group(1, "a"), group(2, "b"), group(3, "c")], tmp, log=logged.append, extract=extract)
+        self.assertEqual(sorted(sources), [1])
+        self.assertEqual(logged[-1], f"blizzard icons: 1 in {tmp}, 2 missing")
+        self.assertTrue(any("3 c: x.blp: unknown BLP encoding 9" in line for line in logged), logged)
+
+
+class AcceptByEyeTest(unittest.TestCase):
+    """A reviewer who compared a rejected repaint with Blizzard's icon can accept it; the record keeps the check's reasons."""
+
+    def record(self, raw):
+        g = group(132208, "Rapid Fire")
+        service = FakeService(verdicts={132208: [["drift"], ["drift"], ["drift"]]})
+        summary = run([g], service, raw, icon_set=FAITHFUL, sources={132208: {"png": "/cache/132208.png", "blp_sha256": "ab"}})
+        self.assertEqual(summary["missing"], [132208])
+        return g
+
+    def test_accepts_the_latest_image_of_the_mode_and_keeps_the_reasons_it_overrules(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            g = self.record(Path(tmp))
+            attempt = iconset.accept_by_eye(g, FAITHFUL, Path(tmp), today="2026-11-08", note="faithful: the darker backdrop failed the drift check")
+            self.assertEqual((attempt["n"], attempt["verdict"], attempt["image"]), (3, "accepted", "132208-3.png"))
+            self.assertEqual(attempt["overruled"], ["drift"])
+            self.assertEqual(attempt["reviewed"], "2026-11-08")
+            self.assertEqual(attempt["note"], "faithful: the darker backdrop failed the drift check")
+            record = iconset.load_record(Path(tmp), g)
+            self.assertEqual(record["attempts"][2]["verdict"], "accepted")
+            self.assertEqual(iconset.next_step(record, "subject_reference"), "done")
+            self.assertEqual(iconset.accepted_attempt(record)["n"], 3)
+            self.assertEqual(iconset.summarise([g], Path(tmp), mode="subject_reference")["accepted"], 1)
+            changed = iconset.rejudge([g], FAITHFUL, Path(tmp), judge=lambda path: ["drift"], today="2026-11-09", log=lambda m: None)
+            self.assertEqual(changed, [], "a rejudge leaves a reviewed attempt alone")
+
+    def test_accepts_a_chosen_attempt_and_refuses_one_without_an_image_of_the_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            g = self.record(Path(tmp))
+            self.assertEqual(iconset.accept_by_eye(g, FAITHFUL, Path(tmp), today="d", attempt=2)["n"], 2)
+            with self.assertRaisesRegex(ValueError, "no subject_reference image"):
+                iconset.accept_by_eye(group(5, "Shoot"), FAITHFUL, Path(tmp), today="d")
+            with self.assertRaisesRegex(ValueError, "attempt 7"):
+                iconset.accept_by_eye(g, FAITHFUL, Path(tmp), today="d", attempt=7)
+
+    def test_an_explicit_choice_supersedes_a_later_accepted_attempt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            g = self.record(Path(tmp))
+            iconset.accept_by_eye(g, FAITHFUL, Path(tmp), today="d1")
+            chosen = iconset.accept_by_eye(g, FAITHFUL, Path(tmp), today="d2", attempt=2)
+            record = iconset.load_record(Path(tmp), g)
+            self.assertEqual(iconset.accepted_attempt(record)["n"], 2, "the package takes the reviewer's choice")
+            self.assertEqual(chosen["verdict"], "accepted")
+            later = record["attempts"][2]
+            self.assertEqual(later["verdict"], "rejected")
+            self.assertEqual(later["reasons"], ["superseded by attempt 2"])
+            self.assertEqual(later["overruled"], ["drift"], "the check's reasons it once overruled are kept")
+            self.assertEqual(iconset.next_step(record, "subject_reference"), "done")
+
+    def test_accepting_the_same_image_again_keeps_the_reasons_it_overruled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            g = self.record(Path(tmp))
+            iconset.accept_by_eye(g, FAITHFUL, Path(tmp), today="d1")
+            again = iconset.accept_by_eye(g, FAITHFUL, Path(tmp), today="d2")
+            self.assertEqual(again["overruled"], ["drift"])
+            self.assertEqual(again["reviewed"], "d2")
+
+    def test_a_reviewed_row_says_so_in_the_method_column(self):
+        entries = [{"group": group(132208, "Rapid Fire"), "attempt": {
+            "lead": "x", "job": "job-3", "model": "gpt_image_2_5", "date": "2026-11-08", "mode": "subject_reference",
+            "reviewed": "2026-11-08", "overruled": ["drift"], "source": {"fileID": 132208, "blp_sha256": "ab" * 32}}}]
+        text = iconset.render_provenance(SET_B, entries)
+        rows = [line for line in text.splitlines() if line.startswith("| `")]
+        self.assertIn("| gpt_image_2_5 | subject_reference, accepted by eye over drift |", rows[0])
+        self.assertIn("accepted by eye", text.split("| File ID |")[0], "the header explains the mark")
+
+    def test_the_accept_command_records_the_review(self):
+        import contextlib
+        import io
+
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = Path(tmp) / "raw"
+            raw.mkdir()
+            self.record(raw)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = iconset.main(["accept", "--set", "B", "--mode", "subject_reference", "--work-dir", tmp, "--note", "faithful by eye", "132208"])
+            self.assertEqual(code, 0)
+            self.assertIn("132208 Rapid Fire: attempt 3 accepted by eye over drift", out.getvalue())
+            record = json.loads((raw / "132208.json").read_text())
+            self.assertEqual(record["attempts"][2]["note"], "faithful by eye")
+
+
+@unittest.skipUnless(has_pillow(), "needs Pillow")
+class ContactSheetTest(unittest.TestCase):
+    """A contact sheet puts Blizzard's icon beside each repaint, so a reviewer compares them at a glance."""
+
+    def test_a_sheet_shows_blizzard_s_icon_then_the_repaint_then_the_small_version(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as tmp:
+            raw, out, blizzard = Path(tmp) / "raw", Path(tmp) / "sheets", Path(tmp) / "blizzard"
+            raw.mkdir()
+            blizzard.mkdir()
+            g = group(10, "Charge")
+            Image.new("RGB", (1024, 1024), (200, 40, 40)).save(raw / "10-1.png")
+            Image.new("RGB", (512, 512), (40, 40, 200)).save(blizzard / "10.png")
+            iconset.save_record(raw, {"icon": 10, "name": "Charge", "category": "class", "rerollFrom": 0, "attempts": [
+                {"n": 1, "verdict": "accepted", "image": "10-1.png", "mode": "subject_reference", "model": "m", "lead": "x",
+                 "prompt": "x", "job": "j", "date": "d"}]})
+            iconset.contact_sheets(SET_B, [g], raw, out, sources={10: {"png": str(blizzard / "10.png")}}, log=lambda m: None)
+            with Image.open(out / "sheet-01.png") as sheet:
+                self.assertEqual(sheet.size, (iconset.SHEET_COLUMNS * iconset.SHEET_TILE_W, iconset.ICON_SIZE + 16))
+                self.assertEqual(sheet.getpixel((64, 64)), (40, 40, 200), "Blizzard's icon first")
+                self.assertEqual(sheet.getpixel((iconset.ICON_SIZE + 4 + 64, 64)), (200, 40, 40), "then the repaint")
+                self.assertEqual(sheet.getpixel((2 * iconset.ICON_SIZE + 8 + 16, 16)), (200, 40, 40), "then the 32-pixel version")
+
+    def test_a_sheet_without_a_source_leaves_blizzard_s_tile_dark(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as tmp:
+            raw, out = Path(tmp) / "raw", Path(tmp) / "sheets"
+            raw.mkdir()
+            Image.new("RGB", (64, 64), (200, 40, 40)).save(raw / "10-1.png")
+            iconset.save_record(raw, {"icon": 10, "name": "Charge", "category": "class", "rerollFrom": 0, "attempts": [
+                {"n": 1, "verdict": "accepted", "image": "10-1.png", "model": "m", "lead": "x", "prompt": "x", "job": "j", "date": "d"}]})
+            iconset.contact_sheets(SET_B, [group(10, "Charge")], raw, out, log=lambda m: None)
+            with Image.open(out / "sheet-01.png") as sheet:
+                self.assertEqual(sheet.getpixel((64, 64)), (24, 24, 24))
+                self.assertEqual(sheet.getpixel((iconset.ICON_SIZE + 4 + 64, 64)), (200, 40, 40))
+
+
+class ItemStylePromptTest(unittest.TestCase):
+    def test_set_b_style_mode_gives_an_item_no_spell_school_palette(self):
+        lead, prompt = iconset.prompt_for(SET_B, item_group())
+        self.assertEqual(lead, 'Fantasy game item icon for "Minor Healing Potion", a Consumable (Potions). ' + iconset.ITEM_PALETTE)
+        self.assertEqual(prompt, f"{lead} {SET_B.style}")
+        for palette in iconset.PALETTES.values():
+            self.assertNotIn(palette, lead)
+
+    def test_a_dry_run_in_style_mode_lists_item_groups(self):
+        import contextlib
+        import io
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = iconset.main(["generate", "--set", "B", "--categories", "item", "--dry-run", "--limit", "2", "--work-dir", tmp])
+            self.assertEqual(code, 0)
+            self.assertIn("2 icons to generate", out.getvalue())
