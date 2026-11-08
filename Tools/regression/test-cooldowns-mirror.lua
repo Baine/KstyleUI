@@ -64,10 +64,10 @@ for _, key in ipairs({ "cooldowns.essential", "cooldowns.utility" }) do
 	assert(element.label == K.Setup.Layouts.Element(key).label, key .. " uses the setup's label")
 end
 local ew, eh = essential.holder:GetSize()
-assert(ew == 255 and eh == 40, "the essential holder is its 255 by 40 footprint, got " .. tostring(ew) .. " by " .. tostring(eh))
+assert(ew == 376 and eh == 56, "the essential holder is its 376 by 56 footprint, got " .. tostring(ew) .. " by " .. tostring(eh))
 local uw, uh = utility.holder:GetSize()
-assert(uw == 195 and uh == 30, "the utility holder is its 195 by 30 footprint")
-assert(essential.icons[1].opts.size == 40 and utility.icons[1].opts.size == 30, "icons are 40 and 30 units")
+assert(uw == 238 and uh == 52, "the utility holder is its 238 by 52 footprint")
+assert(essential.icons[1].opts.size == 56 and utility.icons[1].opts.size == 52, "icons are 56 and 52 units")
 
 -- Each icon's cooldown comes from the API's duration object, the global cooldown left out by default.
 for i, spell in ipairs({ 1001, 1002, 1033 }) do
@@ -165,7 +165,7 @@ assert(LastArg(essential.icons[2], "EnableMouse") == false, "without tooltips th
 K.Options.Write("Cooldowns", "essential.size", 36)
 assert(essential.icons[1].opts.size == 36, "the icon size follows the setting")
 local w36 = essential.holder:GetWidth()
-assert(w36 == 6 * 36 + 5 * 3, "the holder follows the icon size, got " .. tostring(w36))
+assert(w36 == 6 * 36 + 5 * 8, "the holder follows the icon size, got " .. tostring(w36))
 K.Options.Write("Cooldowns", "essential.columns", 2)
 assert(essential.count == 2, "a row of two shows two icons")
 assert(not essential.icons[3]:IsShown(), "the third icon hides")
@@ -194,7 +194,9 @@ local piece = essential.icons[2].readyGlow.slice[1]
 local r, g, b = piece:GetVertexColor()
 assert(r == 1 and g == 0 and b == 0, "the ready glow takes the custom accent")
 local er, eg, eb = essential.icons[2].chrome.edge[1], essential.icons[2].chrome.edge[2], essential.icons[2].chrome.edge[3]
-assert(er == 1 and eg == 0 and eb == 0, "the icon hairline takes the custom accent")
+local wr, wg, wb = K.Tokens.Color("textHover")
+local lr, lg, lb = K.Widgets.Mix(1, 0, 0, 1, wr, wg, wb, 1, 0.15)
+assert(W.Near(er, lr) and W.Near(eg, lg) and W.Near(eb, lb), "the icon hairline takes the custom accent, lifted 15% toward white at rest")
 K.Options.Write("Cooldowns", "accent", "class")
 assert(essential.icons[2].accent == nil, "the class accent follows the theme again")
 

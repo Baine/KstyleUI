@@ -34,12 +34,15 @@ local function Fill(row, group)
 		local icon = row.icons[i]
 		K.Icons.Apply(icon.icon, SAMPLE_ICONS[group][i])
 		local sample = SAMPLE_COOLDOWNS[group][i]
-		if sample then
+		local cooldownGroup = Settings.COOLDOWN_GROUPS[group]
+		if sample and cooldownGroup then
 			icon:SetCooldown(now - (sample[1] - sample[2]), sample[1])
+		elseif sample then
+			icon:ClearCooldown()
+			icon.cooldown:SetCooldown(now - (sample[1] - sample[2]), sample[1])
 		else
 			icon:ClearCooldown()
 		end
-		local cooldownGroup = Settings.COOLDOWN_GROUPS[group]
 		icon.onCooldown = cooldownGroup and sample and true or false
 		icon:SetCount(SAMPLE_CHARGES[group] and SAMPLE_CHARGES[group][i])
 		Style.SetProc(icon, cfg.procGlow and SAMPLE_PROC[group] and SAMPLE_PROC[group][i])
@@ -66,13 +69,30 @@ local function FillBars(row)
 	end
 end
 
+local function Fitted(frame, cfg)
+	local width = frame.pane:GetWidth()
+	if issecretvalue(width) or type(width) ~= "number" or width <= 0 then
+		return cfg
+	end
+	local columns = math.max(1, math.min(cfg.columns, math.floor((width + cfg.spacing) / (cfg.size + cfg.spacing))))
+	if columns == cfg.columns then
+		return cfg
+	end
+	local out = {}
+	for key, value in pairs(cfg) do
+		out[key] = value
+	end
+	out.columns = columns
+	return out
+end
+
 local function Refresh(frame)
 	Settings.Read()
 	local gap = Tokens.Size("gapMedium")
 	local previous
 	for _, group in ipairs(Settings.GROUPS) do
 		local row = frame.rows[group]
-		row:Apply(Settings.current[group])
+		row:Apply(group == "bars" and Settings.current.bars or Fitted(frame, Settings.current[group]))
 		row.holder:ClearAllPoints()
 		if previous then
 			row.holder:SetPoint("TOP", previous.holder, "BOTTOM", 0, -Widgets.Snap(row.holder, gap))
@@ -92,6 +112,7 @@ function Preview.Build(parent)
 	Settings.Read()
 	local frame = CreateFrame("Frame", nil, parent)
 	frame:SetAllPoints(parent)
+	frame.pane = parent
 	frame.rows = {}
 	for _, group in ipairs(Settings.GROUPS) do
 		if group == "bars" then
