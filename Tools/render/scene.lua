@@ -167,12 +167,14 @@ local function state(object, field)
 	end
 end
 
+-- An object's scale times its ancestors', stopping at an object that ignores its parent's scale, as the game does
+-- for a nameplate's plate on a base the engine scales.
 local function effectiveScale(object)
 	local scale = type(object._scale) == "number" and object._scale or 1
-	local parent = object._parent
-	while parent do
-		scale = scale * (type(parent._scale) == "number" and parent._scale or 1)
-		parent = parent._parent
+	local node = object
+	while not node._ignoreParentScale and node._parent do
+		node = node._parent
+		scale = scale * (type(node._scale) == "number" and node._scale or 1)
 	end
 	return scale
 end
@@ -284,6 +286,9 @@ local function formatText(env, stored)
 end
 
 local function textOf(env, region)
+	if region._renderText ~= nil then
+		return region._renderText
+	end
 	local calls = region._calls or {}
 	for i = #calls, 1, -1 do
 		local call = calls[i]
@@ -821,6 +826,22 @@ function Scene.Build(env, opts)
 		return item
 	end
 
+	-- The countdown numbers as the engine formats them: through the formatter SetCountdownFormatter gave the
+	-- frame when it has one, else whole seconds, or minutes past a minute.
+	local function countdownText(left, frame)
+		local formatter = frame and state(frame, "CountdownFormatter")
+		if type(formatter) == "table" then
+			local fn = formatter.Format or formatter.FormatNumber
+			if type(fn) == "function" then
+				local ok, text = pcall(fn, formatter, left)
+				if ok and type(text) == "string" then
+					return text
+				end
+			end
+		end
+		return left >= 60 and string.format("%dm", floor(left / 60 + 0.5)) or string.format("%d", floor(left + 0.5))
+	end
+
 	local function swipeItem(frame, alpha)
 		local fraction, left = Scene.CooldownFraction(env, frame, now)
 		if not fraction then
@@ -837,8 +858,8 @@ function Scene.Build(env, opts)
 			item.file = resolve(swipe)
 			item.path = swipe
 		end
-		if state(frame, "HideCountdownNumbers") ~= true then
-			item.countdown = left >= 60 and string.format("%dm", floor(left / 60 + 0.5)) or string.format("%d", floor(left + 0.5))
+		if state(frame, "HideCountdownNumbers") ~= true and not frame._countdown then
+			item.countdown = countdownText(left, frame)
 			local fontPath, size = DEFAULT_FONT[1], 12
 			item.font = { file = resolve(fontPath), path = fontPath, size = round4(size * effectiveScale(frame) * k), flags = "OUTLINE" }
 		end
@@ -926,11 +947,24 @@ function Scene.Build(env, opts)
 		end
 	end
 
-	-- A status bar's fill texture is the stub's _barTexture, which it lists among the bar's regions. A font
-	-- string with no width or height of its own takes its natural size from its text, approximately.
+	-- A status bar's fill texture is the stub's _barTexture, which it lists among the bar's regions. A
+	-- Cooldown frame with a countdown font string draws its numbers through that string, so the addon's
+	-- anchors, font and justification place them. A font string with no width or height of its own takes
+	-- its natural size from its text, approximately.
 	for _, frame in ipairs(env._frames) do
 		if frame._barTexture then
 			frame._barTexture._barOwner = frame
+		end
+		local countdown = frame._countdown
+		if countdown then
+			local text
+			if state(frame, "HideCountdownNumbers") ~= true then
+				local _, left = Scene.CooldownFraction(env, frame, now)
+				if left then
+					text = countdownText(left, frame)
+				end
+			end
+			countdown._renderText = text
 		end
 		for _, region in ipairs(frame._regions or {}) do
 			if region._type == "FontString" then
@@ -953,7 +987,8 @@ function Scene.Build(env, opts)
 						region._naturalSideW = xs[1] and "right" or xs[0.5] and "center" or "left"
 					end
 					if not hasH and not (ys[0] and ys[1]) then
-						region._naturalH = size * LINE_HEIGHT_EM
+						local _, breaks = text:gsub("\n", "")
+						region._naturalH = size * LINE_HEIGHT_EM * (breaks + 1)
 						region._naturalSideH = ys[1] and "top" or ys[0.5] and "middle" or "bottom"
 					end
 				end
@@ -987,6 +1022,13 @@ function Scene.Build(env, opts)
 		log = log,
 		skipped = skipped,
 	}
+end
+
+-- Font(env, region) -> path, size, flags for a font string, from its own font, its font object or its template,
+-- as the page draws it. Scenes use it to pitch stand-in lines by the font the addon set.
+function Scene.Font(env, region)
+	local path, size, flags = fontOf(env, region, function() end)
+	return path, size, flags
 end
 
 -- Rect(env, object) -> x, y, width, height in screen units for one frame or region, or nil when its anchors

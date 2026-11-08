@@ -12,8 +12,15 @@ From the repository root, with `luajit` and Google Chrome installed:
 Tools/render/shoot.sh hud_dps_mac                                               # Tools/render/out/hud_dps_mac.png at 1.426 px/unit
 Tools/render/shoot.sh components_mac                                            # the component sheet at the owner's density
 Tools/render/shoot.sh components_mac --ppu 2.0 --out Tools/render/out/components_design.png   # the sheet at the design file's density
+Tools/render/shoot.sh buttons_mac --ppu 2.0                                     # every square icon button: the six states, bag slots, aura tiles, the micro menu and bag bar
+Tools/render/shoot.sh buttons_toned                                             # the same with Widgets.SECONDARY_RIM at 0.5
+Tools/render/shoot.sh tooltip_design --ppu 2.0 --out Tools/render/out/tooltip_design.png     # the design's item tooltip on GameTooltip, at the sheet's position
 Tools/render/shoot.sh smoke --json-only                                         # the scene JSON only, no Chrome
+Tools/render/shoot.sh nameplate                                                 # the target's plate on a base the game scaled to 0.58
+Tools/render/shoot.sh databars                                                  # the experience bar and the data strip in the mockup's state
 ```
+
+`scenes/tooltip.lua` lays out a stand-in GameTooltip's lines as the game does (a 10-unit margin, each line pitched by its string height plus the custom line spacing, the padding inward); `hud.lua` uses it for its tooltip, and `tooltip_design.lua` draws the design file's item tooltip with it, so `--crop 2000,640,560,420` matches the design file's own crop at 2 px per unit.
 
 `shoot.sh` prints the drawable count, the skipped counts (hidden, transparent, unresolved) and every log line: a texture with no local file, an unknown font object, a frame with no anchors, an atlas drawn as a grey box. Read the log before you trust a render. `Tools/render/out/` is ignored by git.
 
@@ -42,7 +49,7 @@ python3 Tools/render/compare.py \
   --out Tools/render/out/cmp_player.png --label-b mockup
 ```
 
-A crop is `x,y,width,height` in that image's pixels, or in screen units with a `u` suffix. The reference crop is rescaled to the render's density, so one unit is the same number of pixels on both sides. `--scale` magnifies both halves. Crop each image with its own coordinates: the mockup is 1909 units wide and the owner's screen 1671, so right-anchored elements sit at different x. The component sheet rendered at 2.0 px per unit puts each section where the design file draws it, so the same pixel box works on both (`--crop 1560,260,990,240 --ref-crop 1560,260,990,240`), except the target frame, which sits further right because the addon's frames are 296 units wide and the design's 234. `compare.py` needs Pillow; it runs itself again with `~/.local/share/wow-dev/venv/bin/python` when the system Python has none.
+A crop is `x,y,width,height` in that image's pixels, or in screen units with a `u` suffix. The reference crop is rescaled to the render's density, so one unit is the same number of pixels on both sides. `--scale` magnifies both halves. Crop each image with its own coordinates: the mockup is 1909 units wide and the owner's screen 1671, so right-anchored elements sit at different x. The component sheet rendered at 2.0 px per unit puts each section where the design file draws it, so the same pixel box works on both (`--crop 1560,260,990,240 --ref-crop 1560,260,990,240`), except the target frame, which sits at the sheet's right end past the button states because the addon's 280-unit frames do not both fit before the design's button section, and the minimap, which starts 6 units left of the design's map because its element carries the button column outside the map. `compare.py` needs Pillow; it runs itself again with `~/.local/share/wow-dev/venv/bin/python` when the system Python has none.
 
 ## Add a scene
 
@@ -63,7 +70,7 @@ end)
 - `Scene.Build(env, opts)` walks UIParent and every parentless frame. `opts.time` is the clock for timer bars and cooldown swipes; `opts.hover` is a set of frames whose HIGHLIGHT regions draw.
 - `Scene.Merge({ sceneA, sceneB })` composites modules drawn in separate environments; every environment must use the same screen options.
 - `Scene.Rect(env, frame)` gives one frame's resolved rect in screen units, for stand-ins the scene has to size itself.
-- `Hud.Module(name, opts)` in `hud.lua` builds one HUD module; `Hud.Build(opts)` merges them all. `opts.icons` picks the icon set. `components.lua` holds the sheet's section origins.
+- `Hud.Module(name, opts)` in `hud.lua` builds one HUD module; `Hud.Build(opts)` merges them all. `opts.icons` picks the icon set. `components.lua` holds the sheet's section origins. `_tracker.lua` holds the objective tracker stand-in both `hud.lua` and `tracker.lua` build, laid out as Blizzard_ObjectiveTracker lays the real one.
 - `Common.StandIn(name)` gives a stand-in's path when `standins.py` has made it; `Common.IconSet(opts)`, `Common.IconDirs(set)`, `Common.IconsSection(set)` and `Common.InstallAddOns(env)` turn the icon service on in an environment.
 - `Tools/regression/test-render-scenes.lua` builds every scene; add yours there so it fails when the code it draws breaks.
 
@@ -75,7 +82,7 @@ Saved data for a scene turns a module on and marks the first-run setup seen: `{ 
 - Visibility and alpha chains with `SetIgnoreParentAlpha`; draw order by strata, frame level (`SetUsingParentLevel`), draw layer, sublevel, creation order; HIGHLIGHT only for hovered frames.
 - Textures: file paths under `Interface\AddOns\` mapped to the repository (`KstyleUI\` is the root), numeric file IDs to `KstyleUI_IconsColour/Icons`, then `KstyleUI_Icons/Icons`, then `~/.local/share/wow-dev/icons/blizzard`; `SetColorTexture`, vertex colour (multiply), 4- and 8-value texcoords (affine), `ADD` as `lighter`, desaturation, rotation, gradients, REPEAT tiling at texel size, masks via `destination-in`.
 - Status bars: the fill texture covers the bar times its fraction from `SetValue` over `SetMinMaxValues`, or from `SetTimerDuration` with a `{ start, finish }` object against the clock, honouring orientation and reverse fill; `SetStatusBarColor` tints the fill.
-- Cooldown swipes from `SetCooldown(start, duration)` or a duration object with `start`/`finish` or `remaining`/`total`, with `SetReverse`, `SetSwipeColor`, the swipe texture as a mask, and countdown numbers unless hidden.
+- Cooldown swipes from `SetCooldown(start, duration)` or a duration object with `start`/`finish` or `remaining`/`total`, with `SetReverse`, `SetSwipeColor`, the swipe texture as a mask, and countdown numbers unless hidden. A frame whose `GetCountdownFontString` was called draws the number through that font string, as the game does, so the addon's font, colour and anchor place it; any other cooldown draws a default 12-unit outlined number at its centre.
 - Text: `SetText` and `SetFormattedText` (secrets revealed), fonts from `SetFont`, `SetFontObject` or the template name (Blizzard names map to Friz Quadrata sizes), colour, shadow, justify, word wrap, `|c`/`|r` colours, links and textures stripped. A text with no width of its own takes an estimated natural width in the solver and its measured width on the page, keeping its anchored side.
 - Pixel snapping: every rect edge rounds to a device pixel.
 
@@ -88,5 +95,5 @@ Saved data for a scene turns a module on and marks the first-run setup seen: `{ 
 - Fonts the repository lacks (`Fonts\FRIZQT__.TTF`, `ARIALN.TTF`) fall back to Source Sans on the page; the log names them.
 - Tiled textures repeat at one texel per unit of the region's own scale, which is the game's behaviour as far as the owner's screenshots show; check the grain against a screenshot before trusting it.
 - Motion is sampled: scenes tick tweens with `W.Tick` and hold the clock, so a fade or a cast reads mid-way, not at a precise frame.
-- Hover glows use the addon's low alpha, so a hovered button reads close to a normal one; the design file's strong hover glow is a design difference, not a renderer one.
+- The fake aura engine lays out no buttons, so a scene with the Auras module counts its engine buttons as unresolved; the module's own preview tiles draw.
 - Chrome's canvas does the compositing, so `multiply` tinting and `destination-in` masking are exact to 8 bits; the game's blend modes other than `BLEND` and `ADD` draw as `BLEND`.
