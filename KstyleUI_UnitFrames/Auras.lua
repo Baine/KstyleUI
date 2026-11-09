@@ -27,6 +27,7 @@ local GROWTH = {
 	LEFT_UP = { "BOTTOMRIGHT", "Left", "Up" },
 }
 local POSITION = {
+	CENTER = { "TOP", "BOTTOM", 0, -1, false, centred = true },
 	BELOW = { "TOPLEFT", "BOTTOMLEFT", 0, -1, true },
 	ABOVE = { "BOTTOMLEFT", "TOPLEFT", 0, 1, true },
 	RIGHT = { "TOPLEFT", "TOPRIGHT", 1, 0, false },
@@ -39,6 +40,8 @@ local MASK_WRAP = "CLAMPTOBLACKADDITIVE"
 local COUNT_INSET = 1
 local SWIPE_ALPHA = 0.65
 local DISPEL_SUBLEVEL = 7
+local TIMER_BELOW_GAP = 1
+local TIMER_ROOM_EXTRA = 3
 
 local issecretvalue = issecretvalue or function()
 	return false
@@ -126,12 +129,35 @@ function Auras.LayoutTile(tile)
 	end
 end
 
+local function Centred(kind)
+	local position = POSITION[Settings.Value(kind, "auraPosition")]
+	return position ~= nil and position.centred == true
+end
+
+local function TimerRoom(kind)
+	if not (Centred(kind) and Settings.Value(kind, "auraTimer")) then
+		return 0
+	end
+	local _, fontSize = Settings.Font(kind, "aura")
+	return TIMER_BELOW_GAP + fontSize + TIMER_ROOM_EXTRA
+end
+
+function Auras.PlaceTimer(timer, skin, kind)
+	timer:ClearAllPoints()
+	if Centred(kind) then
+		timer:SetPoint("TOP", skin, "BOTTOM", 0, -Widgets.Snap(skin, TIMER_BELOW_GAP))
+	else
+		timer:SetPoint("BOTTOM", skin, "BOTTOM", 0, COUNT_INSET)
+	end
+end
+
 local function StyleButton(view, entry)
 	local size = Snap(view, Value(view, "auraSize"))
 	entry.button:SetSize(size, size)
 	Auras.LayoutTile(entry)
 	StyleText(entry.count, view)
 	StyleText(entry.timer, view)
+	Auras.PlaceTimer(entry.timer, entry.skin, view.kind)
 	entry.timer:SetShown(Value(view, "auraTimer"))
 end
 
@@ -221,7 +247,6 @@ local function Dress(view, key, button)
 	local count = Widgets.FontString(over, "OVERLAY")
 	count:SetPoint("TOPRIGHT", skin, "TOPRIGHT", -COUNT_INSET, -COUNT_INSET)
 	local timer = Widgets.FontString(over, "OVERLAY")
-	timer:SetPoint("BOTTOM", skin, "BOTTOM", 0, COUNT_INSET)
 	entry.button, entry.count, entry.timer = button, count, timer
 	if key == "debuffs" then
 		Dispel(entry, button)
@@ -257,7 +282,7 @@ local function GroupLayout(view, key)
 		elementWidth = size,
 		elementHeight = size,
 		elementSpacing = spacing,
-		lineSpacing = spacing,
+		lineSpacing = spacing + Snap(view, TimerRoom(view.kind)),
 		forceNewLine = key == "buffs" and Value(view, "auraFilter") == "both",
 	}
 end
@@ -347,8 +372,7 @@ local function ApplyContainer(view)
 		container:SetAuraGroupLayout(key, GroupLayout(view, key))
 		container:SetAuraGroupMaxFrameCount(key, Capacity(view))
 	end
-	local width, height, corner, line = Auras.Footprint(view.kind, a.host)
-	local growth = GROWTH[Value(view, "auraGrowth")] or GROWTH.RIGHT_DOWN
+	local width, height, corner, line, growth = Auras.Footprint(view.kind, a.host)
 	local directions = AnchorUtil and AnchorUtil.FlowDirection
 	container:SetFlowLayoutAnchorPoint(corner)
 	if directions then
@@ -357,7 +381,11 @@ local function ApplyContainer(view)
 	container:SetFlowLayoutMaximumLineSize(line)
 	a.host:SetSize(width, height)
 	container:ClearAllPoints()
-	container:SetPoint(corner, a.host, corner, 0, 0)
+	if Centred(view.kind) then
+		container:SetPoint("TOP", a.host, "TOP", 0, 0)
+	else
+		container:SetPoint(corner, a.host, corner, 0, 0)
+	end
 	Auras.Place(view)
 end
 
@@ -372,7 +400,15 @@ function Auras.Footprint(kind, frame)
 	local rows = Settings.Value(kind, "auraRows") * groups
 	local line = columns * size + (columns - 1) * spacing
 	local growth = GROWTH[Settings.Value(kind, "auraGrowth")] or GROWTH.RIGHT_DOWN
-	return math.max(1, line), math.max(1, rows * size + (rows - 1) * spacing), growth[1], line, growth
+	local timerRoom = TimerRoom(kind)
+	if frame then
+		timerRoom = Widgets.Snap(frame, timerRoom)
+	end
+	local height = rows * (size + timerRoom) + (rows - 1) * spacing
+	if Centred(kind) then
+		growth = GROWTH.RIGHT_DOWN
+	end
+	return math.max(1, line), math.max(1, height), growth[1], line, growth
 end
 
 function Auras.Anchor(host, frame, kind, panelX)
