@@ -12,6 +12,10 @@ local SPARK_ALPHA = 0.8
 local SHEEN_WIDTH = 28
 local SHEEN_ALPHA = 0.35
 local BORDER_LINES = 2
+local SHEEN_TOP_ALPHA = 0.35
+local SHEEN_TOP_SUBLEVEL = 7
+local GLOW_REACH, GLOW_ALPHA = 4, 0.5
+local CAP_WRAP = "CLAMPTOWHITE"
 
 local SPARK_EDGE = {
 	HORIZONTAL = { normal = "RIGHT", reverse = "LEFT" },
@@ -74,6 +78,9 @@ function Bar:Paint()
 	end
 	if self.sheen then
 		self.sheen:SetVertexColor(Widgets.Rgba("textHover", SHEEN_ALPHA))
+	end
+	if self.sheenTop then
+		self.sheenTop:SetVertexColor(Widgets.Rgba("white", SHEEN_TOP_ALPHA))
 	end
 end
 
@@ -171,8 +178,105 @@ function Bar:Restyle()
 		self.borderFrame:ClearAllPoints()
 		self.borderFrame:SetPoint("TOPLEFT", self, "TOPLEFT", -outset, outset)
 		self.borderFrame:SetPoint("BOTTOMRIGHT", self, "BOTTOMRIGHT", outset, -outset)
+		self.chrome:OnSizeChanged()
+	end
+	if self.caps then
+		self:SizeCaps(height)
+		Widgets.LayoutSlice(self.glow, self:GetStatusBarTexture(), 2 * GLOW_REACH, GLOW_REACH, 0, self)
 	end
 	self:Paint()
+end
+
+local function CapMask(bar, name)
+	local mask = bar:CreateMaskTexture()
+	mask:SetTexture((Tokens.Texture(name)), CAP_WRAP, CAP_WRAP)
+	return mask
+end
+
+local function Pin(mask, side, region)
+	mask:ClearAllPoints()
+	mask:SetPoint("TOP" .. side, region, "TOP" .. side)
+	mask:SetPoint("BOTTOM" .. side, region, "BOTTOM" .. side)
+end
+
+local function Masks(texture, a, b, on)
+	if on then
+		texture:AddMaskTexture(a)
+		texture:AddMaskTexture(b)
+	else
+		texture:RemoveMaskTexture(a)
+		texture:RemoveMaskTexture(b)
+	end
+end
+
+function Bar:SizeCaps(height)
+	if type(height) ~= "number" or Widgets.IsSecret(height) or height <= 0 then
+		return
+	end
+	local side = Widgets.Snap(self, height)
+	for _, mask in ipairs(self.caps) do
+		mask:SetWidth(side)
+	end
+end
+
+function Bar:PlaceCaps()
+	local reverse = self:GetReverseFill()
+	reverse = not Widgets.IsSecret(reverse) and reverse == true
+	local fill, caps = self:GetStatusBarTexture(), self.caps
+	Pin(caps[1], "LEFT", reverse and fill or self)
+	Pin(caps[2], "RIGHT", reverse and self or fill)
+end
+
+function Bar:ShowPill(on)
+	if self.pillOn == on then
+		return
+	end
+	self.pillOn = on
+	local caps = self.caps
+	Masks(self:GetStatusBarTexture(), caps[1], caps[2], on)
+	Masks(self.sheenTop, caps[1], caps[2], on)
+	if self.background then
+		Masks(self.background, caps[3], caps[4], on)
+	end
+	self.sheenTop:SetShown(on)
+	Widgets.ShowSlice(self.glow, on)
+end
+
+local function PillFill(bar)
+	local fill = bar:GetStatusBarTexture()
+	bar.caps = {
+		CapMask(bar, "pillCapLeft"), CapMask(bar, "pillCapRight"), CapMask(bar, "pillCapLeft"), CapMask(bar, "pillCapRight"),
+	}
+	Pin(bar.caps[3], "LEFT", bar)
+	Pin(bar.caps[4], "RIGHT", bar)
+	bar:PlaceCaps()
+	local sheen = bar:CreateTexture(nil, "ARTWORK", nil, SHEEN_TOP_SUBLEVEL)
+	sheen:SetTexture((Tokens.Texture("barSheen")))
+	sheen:SetAllPoints(fill)
+	bar.sheenTop = sheen
+	bar.glow = Widgets.NineSlice(bar, "shadow", "BACKGROUND", 1)
+	for _, piece in ipairs(bar.glow) do
+		piece:SetAlpha(GLOW_ALPHA)
+	end
+	bar.pillOn = false
+	bar:ShowPill(not bar.vertical)
+	local setColor, setReverse, setOrientation = bar.SetStatusBarColor, bar.SetReverseFill, bar.SetOrientation
+	bar.SetStatusBarColor = function(self, r, g, b, a)
+		setColor(self, r, g, b, a)
+		Widgets.ColorSlice(self.glow, r, g, b, a)
+	end
+	bar.SetReverseFill = function(self, ...)
+		setReverse(self, ...)
+		self:PlaceCaps()
+	end
+	bar.SetOrientation = function(self, orientation, ...)
+		setOrientation(self, orientation, ...)
+		self.vertical = orientation == "VERTICAL"
+		self:ShowPill(not self.vertical)
+	end
+	bar:HookScript("OnSizeChanged", function(self, _, height)
+		self:SizeCaps(height)
+	end)
 end
 
 function Widgets.StatusBar(parent, opts)
@@ -203,7 +307,8 @@ function Widgets.StatusBar(parent, opts)
 		local frame = CreateFrame("Frame", nil, bar)
 		frame:SetFrameLevel(math.max(0, bar:GetFrameLevel() - 1))
 		bar.borderFrame = frame
-		bar.chrome = Widgets.Chrome(frame, { shape = "tile", fill = "surface", shadow = false, edge = opts.edge or "edgeBar" })
+		bar.chrome = Widgets.Chrome(frame, { shape = "bar", fill = "surface", shadow = false, edge = opts.edge or "edgeBar" })
+		PillFill(bar)
 	end
 	if opts.spark then
 		local spark = bar:CreateTexture(nil, "OVERLAY")

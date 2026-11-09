@@ -370,7 +370,7 @@ do
 	assert(timer.Bar.BorderLeft:GetAlpha() == 0, "timer bars lose their border art")
 	assert(timer.Bar:GetStatusBarTexture():GetAlpha() == 1, "timer bars keep their fill")
 	local timerChrome = K.Skin.Parts(timer.Bar).backdrop.chrome
-	assert(timerChrome.fillName == "surface" and S.W.SameColor(timerChrome.inner[7], K.Tokens.Color("edgeBar")), "timer and progress bars wear the bar grade: the glass surface under the edgeBar line")
+	assert(timerChrome.fillName == "surface" and S.W.SameColor(timerChrome.rim[1], K.Tokens.Color("edgeBar")), "timer and progress bars wear the bar grade: the glass surface under the edgeBar line")
 	assert(FontPath(module:GetProgressBar("q1").Bar.Label) == Style.Font("caption"), "progress bar labels take the skin font")
 	K.Options.Write("Skins", "tracker.panel", false)
 	assert(not panel:IsShown(), "the panel switch still hides the panel")
@@ -411,7 +411,7 @@ do
 	local cr, cg, cb = caption:GetTextColor()
 	assert(Near(cr, gr) and Near(cg, gg) and Near(cb, gb), "the caption is gilt")
 	assert(row:IsShown(), "the quest caption shows while the tracker is expanded")
-	local gem = Region(env, K, quests.Header, "Texture", Lumen.TEXTURES.gem)
+	local gem = Region(env, K, quests.Header, "Texture", (pcall(K.Tokens.Texture, "gem")) and "gem" or Lumen.TEXTURES.gem)
 	assert(gem and gem:GetParent() == row, "a gem leads the caption row")
 	assert(S.W.SameRGB(gem, gr, gg, gb), "in gilt")
 	assert(not Region(env, K, quests.Header, "Texture", "glyphChevron"), "no chevron on the caption row any more; the gem is the mark")
