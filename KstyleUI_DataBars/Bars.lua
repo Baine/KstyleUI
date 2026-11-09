@@ -1,4 +1,4 @@
--- Bars.lua: the experience, reputation and honour bars: a track that shows rested experience, the fill, segment ticks, hover text and a tooltip.
+-- Bars.lua: the experience, reputation and honour bars: a track that shows rested experience, the fill, segment ticks, a label in a glass plate on the line, and a tooltip.
 local _, ns = ...
 
 local K, L = ns.K, ns.L
@@ -12,6 +12,7 @@ ns.Bars = Bars
 local MAX_SEGMENTS = 20
 local HIT_PAD = 4
 local TEXT_GAP = 2
+local CHAR_WIDTH_SHARE = 0.5
 local MIN_SIZE = 2
 local MAX_WIDTH, MAX_HEIGHT = 1920, 1080
 local FALLBACK_WIDTH, FALLBACK_HEIGHT = 441, 5
@@ -119,6 +120,25 @@ local function PlaceText(view, position)
 	view.text:SetPoint(p[1], view.holder, p[2], p[3] * gap, p[4] * gap)
 end
 
+local function PlacePlate(view, s)
+	local plate, text = view.plate, view.text
+	local onLine = text:IsShown() and (TEXT_POINTS[s.textPosition] or TEXT_POINTS.CENTER) == TEXT_POINTS.CENTER and s.orientation ~= "VERTICAL"
+	plate:SetShown(onLine)
+	if not onLine then
+		return
+	end
+	local _, size = text:GetFont()
+	size = ns.IsNumber(size) and size or s.fontSize
+	local holder = view.holder
+	local label = text:GetText()
+	local guess = type(label) == "string" and not ns.IsSecret(label) and #label * size * CHAR_WIDTH_SHARE or 0
+	local width = Widgets.TextWidth(text, guess) + 2 * Widgets.Snap(holder, Tokens.Size("gapMedium"))
+	local height = size + 2 * Widgets.Snap(holder, Tokens.Size("gapTiny"))
+	plate:ClearAllPoints()
+	plate:SetPoint("CENTER", text, "CENTER")
+	plate:SetSize(Widgets.Snap(holder, width), Widgets.Snap(holder, height))
+end
+
 local function TextFor(s, info)
 	if not info or s.text == "none" then
 		return nil
@@ -135,6 +155,7 @@ local function UpdateText(view, s, info)
 		view.text:SetText(value)
 	end
 	view.text:SetShown(value ~= nil and (not s.textHover or view.hovered == true))
+	PlacePlate(view, s)
 end
 
 local function Values(view, s, info, instant)
@@ -273,7 +294,15 @@ function Bars.NewView(parent, def)
 		tick:Hide()
 		view.ticks[i] = tick
 	end
-	view.text = Widgets.FontString(overlay, "OVERLAY")
+	local plate = CreateFrame("Frame", nil, overlay)
+	plate:SetFrameLevel(overlay:GetFrameLevel() + 1)
+	plate.chrome = Widgets.Chrome(plate, { shape = "tile", fill = "surface", shadow = false, edge = "edgeBar" })
+	plate:Hide()
+	view.plate = plate
+	local label = CreateFrame("Frame", nil, overlay)
+	label:SetAllPoints(overlay)
+	label:SetFrameLevel(plate:GetFrameLevel() + 1)
+	view.text = Widgets.FontString(label, "OVERLAY")
 	Widgets.TextColor(view.text, "textEmphasis")
 	view.text:Hide()
 	return view

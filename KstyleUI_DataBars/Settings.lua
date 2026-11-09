@@ -17,12 +17,12 @@ local PREVIEW_GAP = 22
 local PREVIEW_TOP = 26
 local PREVIEW_STRIP = 36
 local PREVIEW_STRIP_PAD = 12
-local STRIP_FONT_SIZE = 13
-local STRIP_SPACING = 21
+local STRIP_FONT_SIZE = 12
+local STRIP_SPACING = 16
 local MAX_SPACING = 32
-local MICRO_SIZE = 24
-local BAG_SIZE = 22
-local MENU_SPACING = 2
+local MICRO_SIZE = 26
+local BAG_SIZE = 26
+local MENU_SPACING = 4
 local MENU_SIZE_MIN, MENU_SIZE_MAX = 12, 48
 local MENU_SPACING_MAX = 12
 
@@ -71,7 +71,7 @@ defaults.rep = BarDefaults("reaction", "friendly", "labelPercent")
 defaults.honor = BarDefaults("custom", "epic", "labelPercent")
 defaults.honor.show = "pvp"
 defaults.strip = {
-	labels = "full", valueColor = "highlight", accentEdge = false, backdrop = true, separators = true,
+	labels = "full", valueColor = "highlight", accentEdge = false, backdrop = true, separators = false,
 	spacing = STRIP_SPACING, orientation = "HORIZONTAL",
 	font = Font.DEFAULT, fontSize = STRIP_FONT_SIZE, outline = "NONE",
 	money = "full", latency = "home", timeSource = "local", clock24 = true,
@@ -181,7 +181,7 @@ local STRIP_ITEMS = {
 	{ value = "time", label = L["Time"] },
 }
 local STRIP_LABELS = {
-	{ value = "full", label = L["Full: FPS, Durability"] },
+	{ value = "full", label = L["Full: Frame rate, Durability"] },
 	{ value = "short", label = L["Short: FPS, MS, DUR"] },
 	{ value = "none", label = L["None"] },
 }
@@ -217,8 +217,8 @@ for _, row in ipairs({
 	{ type = "dropdown", key = "strip.valueColor", label = L["Value colour"], help = L["Frame rate in the accent and warnings in theirs, every value by grade, all in the accent, or plain."], options = VALUE_COLORS },
 	{ type = "toggle", key = "strip.accentEdge", label = L["Accent edge"], help = L["Draws the strip's inner edge in the accent colour."] },
 	{ type = "toggle", key = "strip.backdrop", label = L["Glass"], help = L["Draws the strip on smoked glass."] },
-	{ type = "toggle", key = "strip.separators", label = L["Separators"], help = L["Draws a thin line between the items."] },
-	{ type = "slider", key = "strip.spacing", label = L["Spacing"], help = L["The space on each side of a separator."], min = 0, max = MAX_SPACING, step = 1 },
+	{ type = "toggle", key = "strip.separators", label = L["Separators"], help = L["Draws a thin line between the cells."] },
+	{ type = "slider", key = "strip.spacing", label = L["Spacing"], help = L["The room inside each cell, split between its sides."], min = 0, max = MAX_SPACING, step = 1 },
 	{ type = "dropdown", key = "strip.orientation", label = L["Direction"], help = L["Items in a row, or stacked in a column."], options = {
 		{ value = "HORIZONTAL", label = L["In a row"] }, { value = "VERTICAL", label = L["In a column"] },
 	} },
