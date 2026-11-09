@@ -11,6 +11,7 @@ local Auras = {}
 ns.Auras = Auras
 
 local GROUP = "debuffs"
+local OVERFLOW_MAX = 16
 local TEMPLATE = "CustomAuraContainerTemplate"
 local GAP = Tokens.Size("gapTiny")
 local NAME_GAP = Tokens.Size("gapSmall")
@@ -43,6 +44,28 @@ local function Grid(frame)
 	local size = Widgets.Snap(frame, Settings.Get("debuffs.size"))
 	local spacing = Widgets.Snap(frame, Settings.Get("debuffs.spacing"))
 	return size, spacing, Settings.Get("debuffs.columns"), Settings.Get("debuffs.rows")
+end
+Auras.GROUP, Auras.OVERFLOW_MAX, Auras.Grid = GROUP, OVERFLOW_MAX, Grid
+
+local ORDERS = {
+	important = { "ImportantOnly", "Normal" },
+	longest = { "ExpirationOnly", "Reverse" },
+	expiring = { "Expiration", "Normal" },
+	default = { "Default", "Normal" },
+}
+
+local function SortOptions()
+	local methods, directions = AuraContainerSortMethod, AuraContainerSortDirection
+	if not (methods and directions) then
+		return nil
+	end
+	local order = ORDERS[Settings.Get("debuffs.order")] or ORDERS.default
+	local method, direction = methods[order[1]], directions[order[2]]
+	if method == nil or direction == nil then
+		LogOnce("aura-order", "this client lacks the " .. order[1] .. " aura sort; debuffs keep the engine's default order")
+		return methods.Default, directions.Normal
+	end
+	return method, direction
 end
 
 local function GroupLayout(plate)
@@ -168,12 +191,56 @@ local function GroupOptions(plate)
 		initializeFrame = InitButton,
 		layout = GroupLayout(plate),
 	}
-	if AuraContainerSortMethod and AuraContainerSortDirection then
-		options.sortMethod = AuraContainerSortMethod.Default
-		options.sortDirection = AuraContainerSortDirection.Normal
-	end
+	options.sortMethod, options.sortDirection = SortOptions()
 	return options
 end
+
+local function SlotCount(ok, token, ...)
+	if not ok then
+		LogOnce("aura-slots-refused", "GetAuraSlots refused the count: " .. tostring(token))
+		return nil
+	end
+	if IsSecret(token) then
+		LogOnce("aura-slots-secret", "GetAuraSlots answered with a secret; the overflow chip hides")
+		return nil
+	end
+	return select("#", ...)
+end
+
+local function CountAuras(plate)
+	local api = C_UnitAuras
+	if not (api and type(api.GetAuraSlots) == "function") then
+		LogOnce("aura-slots", "C_UnitAuras.GetAuraSlots is missing; plates show no overflow count")
+		return nil
+	end
+	if AurasSecret() then
+		LogOnce("aura-count-secret", "aura data is secret, so the game refuses a count; the overflow chip hides until it is open again")
+		return nil
+	end
+	local _, _, columns, rows = Grid(plate)
+	return SlotCount(pcall(api.GetAuraSlots, plate.unit, Filter(), columns * rows + OVERFLOW_MAX))
+end
+
+local function UpdateOverflow(plate)
+	local chip = plate.auraChip
+	if not chip then
+		return
+	end
+	local count = plate.unit and plate.auras and plate.auras:IsShown() and CountAuras(plate)
+	if not count then
+		chip:Hide()
+		return
+	end
+	local _, _, columns, rows = Grid(plate)
+	local over = math.min(OVERFLOW_MAX, count - columns * rows)
+	if over > 0 then
+		chip.text:SetFormattedText("+%d", over)
+		chip:Show()
+	else
+		chip:Hide()
+	end
+end
+Auras.UpdateOverflow = UpdateOverflow
 
 local function Bind(plate, unit)
 	local container = plate.auras
@@ -299,28 +366,60 @@ local function RoomBelow(plate)
 	return room
 end
 
-local function Anchor(plate, frame, anchor)
+local LayoutChip
+
+local function Anchor(plate, frame, anchor, dx)
 	local left = anchor:find("LEFT$") ~= nil
 	local health = plate.health
 	frame:ClearAllPoints()
 	if anchor:find("^BOTTOM") then
-		frame:SetPoint(anchor, health, left and "TOPLEFT" or "TOPRIGHT", 0, Widgets.Snap(plate, RoomAbove(plate)))
+		frame:SetPoint(anchor, health, left and "TOPLEFT" or "TOPRIGHT", dx or 0, Widgets.Snap(plate, RoomAbove(plate)))
 	else
-		frame:SetPoint(anchor, health, left and "BOTTOMLEFT" or "BOTTOMRIGHT", 0, -Widgets.Snap(plate, RoomBelow(plate)))
+		frame:SetPoint(anchor, health, left and "BOTTOMLEFT" or "BOTTOMRIGHT", dx or 0, -Widgets.Snap(plate, RoomBelow(plate)))
 	end
 end
 
-function Auras.Extent(plate)
+function Auras.Extent(plate, rowsCap)
 	local above, below = RoomAbove(plate), RoomBelow(plate)
 	if not Shows(plate) then
 		return above, below
 	end
 	local size, spacing, _, rows = Grid(plate)
+	if rowsCap then
+		rows = math.min(rows, rowsCap)
+	end
 	local block = rows * size + (rows - 1) * spacing
 	if Settings.Get("debuffs.growthY") == "DOWN" then
 		return above, below + block
 	end
 	return above + block, below
+end
+
+local function BuildChip(plate)
+	local chip = CreateFrame("Frame", nil, plate)
+	chip:Hide()
+	local tile = NewTile(chip)
+	tile.icon:Hide()
+	chip.tile = tile
+	local text = Widgets.FontString(tile.skin, "OVERLAY")
+	text:SetPoint("CENTER", chip, "CENTER", 0, 0)
+	text:SetJustifyH("CENTER")
+	chip.text = text
+	plate.auraChip = chip
+end
+
+function LayoutChip(plate, anchor, size, spacing, columns)
+	local chip = plate.auraChip
+	if not chip then
+		return
+	end
+	Widgets.Size(chip, size, size)
+	local sign = Settings.Get("debuffs.growthX") == "LEFT" and -1 or 1
+	Anchor(plate, chip, anchor, sign * (Logic.AuraLineSize(columns, size, spacing) + spacing))
+	LayoutTile(chip.tile)
+	StyleText(chip.text)
+	chip.text:SetTextColor(Tokens.Color("textEmphasis"))
+	UpdateOverflow(plate)
 end
 
 local function LayoutContainer(plate)
@@ -340,7 +439,12 @@ local function LayoutContainer(plate)
 	container:SetAuraGroupLayout(GROUP, GroupLayout(plate))
 	container:SetAuraGroupMaxFrameCount(GROUP, columns * rows)
 	container:SetAuraGroupFilterString(GROUP, Filter())
+	local method, order = SortOptions()
+	if method ~= nil then
+		container:SetAuraGroupSortMethod(GROUP, method, order)
+	end
 	Anchor(plate, container, anchor)
+	LayoutChip(plate, anchor, size, spacing, columns)
 	RestyleButtons(plate)
 end
 
@@ -375,12 +479,18 @@ local function BuildSamples(plate)
 	end
 end
 
-local Component = {}
+local Component = { events = {} }
 ns.Components[#ns.Components + 1] = Component
+
+Component.events.UNIT_AURA = function(plate)
+	UpdateOverflow(plate)
+end
 
 function Component.Build(plate)
 	if plate.sample then
 		BuildSamples(plate)
+	else
+		BuildChip(plate)
 	end
 end
 
@@ -402,6 +512,9 @@ function Component.Refresh(plate)
 			Bind(plate, "none")
 			plate.auras:Hide()
 		end
+		if plate.auraChip then
+			plate.auraChip:Hide()
+		end
 		return
 	end
 	if not plate.auras and available and not plate.aurasRetry then
@@ -413,10 +526,14 @@ function Component.Refresh(plate)
 	if plate.auras then
 		plate.auras:Show()
 		Bind(plate, plate.unit)
+		UpdateOverflow(plate)
 	end
 end
 
 function Component.Clear(plate)
+	if plate.auraChip then
+		plate.auraChip:Hide()
+	end
 	Bind(plate, "none")
 end
 

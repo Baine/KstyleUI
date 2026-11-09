@@ -81,15 +81,20 @@ return Common.Run(function()
 	for _ = 1, 20 do
 		N.Tick(env, 0.05)
 	end
+	N.Debuffs(env, "nameplate1", #DEBUFFS)
+	env.RunTimers()
 	local problem = debuffs(env, ns, ns.Plates.Get("nameplate1"))
 	for _ = 1, 10 do
 		N.Tick(env, 0.05)
 	end
 	local function crop(token, spec)
 		local plate = ns.Plates.Get(token)
-		local list = { plate }
+		local list = { plate, plate.level }
 		if token == "nameplate1" and plate.auras then
 			list[#list + 1] = plate.auras
+		end
+		if plate.raid:IsShown() then
+			list[#list + 1] = plate.raid
 		end
 		spec.rect = Gallery.Union(env, list)
 		spec.pad = 24
