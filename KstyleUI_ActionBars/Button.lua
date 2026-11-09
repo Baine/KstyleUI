@@ -8,7 +8,6 @@ local Button = {}
 ns.Button = Button
 
 local TEXT_INSET = 2
-local EMPTY_ALPHA = 0.24
 local AUTOCAST_SIZE = 6
 local ARROW_SIZE = 10
 local ARROWS = {
@@ -105,6 +104,7 @@ function Button.ApplyTint(b, force)
 	else
 		b:SetTint()
 	end
+	ns.Socket.Tint(b, key)
 end
 
 function Button.UpdateAlpha(b)
@@ -114,7 +114,8 @@ function Button.UpdateAlpha(b)
 		shown = cfg.showEmpty == true
 	end
 	if shown and not b.hasAction and b.kind ~= "stance" and ns.grid == 0 then
-		b:SetAlpha(EMPTY_ALPHA + (1 - EMPTY_ALPHA) * (b.hoverT or 0))
+		local rest = ns.Socket.EmptyAlpha()
+		b:SetAlpha(rest + (1 - rest) * (b.hoverT or 0))
 	else
 		b:SetAlpha(shown and 1 or 0)
 	end
@@ -191,9 +192,14 @@ function Button.UpdateUsable(b, usable, noPower)
 		usable, noPower = C_ActionBar.IsUsableAction(b.slot)
 	end
 	usable, noPower = Flag(usable, true), Flag(noPower, false)
+	local lacked = b.lacksPower
 	b.lacksPower = not usable and noPower
 	SetUsable(b, usable or noPower)
+	local key = b.tintKey
 	Button.ApplyTint(b)
+	if lacked ~= b.lacksPower and key == b.tintKey then
+		b:Paint()
+	end
 end
 
 function Button.UpdateRange(b, inRange, checksRange)
@@ -626,5 +632,5 @@ function Button.New(bar, index)
 	b:HookScript("OnLeave", OnLeave)
 	b:HookScript("OnClick", OnClick)
 	b:HookScript("PostClick", PostClick)
-	return b
+	return ns.Socket.Decorate(b)
 end
