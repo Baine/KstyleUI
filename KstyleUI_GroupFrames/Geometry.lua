@@ -111,6 +111,26 @@ function Geometry.Party(s)
 	return { width = w, height = h, count = count, corner = Geometry.Corner(growth), point = point, xOffset = x, yOffset = y }
 end
 
+function Geometry.PartyShown(s, members)
+	local most = s.showPlayer == false and PARTY_MAX - 1 or PARTY_MAX
+	if type(members) ~= "number" or members ~= members then
+		return most
+	end
+	local shown = members
+	if members <= 0 then
+		shown = s.showSolo and s.showPlayer ~= false and 1 or 0
+	elseif s.showPlayer == false then
+		shown = members - 1
+	end
+	return floor(Clamp(shown, 1, most))
+end
+
+function Geometry.PartyCard(s, cap, shown)
+	local growth = Clean(s.growth)
+	local w, h = Block(growth, shown, s.width, s.height, s.spacing)
+	return Geometry.Card({ width = w, height = h }, cap)
+end
+
 function Geometry.RaidGroups(s)
 	local member, group = Clean(s.growth), Clean(s.groupGrowth, "RIGHT")
 	local wrap = Geometry.Wrap(member, group)
@@ -164,15 +184,18 @@ end
 
 local ICONS_ACROSS = 3
 
+local function Centred(span, start, size)
+	return start + (span - size) / 2
+end
+
 local function Indicators(out, w, h, o, pad, gap)
 	local size = floor(min(o.iconSize, (w - (ICONS_ACROSS + 1) * gap) / ICONS_ACROSS, h - 2 * gap))
 	size = max(MIN_PART, size)
 	local icons = { size = size }
 	out.icons = icons
+	local health = out.health
 	icons.role = Rect(w - gap - size, gap, size, size)
 	icons.leader = Rect(out.portrait and 0 or gap, -gap, size, size)
-	icons.marker = Rect((w - size) / 2, min(-size / 2, pad - size), size, size)
-	local health = out.health
 	local textLeft, textRight = health.left, health.left + health.width
 	if o.leader and not out.portrait then
 		textLeft = max(textLeft, icons.leader.left + size + gap)
@@ -181,6 +204,20 @@ local function Indicators(out, w, h, o, pad, gap)
 		textRight = min(textRight, icons.role.left - gap)
 	end
 	textRight = max(textRight, textLeft + MIN_PART)
+	local markedRight = textRight
+	if out.nameInside then
+		icons.marker = Rect((w - size) / 2, min(-size / 2, pad - size), size, size)
+	else
+		local nameBottom = out.name.top + out.name.height
+		local room = health.top - nameBottom
+		if room >= size then
+			icons.marker = Rect(Centred(health.width, health.left, size), Centred(room, nameBottom, size), size, size)
+		else
+			icons.marker = Rect(textRight - size, Centred(out.name.height, out.name.top, size), size, size)
+			markedRight = max(textLeft + MIN_PART, textRight - size - gap)
+			out.markerInRow = true
+		end
+	end
 	if out.nameInside then
 		local centre = health.top + health.height / 2
 		if centre < gap + size then
@@ -190,7 +227,7 @@ local function Indicators(out, w, h, o, pad, gap)
 		end
 	else
 		out.name = Rect(textLeft, out.name.top, textRight - textLeft, out.name.height)
-		out.healthText = { right = textRight, top = out.name.top }
+		out.healthText = { right = textRight, markedRight = markedRight, top = out.name.top }
 	end
 end
 
@@ -216,7 +253,13 @@ function Geometry.Button(w, h, o)
 	if o.nameAbove and rest - nameHeight - gap >= MIN_PART * 2 then
 		out.nameInside = false
 		out.name = Rect(left, top, width, nameHeight)
-		out.health = Rect(left, top + nameHeight + gap, width, rest - nameHeight - gap)
+		local barTop, barHeight = top + nameHeight + gap, rest - nameHeight - gap
+		local pill = o.pill
+		if pill and barHeight > pill then
+			local rise = o.pillRise or 0
+			barTop, barHeight = barTop + barHeight - pill - rise, pill
+		end
+		out.health = Rect(left, barTop, width, barHeight)
 	else
 		out.health = Rect(left, top, width, rest)
 		out.name = out.health
@@ -251,4 +294,42 @@ end
 
 function Geometry.AuraLine(columns, size, spacing)
 	return Line(columns, size, spacing)
+end
+
+local function DebuffsReach(h, health, a)
+	local cells = a.debuffColumns * a.debuffRows
+	local total = min(a.debuffCount, cells) + min(a.dispelCount, cells)
+	if total <= 0 then
+		return nil
+	end
+	local columns = min(a.debuffColumns, total)
+	local block = Line(ceil(total / columns), a.debuffSize, a.spacing)
+	local top = a.inset
+	if a.debuffPosition:find("^BOTTOM") then
+		top = h - a.inset - block
+	end
+	local centre = health.top + health.height / 2
+	if top < centre + a.size / 2 and centre - a.size / 2 < top + block then
+		return columns
+	end
+end
+
+function Geometry.HealIcons(w, h, health, a)
+	local side, limit = "RIGHT", health.width - 2 * a.inset
+	local position = a.debuffPosition
+	local columns = a.debuffs and AURA_INSIDE[position] and DebuffsReach(h, health, a)
+	if columns then
+		local strip = a.inset + Line(columns, a.debuffSize, a.spacing) + a.gap
+		if position:find("LEFT$") then
+			limit = health.left + health.width - a.inset - strip
+		else
+			side = "LEFT"
+			limit = w - strip - health.left - a.inset
+		end
+	end
+	local count = a.count
+	while count > 0 and Line(count, a.size, a.spacing) > limit do
+		count = count - 1
+	end
+	return side, count
 end
