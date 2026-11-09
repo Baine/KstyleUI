@@ -1,4 +1,4 @@
--- Panel.lua: the Blessings card: the buff and debuff containers on the AuraContainer engine, the card and its cap on the buff element, the debuff row docked under a hairline or free as its own element, weapon enchantments, the aura-secrecy gate, and Blizzard's frames, which return in the gamepad interface.
+-- Panel.lua: the Blessings card: the buff and debuff containers on the AuraContainer engine, the card and its cap on the buff element, the debuff rows (dispellable first) docked under a hairline or free as their own element, weapon enchantments, the "+N" count whose hover opens the full list, the aura-secrecy gate, and Blizzard's frames, which return in the gamepad interface.
 local _, ns = ...
 
 local K = KstyleUI
@@ -14,13 +14,18 @@ local TEMPLATE = "CustomAuraContainerTemplate"
 local UNIT = "player"
 local HOST_LEVEL = 2
 local REST_EDGE_ALPHA = 0.5
-local GATE_EVENTS = { "ADDON_RESTRICTION_STATE_CHANGED", "PLAYER_REGEN_ENABLED" }
+local GATE_EVENTS = { "ADDON_RESTRICTION_STATE_CHANGED", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_ENTERING_WORLD" }
+local AURA_EVENT = "UNIT_AURA"
 local ENCHANT_EVENTS = { "WEAPON_ENCHANT_CHANGED", "WEAPON_SLOT_CHANGED", "PLAYER_ENTERING_WORLD" }
 local INPUT_EVENT = "INPUT_DEVICE_INTERFACE_TRANSITION"
 local CALLBACKS = { "SettingChanged", "ThemeChanged", "ScaleChanged", "ProfileChanged", "LayoutChanged" }
 local EDGE_TOKENS = { buffs = "edgeInner", debuffs = "hostile" }
 local CARD_GROUP, DOCKED_GROUP = "buffs", "debuffs"
 local LAYOUT_TEMPLATE = "DisableUntrustedLayoutScriptsTemplate"
+local DISPEL_GROUP, REST_GROUP = "dispel", "debuffs"
+local MORE_CLOSE_DELAY = 0.5
+local MORE_GAP = Tokens.Size("gapMedium")
+local SLOT_PAGE = 40
 local FALLBACK = {
 	buffs = { position = { anchor = "TOPRIGHT", x = -287, y = -16 }, label = K.L["Buffs"] },
 	debuffs = { position = { anchor = "TOPRIGHT", x = -287, y = -126 }, label = K.L["Debuffs"] },
@@ -110,12 +115,7 @@ local function Listen(event, fn)
 end
 
 local function StopWaiting()
-	if waiting then
-		waiting = false
-		for _, event in ipairs(GATE_EVENTS) do
-			pcall(K.Events.Unregister, MODULE, event)
-		end
-	end
+	waiting = false
 end
 
 local function RestyleButtons(desc)
@@ -146,8 +146,13 @@ function Panel.Flush()
 	end
 end
 
-local function OnGateEvent()
-	C_Timer.After(0, Panel.Flush)
+local Fit, BuildMoreButton, SetMore
+
+local function OnGateEvent(event)
+	if waiting then
+		C_Timer.After(0, Panel.Flush)
+	end
+	Fit(event == "PLAYER_REGEN_DISABLED")
 end
 
 function Panel.Wait()
@@ -157,9 +162,6 @@ function Panel.Wait()
 	end
 	waiting = true
 	Log("restyling the aura buttons waits until aura data is no longer secret")
-	for _, event in ipairs(GATE_EVENTS) do
-		Listen(event, OnGateEvent)
-	end
 end
 
 local function Formatter(timerFormat)
@@ -274,9 +276,39 @@ local function GroupLayout(ctx)
 	return {
 		elementSpacing = ctx.spacing,
 		lineSpacing = ctx.rowSpacing,
+		groupSpacing = ctx.spacing,
+		groupLineSpacing = ctx.rowSpacing,
 		elementWidth = ctx.width,
 		elementHeight = ctx.height,
 	}
+end
+
+local function Keys(desc)
+	if desc.name == "debuffs" then
+		return { DISPEL_GROUP, REST_GROUP }
+	end
+	return { desc.name }
+end
+
+local function Active(desc, key)
+	return key ~= DISPEL_GROUP or desc.ctx.group.dispelFirst == true
+end
+
+local function DispelSet()
+	local set = {}
+	for _, kind in ipairs(Model.DISPEL_TYPES) do
+		set[kind] = true
+	end
+	return set
+end
+
+local function Candidates(desc, key)
+	if key == DISPEL_GROUP then
+		return { includeDispelTypes = DispelSet() }
+	elseif key == REST_GROUP and desc.ctx.group.dispelFirst then
+		return { excludeDispelTypes = DispelSet() }
+	end
+	return nil
 end
 
 local function EnchantLayout(ctx)
@@ -328,8 +360,29 @@ local function ActiveEnchants(desc)
 	return n
 end
 
+local function ApplyGroups(desc, container, ctx, capacity)
+	local method, direction = SortEnums(ctx.group)
+	for _, key in ipairs(desc.keys) do
+		container:SetAuraGroupLayout(key, GroupLayout(ctx))
+		if method ~= nil and direction ~= nil then
+			container:SetAuraGroupSortMethod(key, method, direction)
+		end
+		container:SetAuraGroupMaxFrameCount(key, capacity)
+		if #desc.keys > 1 then
+			container:SetAuraGroupEnabled(key, Active(desc, key))
+			if type(container.SetAuraGroupCandidateFilters) == "function" then
+				container:SetAuraGroupCandidateFilters(key, Candidates(desc, key))
+			end
+		end
+	end
+end
+
 local function UpdateCapacity(desc)
-	desc.container:SetAuraGroupMaxFrameCount(desc.name, Model.Capacity(desc.ctx.group, ActiveEnchants(desc)))
+	local capacity = Model.Capacity(desc.ctx.group, ActiveEnchants(desc))
+	for _, key in ipairs(desc.keys) do
+		desc.container:SetAuraGroupMaxFrameCount(key, capacity)
+	end
+	return capacity
 end
 
 local function Init(desc, button)
@@ -349,9 +402,17 @@ local function Source(desc)
 	return desc.holder, desc.holder
 end
 
+local function Empty(desc)
+	local card = groups[CARD_GROUP]
+	if desc.docked then
+		desc = card
+	end
+	return desc == card and desc.card ~= nil and desc.card.empty == true
+end
+
 local function ShowHost(desc)
 	local source = Source(desc)
-	desc.host:SetShown(source:IsShown() and not gamepad)
+	desc.host:SetShown(source:IsShown() and not gamepad and not Empty(desc))
 end
 
 local function LayoutFrame(parent)
@@ -410,6 +471,8 @@ local function BuildCard(desc)
 	Widgets.LumenTint(card.rule, "hairline")
 	card.rule:Hide()
 	desc.card = card
+	BuildMoreButton(desc)
+	SetMore(desc, 0)
 end
 
 local function Docked()
@@ -419,7 +482,8 @@ end
 local function LayoutCard(desc, docked)
 	local host, card, ctx = desc.host, desc.card, desc.ctx
 	local other = groups[DOCKED_GROUP]
-	local debuffs = docked and other and not other.failed and other.dock ~= nil and { width = other.ctx.footWidth, height = other.ctx.footHeight } or nil
+	local docking = docked and other and not other.failed and other.dock ~= nil
+	local debuffs = docking and card.band ~= false and { width = other.ctx.footWidth, height = other.ctx.footHeight } or nil
 	local pad, gap = Model.CARD_PAD, Model.CARD_GAP
 	local shape = Model.Card({ width = ctx.footWidth, height = ctx.footHeight }, debuffs, pad, gap)
 	desc.shape = shape
@@ -445,14 +509,17 @@ local function LayoutCard(desc, docked)
 		rule:SetSize(shape.width - 2 * snap(pad), Widgets.Border(host))
 		Widgets.LumenTint(rule, "hairline")
 		rule:Show()
+	else
+		rule:Hide()
+	end
+	if docking then
 		local dock = other.dock
 		dock:ClearAllPoints()
-		dock:SetPoint("TOPLEFT", fit, "BOTTOMLEFT", 0, -snap(shape.debuffTop - shape.ruleTop + gap))
+		dock:SetPoint("TOPLEFT", fit, "BOTTOMLEFT", 0, debuffs and -snap(shape.debuffTop - shape.ruleTop + gap) or 0)
 		dock:SetSize(other.ctx.footWidth, other.ctx.footHeight)
 		tail:SetPoint("TOPLEFT", dock, "TOPLEFT", 0, 0)
 		tail:SetPoint("BOTTOMRIGHT", other.container, "BOTTOMRIGHT", 0, 0)
 	else
-		rule:Hide()
 		tail:SetPoint("TOPLEFT", fit, "TOPLEFT", 0, 0)
 		tail:SetPoint("BOTTOMRIGHT", fit, "BOTTOMRIGHT", 0, 0)
 	end
@@ -525,6 +592,18 @@ local function Register(desc)
 	Widgets.Place(desc.holder, key, position, { label = label, module = MODULE, scalable = true })
 end
 
+local function AddGroup(container, desc, key, capacity, ctx, init)
+	local method, direction = SortEnums(ctx.group)
+	return pcall(container.AddAuraGroup, container, key, Model.FILTERS[desc.name], {
+		maxFrameCount = capacity,
+		sortMethod = method,
+		sortDirection = direction,
+		layout = GroupLayout(ctx),
+		candidateFilters = Candidates(desc, key),
+		initializeFrame = init,
+	})
+end
+
 local function Build(name)
 	local root = K.Scale.Root()
 	local host = LayoutFrame(root)
@@ -538,22 +617,18 @@ local function Build(name)
 	end
 	desc.container = container
 	desc.ctx = Context(desc)
-	local method, direction = SortEnums(desc.ctx.group)
+	desc.keys = Keys(desc)
 	container:SetUnit(UNIT)
-	local added, err = pcall(container.AddAuraGroup, container, name, Model.FILTERS[name], {
-		maxFrameCount = Model.Capacity(desc.ctx.group, 0),
-		sortMethod = method,
-		sortDirection = direction,
-		layout = GroupLayout(desc.ctx),
-		initializeFrame = function(button)
+	for _, key in ipairs(desc.keys) do
+		local added, err = AddGroup(container, desc, key, Model.Capacity(desc.ctx.group, 0), desc.ctx, function(button)
 			K.Call(Init, desc, button)
-		end,
-	})
-	if not added then
-		host:Hide()
-		desc.failed = true
-		Log("AuraContainer refused the " .. name .. " group (" .. tostring(err) .. "); Blizzard's frame stays")
-		return desc
+		end)
+		if not added then
+			host:Hide()
+			desc.failed = true
+			Log("AuraContainer refused the " .. key .. " group (" .. tostring(err) .. "); Blizzard's frame stays")
+			return desc
+		end
 	end
 	if name == "buffs" then
 		AddEnchants(desc)
@@ -586,12 +661,7 @@ local function ApplyContainer(desc)
 	container:ClearAllPoints()
 	local edge = Model.ContainerAnchor(ctx.group.growth)
 	container:SetPoint(edge, desc.content, edge, 0, 0)
-	container:SetAuraGroupLayout(desc.name, GroupLayout(ctx))
-	local method, direction = SortEnums(ctx.group)
-	if method ~= nil and direction ~= nil then
-		container:SetAuraGroupSortMethod(desc.name, method, direction)
-	end
-	UpdateCapacity(desc)
+	ApplyGroups(desc, container, ctx, Model.Capacity(ctx.group, ActiveEnchants(desc)))
 	local slots = EnchantSlots(desc)
 	for i, enchant in ipairs(desc.enchants) do
 		container:SetItemEnchantmentEnabled(enchant.slot, i <= slots)
@@ -599,6 +669,275 @@ local function ApplyContainer(desc)
 	if #desc.enchants > 0 then
 		container:SetItemEnchantmentLayout(EnchantLayout(ctx))
 	end
+end
+
+local function Page(ok, token, ...)
+	if not ok or IsSecret(token) then
+		return nil
+	end
+	local n = select("#", ...)
+	for i = 1, n do
+		if issecretvalue((select(i, ...))) then
+			return nil
+		end
+	end
+	return n, token
+end
+
+local function Count(filter)
+	if not Panel.Open() then
+		return nil
+	end
+	local api = C_UnitAuras
+	if not (api and type(api.GetAuraSlots) == "function") then
+		LogOnce("slots", "C_UnitAuras.GetAuraSlots is missing; the card keeps its full footprint")
+		return nil
+	end
+	local total, token = 0, nil
+	repeat
+		local n
+		n, token = Page(pcall(api.GetAuraSlots, UNIT, filter, SLOT_PAGE, token))
+		if not n then
+			return nil
+		end
+		total = total + n
+	until token == nil or total >= Model.MORE.buffs
+	return total
+end
+
+local function MoreContext(desc, host)
+	local ctx, more = desc.ctx, Model.MORE
+	local out = {}
+	for k, v in pairs(ctx) do
+		out[k] = v
+	end
+	local function snap(units)
+		return Widgets.Snap(host, units)
+	end
+	local group = {}
+	for k, v in pairs(ctx.group) do
+		group[k] = v
+	end
+	group.iconSize, group.spacing, group.columns = more.iconSize, more.spacing, more.columns
+	out.group = group
+	out.icon, out.spacing = snap(more.iconSize), snap(more.spacing)
+	out.width, out.height = Model.ElementSize(group, ctx.timer, snap)
+	out.lineSize = Model.LineSize(group, ctx.timer, snap)
+	return out
+end
+
+local function MoreGroup(desc, name)
+	local card = desc.card
+	local source = groups[name]
+	if not source or source.failed then
+		return nil
+	end
+	local ok, container = pcall(CreateFrame, "AuraContainer", nil, card.more, TEMPLATE)
+	if not ok or type(container) ~= "table" or type(container.AddAuraGroup) ~= "function" then
+		return nil
+	end
+	local entry = { name = name, container = container, buttons = {}, enchants = {}, host = card.more }
+	entry.ctx = MoreContext(source, card.more)
+	entry.keys = Keys(source)
+	container:SetUnit(UNIT)
+	for _, key in ipairs(entry.keys) do
+		local added, err = AddGroup(container, entry, key, Model.MORE[name], entry.ctx, function(button)
+			K.Call(Init, entry, button)
+		end)
+		if not added then
+			Log("the full list could not add the " .. key .. " group: " .. tostring(err))
+			return nil
+		end
+	end
+	local directions = AnchorUtil.FlowDirection
+	container:SetFlowLayoutAnchorPoint("TOPLEFT")
+	container:SetFlowLayoutGrowthDirection(directions.Right, directions.Down)
+	ApplyGroups(entry, container, entry.ctx, Model.MORE[name])
+	container:SetFlowLayoutMaximumLineSize(entry.ctx.lineSize)
+	return entry
+end
+
+local function BuildMore(desc)
+	local card, host = desc.card, desc.host
+	local more = CreateFrame("Frame", nil, host)
+	more:SetClampedToScreen(true)
+	more:EnableMouse(true)
+	more:Hide()
+	card.more = more
+	card.moreChrome = Widgets.Chrome(more, { shape = "panel" })
+	card.moreRule = more:CreateTexture(nil, "ARTWORK")
+	card.moreRule:SetColorTexture(Tokens.Color("white"))
+	Widgets.LumenTint(card.moreRule, "hairline")
+	card.moreGroups = { buffs = MoreGroup(desc, "buffs"), debuffs = MoreGroup(desc, "debuffs") }
+	more:SetScript("OnEnter", function()
+		card.moreLeft = nil
+	end)
+	more:SetScript("OnLeave", function()
+		Panel.LeaveMore(desc)
+	end)
+end
+
+local function LayoutMore(desc)
+	local card = desc.card
+	local more, counts = card.more, card.counts or {}
+	local pad = Widgets.Snap(more, Model.CARD_PAD)
+	local gap = Widgets.Snap(more, Model.CARD_GAP)
+	local y, width = pad, 0
+	local rule = card.moreRule
+	rule:Hide()
+	for _, name in ipairs(Model.GROUPS) do
+		local entry = card.moreGroups[name]
+		local shown = entry and math.min(counts[name] or 0, Model.MORE[name] * #entry.keys) or 0
+		if entry and shown > 0 then
+			local ctx = entry.ctx
+			local columns = math.min(shown, ctx.group.columns)
+			local rows = math.ceil(shown / ctx.group.columns)
+			local w = columns * ctx.width + (columns - 1) * ctx.spacing
+			local h = rows * ctx.height + (rows - 1) * ctx.rowSpacing
+			if name == DOCKED_GROUP and y > pad then
+				rule:ClearAllPoints()
+				rule:SetPoint("TOPLEFT", more, "TOPLEFT", pad, -(y + gap))
+				rule:SetSize(Model.MORE.columns * ctx.width + (Model.MORE.columns - 1) * ctx.spacing, Widgets.Border(more))
+				rule:Show()
+				y = y + gap + Widgets.Border(more) + gap
+			end
+			entry.container:ClearAllPoints()
+			entry.container:SetPoint("TOPLEFT", more, "TOPLEFT", pad, -y)
+			entry.container:Show()
+			width = math.max(width, w)
+			y = y + h
+		elseif entry then
+			entry.container:Hide()
+		end
+	end
+	local full = card.moreGroups.buffs or card.moreGroups.debuffs
+	local columns = full and full.ctx.group.columns or Model.MORE.columns
+	local tile = full and full.ctx.width or Model.MORE.iconSize
+	local spacing = full and full.ctx.spacing or Model.MORE.spacing
+	width = math.max(width, columns * tile + (columns - 1) * spacing)
+	more:SetSize(width + 2 * pad, y + pad)
+	more:ClearAllPoints()
+	more:SetPoint("TOPRIGHT", desc.host, "TOPLEFT", -Widgets.Snap(more, MORE_GAP), 0)
+	card.moreChrome:SetEdge("edgeInner")
+end
+
+local function ApplyMore(desc)
+	local card = desc.card
+	if not (card and card.moreGroups) then
+		return
+	end
+	for name, entry in pairs(card.moreGroups) do
+		local source = groups[name]
+		if source and not source.failed then
+			entry.ctx = MoreContext(source, card.more)
+			ApplyGroups(entry, entry.container, entry.ctx, Model.MORE[name])
+			entry.container:SetFlowLayoutMaximumLineSize(entry.ctx.lineSize)
+			RestyleButtons(entry)
+		end
+	end
+	if card.more:IsShown() then
+		LayoutMore(desc)
+	end
+end
+
+function Panel.OpenMore(desc)
+	local card = desc.card
+	if not card.more then
+		BuildMore(desc)
+	end
+	card.moreLeft = nil
+	for _, entry in pairs(card.moreGroups) do
+		RestyleButtons(entry)
+	end
+	LayoutMore(desc)
+	card.more:Show()
+end
+
+function Panel.LeaveMore(desc)
+	local card = desc.card
+	if not card.more or not card.more:IsShown() then
+		return
+	end
+	local token = {}
+	card.moreLeft = token
+	C_Timer.After(MORE_CLOSE_DELAY, function()
+		if card.moreLeft == token then
+			card.more:Hide()
+		end
+	end)
+end
+
+function BuildMoreButton(desc)
+	local card = desc.card
+	local button = CreateFrame("Button", nil, desc.host)
+	button:SetAllPoints(card.cap.frame.count)
+	button:SetScript("OnEnter", function()
+		Panel.OpenMore(desc)
+	end)
+	button:SetScript("OnLeave", function()
+		Panel.LeaveMore(desc)
+	end)
+	button:Hide()
+	card.moreButton = button
+end
+
+function SetMore(desc, over)
+	local card = desc.card
+	if over and over > 0 then
+		card.cap.frame:SetCount("+" .. over)
+		card.cap.frame.count:Show()
+		card.moreButton:Show()
+	else
+		card.cap.frame:SetCount(nil)
+		card.cap.frame.count:Hide()
+		card.moreButton:Hide()
+		if card.more then
+			card.more:Hide()
+		end
+	end
+end
+
+function Fit(unknown)
+	local desc = groups[CARD_GROUP]
+	if not (running and desc and not desc.failed and desc.card) then
+		return
+	end
+	local card = desc.card
+	local buffs, debuffs
+	if not unknown then
+		buffs, debuffs = Count(Model.FILTERS.buffs), Count(Model.FILTERS.debuffs)
+	end
+	local known = buffs ~= nil and debuffs ~= nil
+	local docked = Docked()
+	local band, empty = card.band ~= false, false
+	if known then
+		local other = groups[DOCKED_GROUP]
+		local enchants = ActiveEnchants(desc)
+		band = debuffs > 0 and (buffs > 0 or enchants > 0)
+		empty = buffs == 0 and enchants == 0 and (not docked or debuffs == 0)
+		local over = math.max(0, buffs - Model.Capacity(desc.ctx.group, enchants))
+		if docked and other and not other.failed then
+			over = over + math.max(0, debuffs - Model.Capacity(other.ctx.group, 0))
+		end
+		card.counts = { buffs = buffs, debuffs = debuffs }
+		SetMore(desc, over)
+		if card.more and card.more:IsShown() then
+			LayoutMore(desc)
+		end
+	end
+	if card.band == band and card.empty == empty then
+		return
+	end
+	card.band, card.empty = band, empty
+	LayoutCard(desc, docked)
+	local other = groups[DOCKED_GROUP]
+	if other and not other.failed then
+		ShowHost(other)
+	end
+end
+
+local function OnAura()
+	Fit()
 end
 
 local function Apply(desc, relayout)
@@ -622,6 +961,14 @@ local function Apply(desc, relayout)
 		K.Layout.Restore(Model.KEYS[desc.name])
 	end
 	RestyleButtons(desc)
+	if desc.card then
+		desc.card.band, desc.card.empty = nil, nil
+		Fit()
+	end
+	local card = groups[CARD_GROUP] and groups[CARD_GROUP].card
+	if card and card.moreGroups and card.moreGroups[desc.name] then
+		ApplyMore(groups[CARD_GROUP])
+	end
 end
 
 local function ApplyAll(relayout)
@@ -692,6 +1039,7 @@ local function OnEnchant()
 	local desc = groups.buffs
 	if desc and not desc.failed then
 		K.Call(UpdateCapacity, desc)
+		Fit()
 	end
 end
 
@@ -733,6 +1081,13 @@ function Panel.Enable()
 		Listen(event, OnEnchant)
 	end
 	Listen(INPUT_EVENT, OnTransition)
+	for _, event in ipairs(GATE_EVENTS) do
+		Listen(event, OnGateEvent)
+	end
+	local ok, err = pcall(K.Events.RegisterUnit, MODULE, AURA_EVENT, OnAura, UNIT)
+	if not ok then
+		LogOnce("event:" .. AURA_EVENT, "could not listen for " .. AURA_EVENT .. ": " .. tostring(err))
+	end
 	for _, name in ipairs(CALLBACKS) do
 		K.Callbacks.Register(name, MODULE, HANDLERS[name])
 	end
