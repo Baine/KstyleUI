@@ -112,4 +112,79 @@ do
 	end
 end
 
+-- The fight switch is length-safe (round 4, S6: in German, French or Spanish the words Now / Last / All run past
+-- the card). The switch is measured from the stub's glyph widths as the game measures it; when the three words do
+-- not fit beside the title they drop to the selected word alone, and with the title off the words must fit the
+-- card's content width on their own.
+do
+	local D = dofile("Tools/regression/databars_env.lua")
+	local env2, K2, ns2 = M.New({
+		setup = function(e)
+			e._textWidth = D.TextWidth
+		end,
+		game = function(e)
+			e._group = { raid = false, size = 2 }
+		end,
+	})
+	M.Enable(env2, K2)
+	local switchList = ns2.Damage.list
+	local function Plain()
+		return (tostring(M.Last(switchList.column, "SetText")[1]):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+	end
+	Show(env2, 3)
+	assert(Plain():find("Now", 1, true) and Plain():find("All", 1, true), "English words fit the default card: " .. Plain())
+	-- Long words, as a locale table gives them.
+	local words = { "Gegenwaertig", "Vorheriger Kampf", "Insgesamt" }
+	switchList:SetSwitch(words, 1, {})
+	local shown = Plain()
+	assert(not shown:find("Insgesamt", 1, true) and shown:find("Gegenwaertig", 1, true), "words too long for the cap drop to the selected word alone: " .. shown)
+	local aside, capTitle = switchList.column:GetStringWidth(), switchList.title:GetStringWidth()
+	assert(aside and capTitle and aside + capTitle <= switchList.barWidth, "what shows fits beside the title: " .. tostring(aside) .. " + " .. tostring(capTitle) .. " in " .. tostring(switchList.barWidth))
+	-- With the title off, the words alone must fit the content width, on a narrow card too.
+	M.Write(env2, K2, "damage.title", false)
+	local wide = switchList.barWidth
+	switchList.barWidth = 120
+	switchList:SetSwitch({ "Gegenwaertig", "Vorheriger Kampf", "Insgesamt und alles" }, 3, {})
+	shown = Plain()
+	aside = switchList.column:GetStringWidth()
+	assert(aside and aside <= switchList.barWidth + 0.01, "with the title off the switch still fits a narrow card: " .. tostring(aside) .. " in " .. tostring(switchList.barWidth) .. " (" .. shown .. ")")
+	assert(shown:find("Insgesamt", 1, true) and not shown:find("Gegenwaertig", 1, true), "the selected word is what stays: " .. shown)
+	switchList.barWidth = wide
+	M.Write(env2, K2, "damage.title", true)
+	-- Short forms step in before the selected word alone.
+	switchList:SetSwitch({ "Gegenwaertig", "Vorheriger", "Insgesamt" }, 2, { "Jetzt", "Zuletzt", "Alle" })
+	shown = Plain()
+	assert(shown:find("Zuletzt", 1, true) and shown:find("Jetzt", 1, true), "short forms show when the long words do not fit: " .. shown)
+	-- A title too long for the cap (the German "Verursachter Schaden" on a narrow card) gives way to the selected
+	-- word: the title is held to the room left of the word, so the two never cross; a title that fits keeps its
+	-- natural width.
+	switchList.barWidth = 150
+	switchList:SetTitle("VERURSACHTER SCHADEN")
+	switchList:SetSwitch({ "Jetzt", "Zuvor", "Alle" }, 1, {})
+	local titleW, asideW = switchList.title:GetWidth(), switchList.column:GetStringWidth()
+	assert(titleW and titleW > 0 and titleW + asideW <= switchList.barWidth + 0.01, "the title is held clear of the selected word: " .. tostring(titleW) .. " + " .. tostring(asideW) .. " in " .. switchList.barWidth)
+	switchList.barWidth = wide
+	switchList:SetTitle("DAMAGE DONE")
+	switchList:SetSwitch({ "Now", "Last", "All" }, 1, {})
+	assert((switchList.title:GetWidth() or 0) == 0 or switchList.title:GetWidth() >= switchList.title:GetUnboundedStringWidth() - 0.01, "a title that fits keeps its natural width")
+	assert(switchList.title:IsShown(), "and shows")
+	-- No room at all for the title beside the selected word (a card narrower than the word and the reserve): the
+	-- title hides rather than spreading at its natural width across the switch (codex review).
+	switchList.barWidth = 60
+	switchList:SetSwitch({ "Gegenwaertig", "Zuvor", "Alle" }, 1, {})
+	assert(not switchList.title:IsShown(), "with no room left the title hides")
+	switchList.barWidth = wide
+	-- A restyle fits the switch again from its words: a card that shrinks drops to the selected word, one that
+	-- grows back shows every word (codex review).
+	switchList:SetSwitch({ "Now", "Last", "All" }, 1, {})
+	assert(Plain():find("All", 1, true), "every word on the wide card")
+	switchList.holder:SetSize(90, switchList.holder:GetHeight())
+	switchList:Restyle()
+	assert(not Plain():find("All", 1, true) and Plain():find("Now", 1, true), "a card that shrinks drops to the selected word on restyle: " .. Plain())
+	switchList.holder:SetSize(wide + 2 * switchList.pad, switchList.holder:GetHeight())
+	switchList:Restyle()
+	assert(Plain():find("All", 1, true), "a card that grows shows every word again: " .. Plain())
+	assert(switchList.title:IsShown(), "and the title shows")
+end
+
 print("meters fit: passed")

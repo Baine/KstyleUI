@@ -488,14 +488,17 @@ Scene.PlainText = plainText
 
 -- WrappedLines(text, size, fontPath, width) -> how many lines a word-wrapping text takes in a width, by the
 -- page's rule: words fill a line while they fit, a word that fits nowhere takes a line of its own, and an
--- explicit break starts a new line.
+-- explicit break starts a new line. A line fits within WRAP_SLACK of the width, so a text as wide as its own
+-- words (a natural-width text, its width back from a rounded number) stays on one line, as it does in the game.
+local WRAP_SLACK = 0.01
+
 function Scene.WrappedLines(text, size, fontPath, width)
 	local lines = 0
 	for paragraph in (plainText(text) .. "\n"):gmatch("(.-)\n") do
 		local line = nil
 		for word in (paragraph .. " "):gmatch("(.-) ") do
 			local candidate = line and (line .. " " .. word) or word
-			if line and textWidthEm(candidate, fontPath) * size > width then
+			if line and textWidthEm(candidate, fontPath) * size > width + WRAP_SLACK then
 				lines = lines + 1
 				line = word
 			else
@@ -754,7 +757,7 @@ function Solver:solve(object)
 	if wrap and not (lo and hi) then
 		local lines = Scene.WrappedLines(wrap.text, wrap.size, wrap.fontPath, (right - left) / scale)
 		height = wrap.size * LINE_HEIGHT_EM * lines * scale
-		object._wrapped = true
+		object._wrapped = lines > 1
 	end
 	local bottom, top = self:span(ys, height)
 	if not bottom then
@@ -1226,8 +1229,9 @@ function Scene.Build(env, opts)
 
 	-- A frame that clips its children (SetClipsChildren) bounds everything drawn under it, as a scroll list's
 	-- view does; clip is that bound in screen units, or nil. An item outside it is dropped, one across it is
-	-- drawn through it by the page.
-	local function clipped(item, clip)
+	-- drawn through it by the page, and carries scroll = true when the nearest clipping frame is a scroll view
+	-- (a ScrollFrame, or a frame that takes the mouse wheel, or whose parent does), which cuts rows by design.
+	local function clipped(item, clip, scroll)
 		if not clip then
 			return true
 		end
@@ -1237,7 +1241,25 @@ function Scene.Build(env, opts)
 			return false
 		end
 		item.clip = clip
+		item.scroll = scroll or nil
 		return true
+	end
+
+	local function takesWheel(frame)
+		local enabled = false
+		for _, call in ipairs(frame._calls or {}) do
+			if call.method == "EnableMouseWheel" then
+				enabled = call.args[1] ~= false
+			end
+		end
+		return enabled
+	end
+
+	local function scrolls(frame)
+		if frame._type == "ScrollFrame" or frame._type == "ScrollingMessageFrame" then
+			return true
+		end
+		return takesWheel(frame) or (frame._parent ~= nil and takesWheel(frame._parent))
 	end
 
 	local function intersect(a, b)
@@ -1249,7 +1271,7 @@ function Scene.Build(env, opts)
 		return { x0, y0, math.max(0, x1 - x0), math.max(0, y1 - y0) }
 	end
 
-	local function walkFrame(frame, inheritedHidden, clip)
+	local function walkFrame(frame, inheritedHidden, clip, scroll)
 		if visited[frame] then
 			return
 		end
@@ -1275,14 +1297,14 @@ function Scene.Build(env, opts)
 				item.rect = toScreen(rect)
 				item.object = frame
 			end
-			if item and clipped(item, clip) then
+			if item and clipped(item, clip, scroll) then
 				seq = seq + 1
 				item.strata, item.level, item.layer, item.sublevel, item.seq = strata, level, LAYERS.ARTWORK, 0, seq
 				items[#items + 1] = item
 			end
 		elseif frame._type == "EditBox" and rect and alpha > 0 then
 			local item = editBoxItem(frame, rect, alpha)
-			if item and clipped(item, clip) then
+			if item and clipped(item, clip, scroll) then
 				seq = seq + 1
 				item.strata, item.level, item.layer, item.sublevel, item.seq = strata, level, LAYERS.ARTWORK, 0, seq
 				items[#items + 1] = item
@@ -1304,7 +1326,7 @@ function Scene.Build(env, opts)
 					elseif region._type == "Texture" or region._type == "Line" then
 						item = textureItem(region, frame, regionAlpha)
 					end
-					if item and mark(region, item) and clipped(item, clip) then
+					if item and mark(region, item) and clipped(item, clip, scroll) then
 						if item.pendingLog then
 							-- A grey box is worth a log line only when the region is drawn: a faded or clipped one is not.
 							logLine(item.pendingLog)
@@ -1319,12 +1341,13 @@ function Scene.Build(env, opts)
 				end
 			end
 		end
-		local kidClip = clip
+		local kidClip, kidScroll = clip, scroll
 		if rect and state(frame, "ClipsChildren") == true then
 			kidClip = intersect(clip, toScreen(rect))
+			kidScroll = scrolls(frame)
 		end
 		for _, kid in ipairs(kidsOf[frame] or {}) do
-			walkFrame(kid, false, kidClip)
+			walkFrame(kid, false, kidClip, kidScroll)
 		end
 	end
 
@@ -1389,7 +1412,8 @@ function Scene.Build(env, opts)
 					local hasW = type(region._width) == "number" and region._width > 0
 					local hasH = type(region._height) == "number" and region._height > 0
 					if not hasW and not (xs[0] and xs[1]) then
-						region._naturalW = textWidthEm(text, fontPath) * size
+						-- The natural width is the drawn words', without colour codes, links and textures, as the game sizes it.
+						region._naturalW = textWidthEm(plainText(text), fontPath) * size
 						region._naturalSideW = xs[1] and "right" or xs[0.5] and "center" or "left"
 					end
 					if not hasH and not (ys[0] and ys[1]) then

@@ -13,6 +13,8 @@ local PILL_HEIGHT = 4
 local PILL_GAP = 3
 local TEXT_AIR = 2
 local ICON_CROP = 0.08
+local MORE_GLYPH = 10
+local ESTIMATE_EM = 0.5
 local CAP_RESERVE = 44
 local CAP_GAP = "gapMedium"
 local SWITCH_GAP = "  "
@@ -69,8 +71,24 @@ local function NewRow(list, index)
 			list.onRowClick(list, row.index, button)
 		end)
 	end
-	if list.tooltip then
+	if list.rowTooltip then
+		Widgets.AttachTooltip(frame, function(tip)
+			list.rowTooltip(tip, list, row.index)
+		end)
+	elseif list.tooltip then
 		Widgets.AttachTooltip(frame, list.tooltip)
+	end
+	if list.rowSplits then
+		local more = frame:CreateTexture(nil, "OVERLAY")
+		more:SetTexture((Tokens.Texture("glyphChevron")))
+		more:Hide()
+		row.more = more
+		frame:HookScript("OnEnter", function()
+			more:SetShown(list.rowSplits(list, row.index) == true)
+		end)
+		frame:HookScript("OnLeave", function()
+			more:Hide()
+		end)
 	end
 	row.name:SetTextColor(Tokens.Color("textEmphasis"))
 	row.value:SetTextColor(Tokens.Color("textEmphasis"))
@@ -124,6 +142,24 @@ local function StyleRow(list, row)
 	row.bar:SetReverseFill(reverse)
 end
 
+local function PlaceMore(list, row)
+	local more = row.more
+	if not more then
+		return
+	end
+	local panel = list.panel
+	local glyph = Widgets.Snap(panel, MORE_GLYPH)
+	local reach = Widgets.TextWidth(row.name, 0)
+	local room = Logic.Plain(row.name:GetWidth())
+	if room and room > 0 then
+		reach = math.min(reach, room)
+	end
+	more:ClearAllPoints()
+	more:SetSize(glyph, glyph)
+	more:SetPoint("LEFT", row.name, "LEFT", reach + list.gap, 0)
+	Widgets.Tint(more, "muted")
+end
+
 local function PlaceRow(list, row, i)
 	local rowHeight = list.rowHeight
 	local spacing = Spacing(list)
@@ -170,6 +206,7 @@ local function PlaceRow(list, row, i)
 	else
 		row.name:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
 	end
+	PlaceMore(list, row)
 end
 
 local function FillHeight(list)
@@ -179,6 +216,50 @@ local function FillHeight(list)
 		snapped = snapped - K.Scale.Pixel(1) / Widgets.ScaleFactor(list.panel)
 	end
 	return max(1, snapped)
+end
+
+local function TextWidth(text)
+	local width = Logic.Plain(text:GetStringWidth())
+	if width and width > 0 then
+		return width
+	end
+	local value = text:GetText()
+	if Logic.IsSecret(value) or type(value) ~= "string" or value == "" then
+		return nil
+	end
+	local plain = value:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+	local _, size = text:GetFont()
+	size = Logic.Plain(size) or Tokens.Size("body")
+	return #plain * size * ESTIMATE_EM
+end
+
+local function Fits(list)
+	local aside = TextWidth(list.column)
+	if not aside then
+		return true
+	end
+	local room = list.barWidth or 0
+	if ns.Get(list.section .. ".title") then
+		local title = TextWidth(list.title)
+		return not title or title + aside <= room - CAP_RESERVE
+	end
+	return aside <= room
+end
+
+local function HoldTitle(list)
+	local title = list.title
+	title:SetWidth(0)
+	title:SetShown(true)
+	if Fits(list) or not ns.Get(list.section .. ".title") then
+		return
+	end
+	local aside = TextWidth(list.column) or 0
+	local room = (list.barWidth or 0) - CAP_RESERVE - aside
+	if room > 0 then
+		title:SetWidth(room)
+	else
+		title:SetShown(false)
+	end
 end
 
 function List:Restyle()
@@ -199,6 +280,11 @@ function List:Restyle()
 	cap.frame:SetPoint("TOPLEFT", self.panel, "TOPLEFT", self.pad, -self.pad)
 	cap.frame:SetPoint("TOPRIGHT", self.panel, "TOPRIGHT", -self.pad, -self.pad)
 	cap:Restyle()
+	if self.switchWords then
+		self:SetSwitch(self.switchWords, self.switchSelected, self.switchShort)
+	elseif cap.frame.counted then
+		HoldTitle(self)
+	end
 	ns.ApplyFont(self.note, section)
 
 	self.rowHeight = FillHeight(self)
@@ -248,6 +334,7 @@ function List:SetRow(i, name, classFile, reaction, value, maxValue, valueText, p
 	row.bar:SetBarRange(0, maxValue)
 	row.bar:SetBarValue(value)
 	row.name:SetText(name)
+	PlaceMore(self, row)
 	row.value:SetText(valueText)
 	row.percent:SetText(percentText)
 	row.value:SetShown(self.valueWidth > 0)
@@ -285,23 +372,14 @@ function List:SetTitle(text)
 	self.cap:SetTitle(text)
 end
 
-local function TextWidth(text)
-	local width = Logic.Plain(text:GetStringWidth())
-	if width and width > 0 then
-		return width
-	end
-	return nil
-end
-
 function List:SetColumn(text, short)
+	self.switchWords = nil
+	self.title:SetWidth(0)
 	self.cap:SetAside(text)
-	if short == nil or short == text or not ns.Get(self.section .. ".title") then
-		return
-	end
-	local title, aside = TextWidth(self.title), TextWidth(self.column)
-	if title and aside and title + aside > (self.barWidth or 0) - CAP_RESERVE then
+	if short and short ~= text and ns.Get(self.section .. ".title") and not Fits(self) then
 		self.cap:SetAside(short)
 	end
+	HoldTitle(self)
 end
 
 local function Hex(name)
@@ -319,19 +397,17 @@ local function SwitchText(words, selected, only)
 	return table.concat(parts, SWITCH_GAP)
 end
 
-local function Fits(list)
-	local title, aside = TextWidth(list.title), TextWidth(list.column)
-	return not (title and aside and title + aside > (list.barWidth or 0) - CAP_RESERVE)
-end
-
 function List:SetSwitch(words, selected, short)
 	local switch = self.switch
 	if not switch then
 		return
 	end
 	switch:SetShown(ns.Get(self.section .. ".title"))
+	self.switchWords, self.switchSelected, self.switchShort = words, selected, short
+	self.title:SetWidth(0)
+	self.title:SetShown(true)
 	self.cap:SetAside(SwitchText(words, selected))
-	if Fits(self) or not ns.Get(self.section .. ".title") then
+	if Fits(self) then
 		return
 	end
 	if short and short[selected] then
@@ -346,6 +422,7 @@ function List:SetSwitch(words, selected, short)
 		words = narrow
 	end
 	self.cap:SetAside(SwitchText(words, selected, true))
+	HoldTitle(self)
 end
 
 function List:Paint()
@@ -386,6 +463,8 @@ function BarList.New(parent, section, opts)
 	list.columns = opts.columns
 	list.onRowClick = opts.onRowClick
 	list.tooltip = opts.tooltip
+	list.rowTooltip = opts.rowTooltip
+	list.rowSplits = opts.rowSplits
 	list.icons = false
 	list.rows = {}
 	list.count = 0
@@ -399,6 +478,7 @@ function BarList.New(parent, section, opts)
 	list.panel = panel
 	list.cap = Widgets.RailCap(panel, {})
 	list.title, list.column = list.cap.title, list.cap.aside
+	list.title:SetWordWrap(false)
 	list.note = Text(panel, "CENTER")
 	list.note:SetTextColor(Tokens.Color("textDisabled"))
 	list.note:SetPoint("CENTER", panel, "CENTER", 0, -floor(Tokens.Size("gapMedium") / 2))
