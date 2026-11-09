@@ -1,4 +1,4 @@
--- Setup.lua: the first-run setup's choices, Apply, and when the setup window opens.
+-- Setup.lua: the first-run setup's choices, Apply (positions, the layout's module settings and the layout's name), and when the setup window opens.
 local _, ns = ...
 
 local Setup = ns.Setup
@@ -11,13 +11,13 @@ local DEFAULT_LAYOUT = "DPS"
 
 local PICKER = {
 	{ name = "UnitFrames", label = L["Unit frames"], note = L["Player, target, focus, pet and boss frames."] },
-	{ name = "ActionBars", label = L["Action bars"], note = L["Two compact rows with keybinds and proc glows."] },
-	{ name = "Cooldowns", label = L["Cooldown Manager"], note = L["Blizzard's cooldown tracker in your HUD band."] },
+	{ name = "ActionBars", label = L["Action bars"], note = L["One row of ability sockets under your vitals, with keybinds and procs."] },
+	{ name = "Cooldowns", label = L["Cooldown Manager"], note = L["Blizzard's cooldown tracker, over your vitals."] },
 	{ name = "GroupFrames", label = L["Group frames"], note = L["Party and raid frames with roles and range fade."] },
-	{ name = "Auras", label = L["Buffs and debuffs"], note = L["Your buffs and debuffs, under the minimap."] },
+	{ name = "Auras", label = L["Buffs and debuffs"], note = L["Your buffs and debuffs on the right rail, under the map."] },
 	{ name = "Nameplates", label = L["Nameplates"], note = L["Health, cast bar, threat and debuffs on plates."] },
 	{ name = "CombatText", label = L["Combat text"], note = L["Damage and heal numbers on your frames."] },
-	{ name = "Minimap", label = L["Minimap"], note = L["A square minimap with zone, clock and buttons."] },
+	{ name = "Minimap", label = L["Minimap"], note = L["A round lens map with zone, clock and buttons."] },
 	{ name = "Chat", label = L["Chat"], note = L["Glass chat with tabs, copy and class colours."] },
 	{ name = "Bags", label = L["Bags"], note = L["One combined bag with search and sorting."] },
 	{ name = "Tooltips", label = L["Tooltips"], note = L["Glass tooltips with quality and class colours."] },
@@ -70,6 +70,10 @@ end
 
 local function writeLayout(name)
 	local positions = Layouts.Get(name)
+	for key, size in pairs(Layouts.Sizes(name)) do
+		local position = positions[key]
+		position.width, position.height = size.width, size.height
+	end
 	local stored = ns.Store.Layout()
 	local Layout = ns.Layout
 	local live = Layout and type(Layout.Get) == "function" and type(Layout.Update) == "function"
@@ -92,10 +96,41 @@ local function writeLayout(name)
 				stored[key] = entry
 			end
 			entry.anchor, entry.x, entry.y = position.anchor, position.x, position.y
+			if position.width then
+				entry.width, entry.height = position.width, position.height
+			end
 			saved = saved + 1
 		end
 	end
 	return moved, saved
+end
+
+local function lookup(node, path)
+	for part in path:gmatch("[^%.]+") do
+		if type(node) ~= "table" then
+			return nil
+		end
+		node = node[part]
+	end
+	return node
+end
+
+local function writeSettings(name)
+	local written, skipped = 0, 0
+	for _, entry in ipairs(Layouts.Settings(name)) do
+		local default
+		if Setup.Available(entry.module) then
+			default = lookup(ns.Store.Defaults(entry.module), entry.key)
+		end
+		if default ~= nil and type(default) == type(entry.value) then
+			ns.Options.Write(entry.module, entry.key, entry.value)
+			written = written + 1
+		else
+			skipped = skipped + 1
+		end
+	end
+	ns.Options.Write("Layout", "preset", name)
+	return written, skipped
 end
 
 function Setup.Apply(picked)
@@ -120,8 +155,10 @@ function Setup.Apply(picked)
 		end
 	end
 	local moved, saved = writeLayout(picked.layout)
+	local written, skipped = writeSettings(picked.layout)
 	Setup.MarkSeen()
-	log("applied layout " .. picked.layout .. ": " .. moved .. " elements moved now, " .. saved .. " saved for the reload; on: "
+	log("applied layout " .. picked.layout .. ": " .. moved .. " elements moved now, " .. saved .. " saved for the reload, "
+		.. written .. " module settings written, " .. skipped .. " skipped for modules that did not load; on: "
 		.. (#on > 0 and table.concat(on, ", ") or "none") .. "; off: " .. (#off > 0 and table.concat(off, ", ") or "none"))
 	return true
 end
