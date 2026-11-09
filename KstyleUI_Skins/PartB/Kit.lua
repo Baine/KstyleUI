@@ -553,7 +553,61 @@ local function RankBar(frame)
 	return Track(bar)
 end
 
-local function Bar(frame)
+local function FitBarLabel(bar)
+	local frame, label, rank = bar.frame, bar.label, bar.frame.rankText
+	if not label or bar.labelText == nil then
+		return
+	end
+	local inset = K.Widgets.Snap(frame, K.Tokens.Size("gapMedium"))
+	local gap = K.Widgets.Snap(frame, K.Tokens.Size("gapSmall"))
+	local width = frame:GetWidth()
+	local need = K.Widgets.TextWidth(label, nil)
+	if IsSecret(width) or type(width) ~= "number" or need == nil then
+		label:Show()
+		return
+	end
+	local taken = type(rank) == "table" and (K.Widgets.TextWidth(rank, 0) + gap) or 0
+	label:SetShown(need <= width - 2 * inset - taken)
+end
+
+local function PlaceBarTexts(bar)
+	local frame, label, rank = bar.frame, bar.label, bar.frame.rankText
+	local inset = K.Widgets.Snap(frame, K.Tokens.Size("gapMedium"))
+	local gap = K.Widgets.Snap(frame, K.Tokens.Size("gapSmall"))
+	if type(rank) == "table" then
+		rank:ClearAllPoints()
+		rank:SetPoint("RIGHT", frame, "RIGHT", -inset, 0)
+		rank:SetJustifyH("RIGHT")
+	end
+	if label then
+		label:ClearAllPoints()
+		label:SetPoint("LEFT", frame, "LEFT", inset, 0)
+		if type(rank) == "table" then
+			label:SetPoint("RIGHT", rank, "LEFT", -gap, 0)
+		else
+			label:SetPoint("RIGHT", frame, "RIGHT", -inset, 0)
+		end
+		FitBarLabel(bar)
+	end
+end
+
+local function SetBarLabel(bar, text)
+	if not bar.label then
+		return
+	end
+	if IsSecret(text) or type(text) ~= "string" or text == "" then
+		bar.labelText = nil
+		bar.label:SetText("")
+		bar.label:Hide()
+		return
+	end
+	bar.labelText = text
+	bar.label:SetText(text)
+	FitBarLabel(bar)
+end
+
+local function Bar(frame, opts)
+	opts = opts or {}
 	local side = Side(frame)
 	if side.partBBar then
 		return side.partBBar
@@ -564,14 +618,25 @@ local function Bar(frame)
 		keep[fill] = true
 	end
 	K.Skin.Strip(frame, { keep = keep })
-	local bar = { frame = frame }
+	local bar = { frame = frame, SetLabel = SetBarLabel, Restyle = PlaceBarTexts }
 	bar.backdrop = K.Skin.Backdrop(frame, { shape = "tile", fill = "surface", edge = "edgeBar", shadow = false })
-	ns.Style.StatusBar(frame)
+	ns.Style.StatusBar(frame, { accent = opts.accent == true })
 	if type(frame.rankText) == "table" then
 		ns.Style.Text(frame.rankText, "number", "textEmphasis")
 	end
+	if opts.label then
+		local overlay = CreateFrame("Frame", nil, frame)
+		overlay:SetAllPoints(frame)
+		overlay:SetFrameLevel(frame:GetFrameLevel() + 1)
+		bar.label = K.Widgets.FontString(overlay, "OVERLAY")
+		ns.Style.Text(bar.label, "body", "textEmphasis")
+		bar.label:SetJustifyH("LEFT")
+		bar.label:SetWordWrap(false)
+		SetBarLabel(bar, opts.label)
+	end
+	PlaceBarTexts(bar)
 	side.partBBar = bar
-	return bar
+	return Track(bar)
 end
 
 local function Rows(scrollBox, skinRow)
