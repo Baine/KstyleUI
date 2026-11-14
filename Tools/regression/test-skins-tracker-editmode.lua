@@ -1,4 +1,4 @@
--- test-skins-tracker-editmode.lua: dragging Blizzard's objective tracker in Edit Mode keeps its selection's rect, so Edit Mode's snap preview never does arithmetic on a nil rect, with the quest card off (the tracker skin and the RestedXP dock) and on; KstyleUI never anchors, sizes or reparents the tracker or its selection while it drags, and when Blizzard's layout apply puts a tracker the card hid back on UIParent, the card hides it again once Edit Mode closes.
+-- test-skins-tracker-editmode.lua: dragging Blizzard's objective tracker in Edit Mode keeps its selection's rect, so Edit Mode's snap preview never does arithmetic on a nil rect, with the quest card off (the tracker skin and the RestedXP dock) and on, at Apply's place and at Blizzard's default place in the right managed container; KstyleUI never anchors, sizes or reparents the tracker or its selection while it drags, when Blizzard's layout apply puts a tracker the card hid back on UIParent the card hides it again once Edit Mode closes, and a tracker the card hides keeps a rect even when its anchor names no frame and hangs on its parent.
 local S = dofile("Tools/regression/skins_env.lua")
 local Quests = dofile("Tools/regression/quests_fake.lua")
 local RestedXP = dofile("Tools/regression/restedxp_fake.lua")
@@ -64,8 +64,34 @@ local function Place(env, K, tracker, guide)
 	tracker:SetHeight(EDIT_MODE_HEIGHT)
 end
 
+-- Managed(env, tracker): ManagedFrameContainerMixin:UpdateFrame (ManagedFrameSystem.lua:46) for a tracker in its
+-- default place: ClearAllPoints, SetParent(RightManagedFrameContainer), then the container's layout pins it with
+-- VerticalLayoutMixin:LayoutChildren's right-aligned anchor, which names no relative frame (LayoutFrame.lua:347), so it
+-- hangs on the tracker's parent.
+local function Managed(env, tracker)
+	tracker:ClearAllPoints()
+	tracker:SetParent(env.RightManagedFrameContainer)
+	tracker:SetPoint("TOPRIGHT", 0, 0)
+	tracker:SetHeight(EDIT_MODE_HEIGHT)
+end
+
+-- StartMoving(env, tracker): OnDragStart for a tracker in its default place (EditModeSystemTemplates.lua:890):
+-- BreakFromFrameManager takes it out of the container, whose RemoveManagedFrame keeps its anchor because the tracker
+-- has IsInDefaultPosition (ManagedFrameSystem.lua:99), and puts it on UIParent (EditModeSystemTemplates.lua:343), so
+-- the anchor that names no frame now hangs on UIParent; then the snap preview starts reading its selection, and the
+-- engine moves it from where it stands.
+local function StartMoving(env, tracker)
+	tracker:SetParent(env.UIParent)
+	local ok, err = pcall(Sides, tracker)
+	assert(ok, "the first snap preview of the drag reads the selection's rect: " .. tostring(err))
+	local left, top = tracker:GetLeft(), tracker:GetTop()
+	tracker:ClearAllPoints()
+	tracker:SetPoint("TOPLEFT", env.UIParent, "BOTTOMLEFT", left, top)
+end
+
 -- Boot(opts) -> env, K, ns, tracker: Skins on, RestedXP's guide in the rail, Blizzard's tracker where Apply's Edit
--- Mode layout puts it with the selection EditModeObjectiveTrackerSystemMixin:AnchorSelectionFrame hangs on it.
+-- Mode layout puts it (or, with opts.managed, in the right managed container as Blizzard's default place does) with
+-- the selection EditModeObjectiveTrackerSystemMixin:AnchorSelectionFrame hangs on it.
 local function Boot(opts)
 	local tracker
 	local env, K, ns = S.New({
@@ -82,7 +108,14 @@ local function Boot(opts)
 			selection:SetPoint("TOPLEFT", tracker, "TOPLEFT", -30, 0)
 			selection:SetPoint("BOTTOMRIGHT", tracker, "BOTTOMRIGHT", 0, 0)
 			tracker.Selection = selection
-			Place(env, K, tracker, true)
+			if opts.managed then
+				local container = env.CreateFrame("Frame", "RightManagedFrameContainer", env.UIParent)
+				container:SetPoint("TOPRIGHT", env.UIParent, "TOPRIGHT", -110, -275)
+				container:SetSize(260, EDIT_MODE_HEIGHT)
+				Managed(env, tracker)
+			else
+				Place(env, K, tracker, true)
+			end
 		end,
 	})
 	K.Modules.Enable("Skins")
@@ -163,6 +196,31 @@ do
 	assert(not tracker:IsVisible(), "after Edit Mode closes the card hides Blizzard's tracker again")
 	assert(ns.Quests.Active() and ns.Quests.Card():IsShown(), "and keeps the slot")
 	assert(pcall(Sides, tracker), "the hidden tracker keeps a rect for Edit Mode's next look")
+	Clean(env, K)
+end
+
+-- The card on, the tracker in Blizzard's default place (a preset layout, or Reset To Default Position): the card hides
+-- it on Safe's hidden parent, and its anchor, which names no frame, hangs on that parent. Safe's hidden parent spans
+-- UIParent, so the hidden tracker keeps a rect at rest, on Edit Mode's enter and after Edit Mode closes; this pins
+-- Safe's parked state, which the snap preview (EditModeManager.lua:85, :1116) would read without asking whether the
+-- frame shows. Blizzard's layout apply puts it back in its container, and the drag from there keeps its rect.
+
+do
+	local env, K, ns, tracker = Boot({ managed = true })
+	assert(ns.Quests.Active() and not tracker:IsVisible(), "the card stands in for the tracker in its default place")
+	assert(K.Safe.IsHidden(tracker), "the card hid Blizzard's tracker")
+	assert(pcall(Sides, tracker), "the hidden tracker keeps a rect at rest")
+	Enter(env)
+	assert(pcall(Sides, tracker), "and on Edit Mode's enter")
+	Managed(env, tracker)
+	assert(tracker:IsVisible(), "Blizzard's layout apply puts the tracker back in its container")
+	StartMoving(env, tracker)
+	Drag(env, K, tracker, 12)
+	Managed(env, tracker)
+	Exit(env)
+	assert(not tracker:IsVisible() and K.Safe.IsHidden(tracker), "after Edit Mode closes the card hides Blizzard's tracker again")
+	assert(ns.Quests.Active() and ns.Quests.Card():IsShown(), "and keeps the slot")
+	assert(pcall(Sides, tracker), "and the hidden tracker keeps a rect after Edit Mode closes")
 	Clean(env, K)
 end
 
