@@ -498,6 +498,9 @@ local function RestyleWidgets()
 end
 
 local function ApplyGeometry(el, quiet)
+	if not el.default then
+		return
+	end
 	local frame, s = el.frame, el.settings
 	local oldWidth, oldHeight = FrameSize(frame)
 	local restyle = false

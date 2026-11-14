@@ -474,6 +474,35 @@ do
 	assert(logged, "a missing Layout service is logged")
 end
 
+-- A size change the client delivers while Layout.Register reads the frame's size (GetWidth flushes the pending OnSizeChanged) must not apply geometry: the element's settings are still empty.
+do
+	local env, K = W.New()
+	local function placeEarly(key, opts)
+		local frame = env.CreateFrame("Frame", nil, K.Scale.Root())
+		frame:SetWidth(203.7)
+		frame:SetHeight(51.3)
+		local getWidth = frame.GetWidth
+		local inside, fired = false, false
+		frame.GetWidth = function(self)
+			local w = getWidth(self)
+			local handler = not inside and self:GetScript("OnSizeChanged")
+			if handler then
+				inside, fired = true, true
+				handler(self, w, self:GetHeight())
+				inside = false
+			end
+			return w
+		end
+		K.Widgets.Place(frame, key, { anchor = "TOP", x = 0, y = -40 }, opts)
+		assert(fired, key .. ": the size change fires during registration")
+		assert(#env._errors == 0, key .. ": no geometry before the element resolves: " .. tostring(env._errors[1]))
+		assert(K.Layout.Get(key) and K.Layout.Get(key).anchor == "TOP", key .. ": and it resolves afterwards")
+	end
+	placeEarly("Test.EarlyScalable", { scalable = true, label = "Early" })
+	placeEarly("Test.EarlyPlain", { label = "Plain" })
+	assert(K.Layout.Get("Test.EarlyScalable").scale == 1, "the scalable element keeps scale 1")
+end
+
 -- Sound plays a sound kit while the sounds setting is on, and is silent without PlaySound.
 do
 	local played = {}
