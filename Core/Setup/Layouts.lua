@@ -418,6 +418,7 @@ local ORBS = {
 	["cooldowns.bars"] = { anchor = "BOTTOM", x = ORBS_X, y = ORBS_TRACKED_Y },
 	["actionbars.pet"] = { anchor = "BOTTOMLEFT", x = EDGE, y = ORBS_FIT.cornerY },
 	["actionbars.stance"] = { anchor = "BOTTOMLEFT", x = EDGE + ORBS_PET_W + NEAR, y = ORBS_FIT.cornerY },
+	["actionbars.bar3"] = { anchor = "BOTTOMLEFT", x = EDGE, y = ORBS_FIT.cornerY + select(2, GridSize("actionbars.pet")) + NEAR },
 	["databars.rep"] = { anchor = "BOTTOM", x = -ORBS_FIT.tieX, y = 52 },
 	["databars.honor"] = { anchor = "BOTTOM", x = ORBS_FIT.tieX, y = 52 },
 	["unitframes.pet"] = { anchor = "BOTTOMLEFT", x = EDGE + ORBS_PET_W + NEAR + ORBS_STANCE_W + NEAR + ORBS_GLOW, y = ORBS_FIT.cornerY },
@@ -1091,7 +1092,7 @@ function Layouts.Fits(name, physicalWidth, physicalHeight, user, enabled, positi
 			local w = max(1, floor(width * pixelScale + 0.5))
 			local h = max(1, floor(height * pixelScale + 0.5))
 			local point = OFFSETS[position.anchor] or OFFSETS.CENTER
-			local left = floor(physicalWidth * point[1] + (position.x + (offsetX or 0)) * pixelScale - w * point[1] + 0.5)
+			local left = floor(physicalWidth * point[1] + position.x * pixelScale - w * point[1] + 0.5) + (offsetX or 0) * pixelScale
 			local bottom = floor(physicalHeight * point[2] + position.y * pixelScale - h * point[2] + 0.5)
 			local right, top = left + w, bottom + h
 			if left < 0 or bottom < 0 or right > physicalWidth or top > physicalHeight or right <= left or top <= bottom then
@@ -1107,6 +1108,46 @@ function Layouts.Fits(name, physicalWidth, physicalHeight, user, enabled, positi
 				end
 			end
 			rects[#rects + 1] = { left, bottom, right, top, key = key }
+		end
+	end
+	local orbs = false
+	for _, element in ipairs(style == "orbs" and ELEMENTS or {}) do
+		orbs = orbs or element.module == "UnitFrames" and enabled[element.key] ~= false
+	end
+	if orbs then
+		local bar = layout["actionbars.bar1"]
+		local barWidth, barHeight = Layouts.Footprint(name, "actionbars.bar1")
+		local w = max(1, floor(barWidth * pixelScale + 0.5))
+		local h = max(1, floor(barHeight * pixelScale + 0.5))
+		local point = OFFSETS[bar.anchor] or OFFSETS.CENTER
+		local art = Layouts.OrbsTray(w / pixelScale)
+		local radius = max(art.ring * pixelScale, floor(art.ring * pixelScale + 0.5)) / 2
+		local centres = {}
+		local left = physicalWidth * point[1] + bar.x * pixelScale - w * point[1] + 0.5
+		local bottom = physicalHeight * point[2] + bar.y * pixelScale - h * point[2] + 0.5
+		local function Ties(v)
+			local whole, part = floor(v), v - floor(v)
+			return { whole, part < 1e-6 and whole - 1 or part > 1 - 1e-6 and whole + 1 or nil }
+		end
+		for _, l in ipairs(Ties(left)) do
+			for _, b in ipairs(Ties(bottom)) do
+				local x, y = l + w / 2, b + h / 2 + art.lift * pixelScale
+				centres[#centres + 1] = { x - art.ringX * pixelScale, y }
+				centres[#centres + 1] = { x + art.ringX * pixelScale, y }
+			end
+		end
+		for _, centre in ipairs(centres) do
+			local cx, cy = centre[1], centre[2]
+			if cx - radius < 0 or cy - radius < 0 or cx + radius > physicalWidth or cy + radius > physicalHeight then
+				return false
+			end
+			for index = 1, #rects do
+				local rect = rects[index]
+				local dx, dy = max(rect[1] - cx, 0, cx - rect[3]), max(rect[2] - cy, 0, cy - rect[4])
+				if dx * dx + dy * dy < radius * radius then
+					return false
+				end
+			end
 		end
 	end
 	return true
@@ -1129,12 +1170,15 @@ function Layouts.ScaleLimit(physicalWidth, physicalHeight, preset, enabled, styl
 	local signature = style .. table.concat(flags)
 	local cached = limits[preset]
 	if cached and cached.width == physicalWidth and cached.height == physicalHeight and cached.signature == signature then
-		return cached.scale
+		return cached.scale, cached.fits
 	end
 	local positions = Layouts.Positions(preset, style, ns.Scale.AspectClass(physicalWidth, physicalHeight))
-	if Layouts.Fits(preset, physicalWidth, physicalHeight, high, enabled, positions, style) then
-		limits[preset] = { width = physicalWidth, height = physicalHeight, signature = signature, scale = high }
-		return high
+	local function fits(size)
+		return Layouts.Fits(preset, physicalWidth, physicalHeight, size, enabled, positions, style)
+	end
+	if fits(high) then
+		limits[preset] = { width = physicalWidth, height = physicalHeight, signature = signature, scale = high, fits = fits }
+		return high, fits
 	end
 	local span = HEIGHT
 	for _, element in ipairs(ELEMENTS) do
@@ -1148,7 +1192,7 @@ function Layouts.ScaleLimit(physicalWidth, physicalHeight, preset, enabled, styl
 		if candidate == high then
 			break
 		end
-		if Layouts.Fits(preset, physicalWidth, physicalHeight, candidate, enabled, positions, style) then
+		if fits(candidate) then
 			low = candidate
 			break
 		end
@@ -1156,12 +1200,12 @@ function Layouts.ScaleLimit(physicalWidth, physicalHeight, preset, enabled, styl
 	end
 	for _ = 1, 32 do
 		local candidate = (low + high) / 2
-		if Layouts.Fits(preset, physicalWidth, physicalHeight, candidate, enabled, positions, style) then
+		if fits(candidate) then
 			low = candidate
 		else
 			high = candidate
 		end
 	end
-	limits[preset] = { width = physicalWidth, height = physicalHeight, signature = signature, scale = low }
-	return low
+	limits[preset] = { width = physicalWidth, height = physicalHeight, signature = signature, scale = low, fits = fits }
+	return low, fits
 end
