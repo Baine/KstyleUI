@@ -663,7 +663,7 @@ def verify(repo=REPO, complete=False):
     anchors = load_json(here / "anchors.json", {})
     listed = {e["file"] for e in entries}
     media = repo / MEDIA
-    on_disk = {p.relative_to(repo).as_posix() for p in media.rglob("*") if p.is_file()} if media.exists() else set()
+    on_disk = {p.relative_to(repo).as_posix() for folder in FOLDERS.values() for p in (media / folder).rglob("*") if p.is_file()}
     problems += [f"{f} has no manifest entry" for f in sorted(on_disk - listed)]
     problems += [f"the manifest lists {f}, which is missing" for f in sorted(listed - on_disk)]
     for e in entries:
