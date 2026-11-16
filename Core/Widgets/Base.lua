@@ -778,19 +778,15 @@ local function PixelsOf(region)
 		return nil
 	end
 	local w, h = region:GetWidth(), region:GetHeight()
-	if IsSecret(w) or IsSecret(h) or type(w) ~= "number" or type(h) ~= "number" or w ~= w or h ~= h then
-		return nil
-	end
 	local px = Scale.Pixel(1) / Widgets.ScaleFactor(region)
-	return w / px, h / px
+	w = not IsSecret(w) and type(w) == "number" and w == w and w / px or nil
+	h = not IsSecret(h) and type(h) == "number" and h == h and h / px or nil
+	return w, h
 end
 
 function Widgets.Remainder(region)
 	local w, h = PixelsOf(region)
-	if not w then
-		return 0, 0
-	end
-	return floor(w + 0.5) - w, floor(h + 0.5) - h
+	return w and floor(w + 0.5) - w or 0, h and floor(h + 0.5) - h or 0
 end
 
 local function Waits(region, fn, ...)
@@ -863,17 +859,18 @@ local function Record(region)
 end
 
 local Reown, Refollow
+local followed, following = setmetatable({}, { __mode = "k" }), setmetatable({}, { __mode = "k" })
 local TEXT_CHANGES = { "SetText", "SetFormattedText", "SetFont", "SetFontObject", "SetWidth" }
 
 local function HookText(text)
-	if text.kstyleTextFollowed or type(text.IsObjectType) ~= "function" then
+	if followed[text] or type(text.IsObjectType) ~= "function" then
 		return
 	end
 	local isText = text:IsObjectType("FontString")
 	if IsSecret(isText) or isText ~= true then
 		return
 	end
-	text.kstyleTextFollowed = true
+	followed[text] = true
 	for _, method in ipairs(TEXT_CHANGES) do
 		hooksecurefunc(text, method, function(self)
 			Refollow(self)
@@ -882,8 +879,8 @@ local function HookText(text)
 end
 
 local function HookFollow(frame)
-	if dependents[frame] and not frame.kstyleFollowed and type(frame.HookScript) == "function" and IsFrame(frame) then
-		frame.kstyleFollowed = frame:HookScript("OnSizeChanged", Refollow) ~= false
+	if dependents[frame] and not followed[frame] and type(frame.HookScript) == "function" and IsFrame(frame) then
+		followed[frame] = frame:HookScript("OnSizeChanged", Refollow) ~= false
 	end
 end
 
@@ -908,7 +905,7 @@ function Widgets.Point(region, point, relativeTo, relativePoint, x, y)
 		relW, relH = PixelsOf(relative)
 	end
 	local dx = OnPixel((x or 0) / px, rel[1], relW, own[1], ownW)
-	local dy = -OnPixel(-(y or 0) / px, 1 - rel[2], relH, 1 - own[2], ownH)
+	local dy = 0 - OnPixel(-(y or 0) / px, 1 - rel[2], relH, 1 - own[2], ownH)
 	region:SetPoint(point, relative, relativePoint, dx * px, dy * px)
 	if Inside(region) then
 		return
@@ -930,9 +927,7 @@ function Widgets.Point(region, point, relativeTo, relativePoint, x, y)
 			dependents[relative] = set
 		end
 		set[region] = true
-		if helped[relative] then
-			HookFollow(relative)
-		end
+		HookFollow(relative)
 		HookText(relative)
 	end
 end
@@ -949,7 +944,9 @@ end
 
 function Widgets.Fill(region, relativeTo, left, top, right, bottom)
 	local relative = relativeTo or region:GetParent()
-	region.kstyleFill = { relativeTo, left, top, right, bottom }
+	local requested = region.kstyleFill or {}
+	requested[1], requested[2], requested[3], requested[4], requested[5] = relativeTo, left, top, right, bottom
+	region.kstyleFill = requested
 	if Waits(region, Widgets.Fill, region, relativeTo, left, top, right, bottom) then
 		return
 	end
@@ -959,7 +956,10 @@ function Widgets.Fill(region, relativeTo, left, top, right, bottom)
 	local r, b = (right or 0) / px, (bottom or 0) / px
 	local dx, dy = -floor(r + 0.5), floor(b + 0.5)
 	if w then
-		dx, dy = floor(w - r + 0.5) - w, h - floor(h - b + 0.5)
+		dx = floor(w - r + 0.5) - w
+	end
+	if h then
+		dy = h - floor(h - b + 0.5)
 	end
 	region:ClearAllPoints()
 	region:SetPoint("TOPLEFT", relative, "TOPLEFT", l * px, -t * px)
@@ -1028,17 +1028,17 @@ end
 
 function Refollow(frame)
 	local set = dependents[frame]
-	if not set or frame.kstyleFollowing then
+	if not set or following[frame] then
 		return
 	end
-	frame.kstyleFollowing = true
+	following[frame] = true
 	for region in pairs(set) do
 		local record = helped[region]
 		if record then
 			pcall(Replay, region, record, frame)
 		end
 	end
-	frame.kstyleFollowing = false
+	following[frame] = nil
 end
 
 Widgets.Refollow = Refollow
