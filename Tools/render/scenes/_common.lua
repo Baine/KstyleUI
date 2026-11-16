@@ -115,7 +115,7 @@ end
 
 -- ForceScreen(env) gives any environment the owner's screen, whatever options its loader passed on. Call it
 -- from the loader's setup hook, after Stubs.NewEnv has made UIParent and before the addon loads.
-function Common.ForceScreen(env)
+function Common.ForceScreen(env, completePreset)
 	-- RENDER_HUD_STYLE (Frames, Orbs or Medallions) is the saved HUD style of every profile the scene loads that names none.
 	local style = rawget(_G, "RENDER_HUD_STYLE") or os.getenv("RENDER_HUD_STYLE")
 	local db = rawget(env, "KstyleUIDB")
@@ -147,6 +147,25 @@ function Common.ForceScreen(env)
 	-- A scene shows the HUD at the Interface size KstyleUI ships, not the tests' size 1 (Stubs.NewEnv).
 	env._size = Common.SCREEN.size or "default"
 	env._fitScale = true
+	if env._size == "auto" and completePreset then
+		local fire = env.FireEvent
+		env.FireEvent = function(...)
+			local K = env.KstyleUI
+			if K and K.Setup and K.Setup.Layouts then
+				local layouts = K.Setup.Layouts
+				local limit = layouts.ScaleLimit
+				layouts.ScaleLimit = function(w, h, preset, _, hudStyle)
+					local enabled = layouts.Enabled(preset)
+					if (rawget(_G, "RENDER_BAR3") or os.getenv("RENDER_BAR3")) == "1" then
+						enabled["actionbars.bar3"] = true
+					end
+					return limit(w, h, preset, enabled, hudStyle)
+				end
+				env.FireEvent = fire
+			end
+			return fire(...)
+		end
+	end
 	env.GetPhysicalScreenSize = function()
 		return width, height
 	end
