@@ -1,4 +1,4 @@
--- Vehicle.lua: the leave-vehicle button beside bar 1, an action slot like bar 1's own with the close glyph in its well, which stands in for Blizzard's button that hides with the main bar.
+-- Vehicle.lua: the leave-vehicle slot below the Medallions slab, beyond the power orb or beside the Frames tray and stance bar.
 local _, ns = ...
 
 local K = KstyleUI
@@ -33,8 +33,7 @@ function Vehicle.Build()
 	if ns.leaveButton then
 		return ns.leaveButton
 	end
-	local bar = ns.bars.bar1
-	local button = Widgets.Slot(bar and bar.holder or K.Scale.Root(), {
+	local button = Widgets.Slot(K.Scale.Root(), {
 		name = "KstyleUI_LeaveVehicleButton",
 		icon = (Tokens.Texture("glyphClose")),
 		crop = false,
@@ -53,15 +52,28 @@ function Vehicle.Update()
 		return
 	end
 	local bar = ns.bars.bar1
+	button:SetScale(bar and bar.holder:GetScale() or 1)
 	local size = bar and bar:Config().size or Tokens.Size("actionButton")
+	if bar and K.HudStyle.Current() == "medallions" then
+		size = ns.Slab.Size(bar.def, bar:Config())
+	end
 	if button.opts.size ~= size then
 		button.opts.size = size
 		button:Restyle()
 	end
 	button:ClearAllPoints()
-	if bar then
+	if bar and K.HudStyle.Current() == "medallions" then
+		local slab = ns.Slab.Spec()
+		button:SetPoint("TOPLEFT", bar.holder, "BOTTOMLEFT", 0, -Widgets.Snap(button, slab.stripGap + slab.strip + slab.bottom + Tokens.Size("gapSmall")))
+	elseif bar and K.HudStyle.Current() == "orbs" then
+		local width = bar.holder:GetWidth()
+		local art = K.Setup.Layouts.OrbsTray(width)
+		button:SetPoint("LEFT", bar.holder, "RIGHT", Widgets.Snap(button, art.ringX + art.ring / 2 - width / 2 + Tokens.Size("gapMedium")), 0)
+	elseif bar then
 		local pad = ns.Config("tray") == true and K.Setup.Layouts.TRAY_PAD or 0
-		button:SetPoint("LEFT", bar.holder, "RIGHT", Widgets.Snap(button, Tokens.Size("gapMedium") + pad), 0)
+		local stance = ns.bars.stance
+		local anchor = K.HudStyle.Current() == "frames" and stance and stance:Shown() and stance.count > 0 and stance.holder or bar.holder
+		button:SetPoint("LEFT", anchor, "RIGHT", Widgets.Snap(button, Tokens.Size("gapMedium") + pad), 0)
 	else
 		local root = K.Scale.Root()
 		button:SetPoint("BOTTOM", root, "BOTTOM", 0, Tokens.Size("gapHuge"))
