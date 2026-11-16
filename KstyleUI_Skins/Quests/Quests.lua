@@ -16,6 +16,7 @@ local DEFAULT_SHOWN, MIN_SHOWN, MAX_SHOWN = 4, 1, 8
 local EVENTS = {
 	"QUEST_LOG_UPDATE", "QUEST_WATCH_LIST_CHANGED", "SUPER_TRACKING_CHANGED", "QUEST_ACCEPTED", "QUEST_REMOVED",
 	"QUEST_TURNED_IN", "QUEST_AUTOCOMPLETE",
+	"QUEST_DATA_LOAD_RESULT",
 }
 
 local state = { on = false, active = false, dirty = false, built = false, queued = false, holder = nil, guide = nil, give = 0 }
@@ -138,10 +139,25 @@ local function Flush()
 		return
 	end
 	Data.Read()
+	if Data.status ~= state.readStatus then
+		state.readStatus = Data.status
+		if Data.status ~= "ready" then
+			K.DevTest.Log(OWNER, "read-deferred reason=" .. tostring(Data.status) .. " watches=" .. tostring(Data.watches)
+				.. " retained=" .. tostring(Data.Count()) .. Quests.Diagnostic())
+		end
+	end
+	if Data.status ~= "ready" and InCombatLockdown() and not state.retry then
+		state.retry = true
+		K.Combat.Queue(function()
+			state.retry = false
+			Flush()
+		end)
+	end
 	Card.Render()
 end
 
-local function Dirty()
+local function Dirty(reason)
+	state.trigger = type(reason) == "string" and not IsSecret(reason) and reason or "refresh"
 	if state.dirty or not state.active then
 		return
 	end
@@ -257,8 +273,8 @@ local function Build()
 	end
 	hooksecurefunc(tracker, "SetParent", OnTrackerParent)
 	for _, event in ipairs(EVENTS) do
-		K.Events.Register(OWNER, event, function()
-			Dirty()
+		K.Events.Register(OWNER, event, function(name)
+			Dirty(name)
 			Evaluate()
 		end)
 	end
@@ -324,6 +340,12 @@ end
 
 function Quests.Active()
 	return state.active
+end
+
+function Quests.Diagnostic()
+	return " trigger=" .. tostring(state.trigger) .. " dirty=" .. tostring(state.dirty)
+		.. " evaluateQueued=" .. tostring(state.queued) .. " replaceQueued=" .. tostring(state.replacing)
+		.. " guide=" .. tostring(state.guide) .. " guideShown=" .. tostring(state.shown) .. " give=" .. tostring(state.give)
 end
 
 function Quests.Card()
