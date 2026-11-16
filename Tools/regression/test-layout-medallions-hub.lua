@@ -1,4 +1,3 @@
--- test-layout-medallions-hub.lua: under the Medallions HUD style the hub's footprint, a square the ring wide centred on the slots' top edge, never overlaps a slot of the action slab at any CREW screen, in all three presets: bars 1 and 2 stand in one row each at 21:9 and wider and two rows of six at 16:9 (Layouts.MEDALLIONS_ROWS), on one baseline mirrored about the centre line with at least MEDALLIONS_HUB_GAP between them, the experience strip runs along the slab's lower edge under both groups and the gap (the hub drawn over it), the fit check counts the hub as a rect no other element may enter, and the scale limit is the largest step that fits it.
 local CoreEnv = dofile("Tools/regression/core_env.lua")
 
 local env, K = CoreEnv.New({
@@ -34,8 +33,7 @@ for _, name in ipairs(Layouts.Names()) do
 		assert(one.anchor == "BOTTOM" and two.anchor == "BOTTOM", label .. ": the slab's groups anchor to the bottom centre")
 		assert(one.y == two.y and one.x == -two.x, label .. ": bar 1 and bar 2 share a baseline and mirror about the centre line")
 		local columns, rows, groupWidth, groupHeight, size, spacing = Layouts.MedallionsGroup(class)
-		local want = Layouts.MEDALLIONS_ROWS[class] or 1
-		assert(rows == want and columns * rows == 12, label .. ": each group holds the bar's twelve slots in " .. want .. " row(s), got " .. columns .. "x" .. rows)
+		assert(rows == 1 and columns == 12, label .. ": each group holds the bar's twelve slots in one row, got " .. columns .. "x" .. rows)
 		assert(size >= Layouts.MEDALLIONS_SLOT.floor, label .. ": the slots keep the slot floor")
 		assert(two.x - groupWidth / 2 - (one.x + groupWidth / 2) >= GAP - 1e-9, label .. ": the groups stand at least the hub gap apart")
 		local hub = { -RING / 2, one.y + groupHeight - RING / 2, RING / 2, one.y + groupHeight + RING / 2 }
@@ -62,6 +60,27 @@ for _, name in ipairs(Layouts.Names()) do
 		crowded["unitframes.player"].x, crowded["unitframes.player"].y = 0, one.y + groupHeight
 		assert(not Layouts.Fits(name, width, height, maximum, enabled, crowded, "medallions"), label .. ": a unit frame placed on the hub does not fit")
 	end
+end
+do
+	local function Only(key, other)
+		return setmetatable({ [key] = true, [other or key] = true }, { __index = function() return false end })
+	end
+	for key, diameter in pairs({ ["unitframes.player"] = 86, ["unitframes.target"] = 86, ["unitframes.pet"] = 56 }) do
+		assert(Layouts.MEDALLIONS_MEDALS[key].d == diameter, key .. ": Fits must use the rendered medallion diameter")
+		local at = Layouts.Positions("DPS", "medallions", "16:9")
+		local right = key == "unitframes.target"
+		at[key] = { anchor = right and "BOTTOMRIGHT" or "BOTTOMLEFT", x = 0, y = 200 }
+		assert(not Layouts.Fits("DPS", 1920, 1080, 1, Only(key), at, "medallions"), key .. ": Fits must count the square medallion overhang at the screen edge")
+		at[key].x = right and -50 or 50
+		assert(Layouts.Fits("DPS", 1920, 1080, 1, Only(key), at, "medallions"), key .. ": moving the whole medallion on screen must fit")
+	end
+	local at = Layouts.Positions("DPS", "medallions", "16:9")
+	at["unitframes.player"] = { anchor = "BOTTOMLEFT", x = 300, y = 200 }
+	at["unitframes.targettarget"] = { anchor = "BOTTOMLEFT", x = 90, y = 205 }
+	local enabled = Only("unitframes.player", "unitframes.targettarget")
+	assert(not Layouts.Fits("DPS", 1920, 1080, 1, enabled, at, "medallions"), "Fits must reject another slab on the medallion's square, even when the unit slabs are clear")
+	at["unitframes.targettarget"].x = 80
+	assert(Layouts.Fits("DPS", 1920, 1080, 1, enabled, at, "medallions"), "Fits must accept the same slabs once the medallion is clear")
 end
 assert(slots > 0, "the test checked slots")
 print("ok layout medallions hub: " .. slots .. " slot rects, " .. #SCREENS .. " screens, 3 presets")

@@ -62,11 +62,17 @@ end
 
 local view = frames.player.views[1]
 assert(view.form == "slab" and view.geometry.form == "slab", "the player is laid out as a slab")
-assert(view.slab and view.slab.fill:IsShown(), "the slab fill shows")
+assert(view.slab and view.slab[5]:IsShown(), "the slab's sliced material shows")
+assert(view.slab[5]:GetTexture() == (K.Tokens.Texture("medUnitSlab")), "the slab wears the shared unit slab texture, not drawn lines")
+assert(view.healthText:GetJustifyH() == "RIGHT" and select(3, view.healthText:GetFont()) == "OUTLINE", "the player's health number sits right in the bar, outlined")
+assert(view.healthText:GetFont() == K.Tokens.Font("number") and Settings.Font("player", "power") == K.Tokens.Font("number"), "the health and power numbers read in the number role")
+assert(view.health.finish == "medallions" and view.health.cleanSheen:IsShown() and view.health.cleanLit:IsShown(), "the bar wears the Medallions finish: shade, sheen and a lit fill end")
+assert(not view.health.under.edgeSoft:IsShown() and view.health.under.edgeHard:IsShown(), "only the one black pixel stands round the bar")
 assert(view.geometry.chrome == false, "the glass chrome is off")
 local m = view.medallion
 assert(m and m:IsShown(), "the player medallion shows")
 local g = view.geometry
+assert(g.medal.w == 86 and g.medal.h == 86, "the player medallion must remain an 86-unit square")
 assert(g.medal.x < 0 and g.medal.x + g.medal.w / 2 > 0, "the medallion hangs off the slab's outer end, centred just inside it")
 assert(g.medalSide == "LEFT" and not g.mirror, "player medallion on the left")
 assert(g.health.x > g.medal.x + g.medal.w / 2, "the bar starts clear of the medallion")
@@ -81,8 +87,10 @@ assert(m.sheenAnim:IsPlaying(), "the player portrait carries the sheen")
 
 local target = frames.target.views[1]
 local tm = target.medallion
+assert(target.geometry.medal.w == 86 and target.geometry.medal.h == 86, "the target medallion must remain an 86-unit square")
 assert(tm and tm:IsShown() and target.geometry.medalSide == "RIGHT" and target.geometry.mirror, "the target medallion sits on the right")
 assert(target.geometry.medal.x + target.geometry.medal.w > target.geometry.glass.w, "it hangs off the slab's right end")
+assert(target.healthText:GetJustifyH() == "LEFT", "the target's health number sits left in the bar, away from its medallion")
 local hr, hg, hb = K.Tokens.Color("healthHostile")
 er, eg, eb = tm.enamel:GetVertexColor()
 assert(near(er, hr) and near(eg, hg) and near(eb, hb), "a hostile NPC's ring takes the hostile colour")
@@ -112,6 +120,7 @@ assert(env._portraits[tm.portrait] == "target", "a secret identity keeps the eng
 noErrors("secret class")
 
 local pet = frames.pet.views[1]
+assert(pet.geometry.medal.w == 56 and pet.geometry.medal.h == 56, "the pet medallion must remain a 56-unit square")
 assert(pet.medallion.plaque:IsShown(), "the pet medallion carries its plaque even with the pet's level setting off")
 
 player.secretIdentity = true
@@ -156,7 +165,8 @@ assert(near(er, cr) and near(eg, cg) and near(eb, cb), "the class ring returns")
 noErrors("effects")
 
 K.Options.Write("HudStyle", "style", "frames")
-assert(view.form ~= "slab" and not m:IsShown() and not view.slab.fill:IsShown(), "Frames hides the slab and the medallion")
+assert(view.form ~= "slab" and not m:IsShown() and not view.slab[5]:IsShown(), "Frames hides the slab and the medallion")
+assert(view.health.finish == nil and view.health.under.edgeSoft:IsShown(), "Frames takes its own bar finish and soft edge back")
 assert(not m.sheenAnim:IsPlaying() and not m.pulse:IsPlaying(), "the medallion's animations stop")
 noErrors("back to Frames")
 print("ok unitframes medallions")

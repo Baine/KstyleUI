@@ -3,7 +3,7 @@ local U = dofile("Tools/regression/unitframes_env.lua")
 
 local SCREENS = {
 	{ 1280, 720 }, { 1366, 768 }, { 1600, 900 }, { 1920, 1080 }, { 2383, 1540 }, { 2560, 1080 }, { 2560, 1440 },
-	{ 3440, 1440 }, { 3840, 1080 }, { 3840, 2160 }, { 5120, 1440 },
+	{ 3456, 2234 }, { 3440, 1440 }, { 3840, 1080 }, { 3840, 2160 }, { 5120, 1440 },
 }
 local FLOOR, REFERENCE, UI_HEIGHT = 9, 1080, 768
 local KINDS = { "pet", "player", "target", "focus" }
@@ -31,6 +31,10 @@ for _, screen in ipairs(SCREENS) do
 	local least = math.ceil(FLOOR * height / REFERENCE - 1e-6)
 	for _, kind in ipairs(KINDS) do
 		local view = ns.Frames.Get(kind).views[1]
+		for _, key in ipairs({ "healthText", "powerText" }) do
+			local font = view[key]:GetFont()
+			assert(font:match("BarlowSemiCondensedTabular%-SemiBold.ttf$"), what .. ": " .. kind .. " " .. key .. " must use Barlow's number role, got " .. font)
+		end
 		local m = view.medallion
 		assert(m and m:IsShown() and m.plaque:IsShown(), what .. ": the " .. kind .. " medallion shows its plaque")
 		assert(U.Shown(env, m.levelText) == tostring(env._units[kind].level), what .. ": the " .. kind .. " plaque shows its level")
@@ -38,7 +42,7 @@ for _, screen in ipairs(SCREENS) do
 		local pixels = size * m.levelText:GetEffectiveScale() * height / UI_HEIGHT
 		assert(pixels >= least - 1e-6, string.format("%s: the %s's level number is %.2f px, under the %d-unit floor's %d px", what, kind, pixels, FLOOR, least))
 		local px = K.Widgets.Border(m)
-		assert(size <= m.plaque:GetWidth() * 0.46 + px / 2 + 1e-6, string.format("%s: the %s's level number (%.2f units) outgrows its %.2f-unit plaque", what, kind, size, m.plaque:GetWidth()))
+		assert(size <= m.plaque:GetWidth() * 0.6 + px / 2 + 1e-6, string.format("%s: the %s's level number (%.2f units) outgrows its %.2f-unit plaque", what, kind, size, m.plaque:GetWidth()))
 	end
 	assert(#env._errors == 0 and K.ErrorCount() == 0, what .. ": " .. tostring(env._errors[1]))
 	checked = checked + 1

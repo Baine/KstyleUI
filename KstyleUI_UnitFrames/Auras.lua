@@ -48,6 +48,7 @@ local TIMER_ROOM_EXTRA = 3
 local BADGE_PAD, BADGE_ALPHA = 1, 0.62
 local TEXT_FLOOR, TEXT_LINE = 10, 1.2
 local CHIP_LEVEL = 8
+local SLAB_ICON_INSET, SLAB_UNDERLINE = 2, 1.5
 local SORT = "Expiration"
 
 local issecretvalue = issecretvalue or function()
@@ -148,6 +149,15 @@ end
 
 function Auras.LayoutTile(tile)
 	local skin = tile.skin
+	if tile.slab then
+		Widgets.LayoutSlice(tile.slab, skin, select(3, Tokens.Texture("medAuraBorder")))
+		local inset = Widgets.Snap(skin, SLAB_ICON_INSET)
+		tile.icon:ClearAllPoints()
+		tile.icon:SetPoint("TOPLEFT", skin, "TOPLEFT", inset, -inset)
+		tile.icon:SetPoint("BOTTOMRIGHT", skin, "BOTTOMRIGHT", -inset, inset)
+		tile.underline:SetHeight(math.max(Widgets.Border(skin), Widgets.Snap(skin, SLAB_UNDERLINE)))
+		return
+	end
 	tile.restyleChrome(tile.chrome)
 	tile.chrome:SetRimAccent(Settings.Accent())
 	local inset = Widgets.Border(skin) * ICON_INSET_LINES
@@ -237,8 +247,12 @@ local function Flush()
 	end
 	for view in pairs(pending) do
 		pending[view] = nil
-		for _, entry in ipairs(view.auras.buttons) do
-			K.Call(StyleButton, view, entry)
+		if view.auras.style ~= K.HudStyle.Current() then
+			K.Call(Auras.Apply, view)
+		else
+			for _, entry in ipairs(view.auras.buttons) do
+				K.Call(StyleButton, view, entry)
+			end
 		end
 	end
 	return true
@@ -286,6 +300,10 @@ local function Dispel(entry, button)
 	if not options then
 		return
 	end
+	if entry.slab then
+		button:AddDispelTypeTexture(entry.underline, { style = options.style, showWhenHarmful = options.showWhenHarmful, showWithoutDispelType = false })
+		return
+	end
 	local slice = Widgets.NineSlice(entry.skin, "chamferTile", "BORDER", DISPEL_SUBLEVEL)
 	Widgets.ShowSlice(slice, false)
 	entry.dispel = slice
@@ -294,10 +312,22 @@ local function Dispel(entry, button)
 	end
 end
 
-local function Dress(view, key, button)
+local function Dress(view, key, button, buttons)
 	local entry = Auras.NewTile(button)
 	local skin = entry.skin
 	skin:SetAllPoints(button)
+	entry.kind = view.kind
+	if Settings.Form(view.kind) == "slab" then
+		entry.slab = Widgets.NineSlice(skin, "medAuraBorder", "BACKGROUND", 1)
+		entry.chrome:SetShown(false)
+		entry.lineFrame = CreateFrame("Frame", nil, skin)
+		entry.lineFrame:SetAllPoints(skin)
+		entry.underline = entry.lineFrame:CreateTexture(nil, "OVERLAY")
+		entry.underline:SetTexture((Tokens.Texture("barFlat")))
+		entry.underline:SetPoint("BOTTOMLEFT", skin, "BOTTOMLEFT")
+		entry.underline:SetPoint("BOTTOMRIGHT", skin, "BOTTOMRIGHT")
+		entry.underline:Hide()
+	end
 	entry.chrome.Restyle = function(chrome)
 		if Auras.Open() then
 			return entry.restyleChrome(chrome)
@@ -329,8 +359,7 @@ local function Dress(view, key, button)
 	button:SetDurationCooldown(cooldown)
 	button:SetApplicationCount(count)
 	button:SetDurationText(timer)
-	local a = view.auras
-	a.buttons[#a.buttons + 1] = entry
+	buttons[#buttons + 1] = entry
 end
 
 local function Restyle(view)
@@ -400,15 +429,26 @@ local function MirrorHolder(view, host)
 	end
 end
 
-local function Build(view)
-	local a = { buttons = {} }
-	view.auras = a
-	views[#views + 1] = view
-	local host = CreateFrame("Frame", nil, K.Scale.Root())
-	host:Hide()
-	a.host = host
+local function BuildStyle(view)
+	local a, style = view.auras, K.HudStyle.Current()
+	if a.container then
+		for _, key in ipairs(GROUPS) do
+			a.container:SetAuraGroupEnabled(key, false)
+		end
+		a.container:SetEnabled(false)
+		a.container:Hide()
+	end
+	local cached = a.styles[style]
+	a.style = style
+	if cached then
+		a.container, a.buttons = cached.container, cached.buttons
+		a.container:Show()
+		return
+	end
+	a.buttons = {}
+	local buttons = a.buttons
 	EngineReady()
-	local ok, container = pcall(CreateFrame, "AuraContainer", nil, host, TEMPLATE)
+	local ok, container = pcall(CreateFrame, "AuraContainer", nil, a.host, TEMPLATE)
 	if not ok or type(container) ~= "table" or type(container.AddAuraGroup) ~= "function" then
 		a.failed = true
 		LogOnce("engine", "frame auras: the AuraContainer engine is not available (" .. tostring(ok and "no " .. TEMPLATE or container) .. "); frames show no auras")
@@ -424,15 +464,29 @@ local function Build(view)
 			sortDirection = direction,
 			layout = GroupLayout(view, key),
 			initializeFrame = function(button)
-				K.Call(Dress, view, key, button)
+				K.Call(Dress, view, key, button, buttons)
 			end,
 		})
 		if not added then
 			a.failed = true
 			LogOnce("group", "frame auras: AuraContainer refused a group (" .. tostring(err) .. "); frames show no auras")
-			host:Hide()
+			a.host:Hide()
 			return a
 		end
+	end
+	a.styles[style] = { container = container, buttons = buttons }
+end
+
+local function Build(view)
+	local a = { buttons = {}, styles = {} }
+	view.auras = a
+	views[#views + 1] = view
+	local host = CreateFrame("Frame", nil, K.Scale.Root())
+	host:Hide()
+	a.host = host
+	BuildStyle(view)
+	if a.failed then
+		return a
 	end
 	BuildOverflow(view, a)
 	MirrorHolder(view, host)
@@ -621,6 +675,13 @@ function Auras.Apply(view)
 		Build(view)
 	end
 	local a = view.auras
+	if not a.failed and a.style ~= K.HudStyle.Current() then
+		if not Auras.Open() then
+			Wait(view)
+			return
+		end
+		BuildStyle(view)
+	end
 	if a.failed then
 		return
 	end
