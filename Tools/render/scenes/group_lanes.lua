@@ -1,5 +1,5 @@
 -- group_lanes.lua: the party and raid frames as the KSTY-44 and KSTY-47 mock-ups draw them, on the owner's screen:
--- RENDER_GROUP is party (the player and four members, bare on the world) or 10, 20 or 40 (a raid of that size in
+-- RENDER_GROUP is party (the player and four members, bare on the world) or 10, 20, 25 or 40 (a raid of that size in
 -- groups of five, seated in its card); RENDER_HUD_STYLE picks the HUD style and RENDER_SCREEN the screen. The
 -- members, health and roles are the mock-ups' own, and the frames sit where the mock-ups put them.
 local Common = dofile("Tools/render/scenes/_common.lua")
@@ -29,7 +29,13 @@ local PARTY = {
 	{ "Ilyra", "PRIEST", 100, "HEALER", 46 }, { "Dunmar", "WARRIOR", 38, "DAMAGER", 30 },
 }
 local PLAYER = { name = "Valerin", class = "SHAMAN", health = 82, maxHealth = 100, power = 70, maxPower = 100, role = "HEALER" }
+if os.getenv("RENDER_PLAYER") == "warlock" then
+	PLAYER = { name = "Morvane", class = "WARLOCK", health = 82, maxHealth = 100, power = 70, maxPower = 100, role = "DAMAGER" }
+end
 local AT = { party = { 24, 392 }, raid = { 14, 330 } }
+local IDENTITY = {
+	Valerin = { "Dwarf", 2 }, Morvane = { "Scourge", 2 }, Thessaly = { "Human", 3 }, Brannoc = { "Orc", 2 }, Ilyra = { "NightElf", 3 }, Dunmar = { "Dwarf", 2 },
+}
 
 local function place(K, key, x, y)
 	assert(K.Layout.Set(key, "anchor", "TOPLEFT"))
@@ -50,6 +56,23 @@ return Common.Run(function()
 				env.RAID_CLASS_COLORS[class] = { r = c[1], g = c[2], b = c[3] }
 			end
 			env.UnitClass = unitClass
+			local function identity(unit)
+				return IDENTITY[env.UnitName(unit) or ""]
+			end
+			env.UnitRace = function(unit)
+				local id = identity(unit)
+				if id then
+					return id[1], id[1], 1
+				end
+			end
+			env.UnitSex = function(unit)
+				local id = identity(unit)
+				return id and id[2] or 2
+			end
+			env.C_Secrets = env.C_Secrets or {}
+			env.C_Secrets.ShouldUnitIdentityBeSecret = function()
+				return false
+			end
 		end,
 	}))
 	local kind, members = "party", {}
@@ -60,7 +83,7 @@ return Common.Run(function()
 	else
 		kind = "raid"
 		local n = tonumber(group)
-		assert(n == 10 or n == 20 or n == 40, "RENDER_GROUP must be party, 10, 20 or 40")
+		assert(n == 10 or n == 20 or n == 25 or n == 40, "RENDER_GROUP must be party, 10, 20, 25 or 40")
 		members = G.Members(n, function(i, m)
 			m.name = NAMES[i]
 			m.class = CLASSES[(i - 1) % #CLASSES + 1]

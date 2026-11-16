@@ -6,6 +6,7 @@
 -- units. The target has just taken a hit from 77 to 71 percent, so its pale loss band shows as the mock-up's does, after its 0.18 s white flash has faded (the
 -- still cannot play the animation, so the scene hides the flash).
 -- RENDER_COMBAT=1 puts the player in combat with a group, so threat shows on the plates that carry it.
+-- RENDER_HUD_STYLE picks the HUD style the plates are drawn in.
 local Common = dofile("Tools/render/scenes/_common.lua")
 local Gallery = dofile("Tools/render/scenes/_gallery.lua")
 local Hud = dofile("Tools/render/scenes/hud.lua")
@@ -17,8 +18,13 @@ local PLATES = {
 	{ token = "nameplate3", x = 320, y = 460, unit = { name = "Bloodtalon Matriarch", health = 29800, maxHealth = 48000, level = 40, classification = "elite", reaction = 2, canAttack = true, threat = 2, raid = 8 } },
 	{ token = "nameplate4", x = 760, y = 200, unit = { name = "Gorefang", health = 2400, maxHealth = 5200, level = 39, classification = "rare", reaction = 2, canAttack = true } },
 	{ token = "nameplate5", x = 760, y = 330, unit = { name = "Azuregos", health = 610000, maxHealth = 850000, level = -1, classification = "worldboss", reaction = 2, canAttack = true } },
-	{ token = "nameplate6", x = 760, y = 460, unit = { name = "Leduc", health = 3100, maxHealth = 3400, level = 60, reaction = 5, canAttack = false, isPlayer = true, class = "PALADIN" } },
+	{ token = "nameplate6", x = 760, y = 460, unit = { name = "Leduc", health = 3100, maxHealth = 3400, level = 60, reaction = 5, canAttack = false, isPlayer = true, class = "PALADIN", race = "Human", sex = 3 } },
 }
+
+-- RENDER_PLAYER=warlock adds Lee's character's imp as a friendly pet plate, which wears no badge.
+if os.getenv("RENDER_PLAYER") == "warlock" then
+	PLATES[#PLATES + 1] = { token = "nameplate7", x = 760, y = 590, unit = { name = "Zevrim", health = 380, maxHealth = 420, level = 58, reaction = 5, canAttack = false } }
+end
 
 local function place(env, base, x, y)
 	local k = 768 / 1080
@@ -51,17 +57,40 @@ local function cast(env, token, spec)
 	env.FireEvent("UNIT_SPELLCAST_START", token)
 end
 
+local function saved()
+	local out = Gallery.Saved({ "Nameplates" })
+	local style = Hud.Style()
+	if style then
+		out.profiles.Default.HudStyle = { style = style:lower() }
+	end
+	return out
+end
+
 return Common.Run(function()
 	local N = dofile("Tools/regression/nameplates_env.lua")
 	local frames = Gallery.Frames()
 	local combat = os.getenv("RENDER_COMBAT") == "1"
 	local env, K, ns = N.New(Common.ScreenOpts({
-		saved = Gallery.Saved({ "Nameplates" }),
+		saved = saved(),
 		setup = function(env)
 			local unitClass = env.UnitClass
 			Gallery.Setup(env)
 			env.UnitClass = unitClass
 			env.RAID_CLASS_COLORS.PALADIN = { r = 0.96, g = 0.55, b = 0.73 }
+			env.UnitRace = function(unit)
+				local u = env._units[unit]
+				if u and u.race then
+					return u.race, u.race, 1
+				end
+			end
+			env.UnitSex = function(unit)
+				local u = env._units[unit]
+				return u and u.sex or 2
+			end
+			env.C_Secrets = env.C_Secrets or {}
+			env.C_Secrets.ShouldUnitIdentityBeSecret = function()
+				return false
+			end
 			env._group = { raid = false, size = combat and 4 or 1 }
 			env.IsInGroup = function()
 				return combat
@@ -96,6 +125,9 @@ return Common.Run(function()
 	local function crop(token, name, title, caption)
 		local plate = ns.Plates.Get(token)
 		local list = { plate, plate.level, plate.marker, plate.brackets, plate.name }
+		if plate.medBadge and plate.medBadge:IsShown() then
+			list[#list + 1] = plate.medBadge
+		end
 		if plate.auras and plate.auras:IsShown() then
 			list[#list + 1] = plate.auras
 		end
@@ -114,6 +146,9 @@ return Common.Run(function()
 	crop("nameplate4", "plate_rare", "Nameplate: a rare", "The rare's diamond takes a two-pixel rim in the rare colour.")
 	crop("nameplate5", "plate_boss", "Nameplate: a world boss", "The boss's diamond reads ?? in red, inside a two-pixel red rim.")
 	crop("nameplate6", "plate_friendly", "Nameplate: a friendly player", "A friendly player's plate in the class colour.")
+	if ns.Plates.Get("nameplate7") then
+		crop("nameplate7", "plate_pet", "Nameplate: the warlock's imp", "A friendly pet's plate: no badge, which is for players.")
+	end
 	local scene = frames:Finish(Gallery.Build(env, { time = env._time }), env, K, "nameplate bible")
 	if problem then
 		scene.log[#scene.log + 1] = "nameplate bible: error: " .. problem
