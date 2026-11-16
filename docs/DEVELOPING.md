@@ -11,6 +11,8 @@ The binding design is [`docs/superpowers/specs/2026-11-07-kstyleui-design.md`](s
 
 Each release is a `vX.Y.Z` tag on `main`, cut after the owner's in-game pass on `staging`. [`CHANGELOG.md`](../CHANGELOG.md) and [`docs/RELEASE_NOTES.md`](RELEASE_NOTES.md) hold what each release changed, and [`docs/TESTING.md`](TESTING.md) is the test guide.
 
+The release's `check` job validates the tag's changelog section and packages without uploading. Each of its two Lua shards first runs `ci_scope.py proven-sha`: the newest `checks.yml` push run for the tagged SHA in this repository must complete successfully to prove the suite, including a staging push that reused pull request results. If that run is queued or in progress, the proof polls every 15 seconds for up to 15 minutes and prints the run it waits for. A missing, failed or cancelled run, a timeout or an API error runs the shards. Each Lua job has 35 minutes to allow the proof wait and the existing 20-minute suite budget. The proof is a step decision, so both Lua jobs report a result; uploads require `check` and both shards to succeed.
+
 To run the current `staging` build from a clone at `~/KstyleUI`, follow [Install the addons](TESTING.md#install-the-addons) in the test guide.
 
 The layout and render tests draw the HUD on 1280x720, 1366x768, 1920x1080, 2560x1440, 3440x1440, 3840x1080, 5120x1440, 3840x2160, 2383x1540 and 3456x2234. Every picture in the README is a test render from `Tools/render/`, retaken with `python3 Tools/render/readme.py` ([`Tools/render/README.md`](../Tools/render/README.md), README pictures); a render is not the game, so each release is also checked in game.
