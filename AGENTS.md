@@ -2,6 +2,10 @@
 
 KstyleUI is a World of Warcraft addon suite for the Forever client, written in Lua 5.1. This file holds the repository's facts: layout, commands, encoding, the Forever API rule and the mistakes that still need a person to remember them. Read the [design spec](docs/superpowers/specs/2026-11-07-kstyleui-design.md) and the [roadmap](docs/superpowers/plans/2026-11-07-kstyleui-roadmap.md) before you change code; the roadmap's Global Constraints and Core public API are binding. [`docs/DEVELOPING.md`](docs/DEVELOPING.md) has the contributor guide and [`docs/TESTING.md`](docs/TESTING.md) the test guide.
 
+Gate: bash scripts/gate.sh
+Evidence: see verify/SKILL.md
+Known failing: on Windows (Beast) the `lua` and `python` groups. The `lua` group fails before any test runs: `Tools/regression/run_all.py` imports POSIX-only `fcntl` and uses `os.killpg`, `os.wait4` and `os.getloadavg`. The Python suite fails 22 POSIX-dependent tests (27 without a `C:\dev` folder; see `verify/SKILL.md`) and then exits at `test_iconset.GenerateTest.test_ctrl_c_cancels_the_queued_icons_and_keeps_the_running_one`, whose SIGINT ends the interpreter. The `lint` group passes. CI decides `lua` and `python` until the runner is portable.
+
 ## Layout
 
 | Path | What it holds |
@@ -42,7 +46,7 @@ RENDER_SCREEN=1920x1080 RENDER_SIZE=auto RENDER_HUD_STYLE=Orbs RENDER_LAYOUT=DPS
   bash Tools/render/shoot.sh hud_reference --ppu 1 --backdrop --strict --out ~/.capy/work/<code>/orbs_1080.png
 ```
 
-- [`docs/feature-map.md`](docs/feature-map.md) names the scene (a file in `Tools/render/scenes/`) and the `RENDER_*` variables for each feature. `RENDER_HUD_STYLE` is `Frames` or `Orbs`, `RENDER_LAYOUT` is `DPS`, `Tank` or `Healer`, and `RENDER_ARRANGEMENT` is `centred` or `spread`.
+- [`docs/feature-map.md`](docs/feature-map.md) names the scene (a file in `Tools/render/scenes/`) and the `RENDER_*` variables for each feature. `RENDER_HUD_STYLE` is `Frames`, `Orbs` or `Medallions`, `RENDER_LAYOUT` is `DPS`, `Tank` or `Healer`, and `RENDER_ARRANGEMENT` is `centred` or `spread`.
 - `--ppu` is pixels per unit. Set it to the screen's height over 1080 so the PNG has the screen's own pixels: `--ppu 1` at 1920x1080, `--ppu 1.3333333333` with `RENDER_SCREEN=5120x1440`.
 - `--strict` fails the run (exit 3, after the PNG is written) on text the page truncated, content that spills past its card, or a stale `Tools/render/guard_allow.tsv` line for the scene. Read the printed log before you trust a picture: a missing texture draws as a grey box.
 - It needs `luajit` and Google Chrome (`CHROME` overrides the binary). Without `--out`, the scene's JSON, page and PNG land in `Tools/render/out/`, which git ignores.
@@ -85,3 +89,11 @@ Each is a test; its failure message names the fix.
 
 - Piping `run-all.sh` or a test into `tail` hid two failures. Read the exit code of every check. Ends: judgment.
 - A `test-perf` budget set from LuaJIT times failed on CI, and a new test took 53 s and 10 GB under Lua 5.1 against 0.5 s under LuaJIT. Decide a push from `run-all.sh` with no `LUA` set, never from `LUA=luajit`. Ends: judgment.
+
+## How we work
+- Minimal code: if it can be done in a few lines, do it in a few lines. Add dependencies, frameworks or abstractions only when the task truly needs them; prefer deleting to adding.
+- Coordinator (no Task and Dispatch IDs in your prompt): answer questions and make trivial edits directly; for substantive work read and follow `C:\Users\leeba\.claude\skills\orca-jev-routing\SKILL.md`.
+- Worker (your prompt has Task and Dispatch IDs): do exactly your task spec, edit only the files it allows, and report evidence via worker_done.
+- Run the Gate green before reporting done.
+- Stop only processes you started, by their PID; never kill by name (`taskkill /IM`, `pkill node`): other agents run on this machine.
+- Comments only explain a non-obvious why; fix the root cause or add a check instead of a comment that justifies a workaround. Never disable a check (eslint-disable, @ts-ignore, .skip) to get green.
