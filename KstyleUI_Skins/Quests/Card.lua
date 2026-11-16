@@ -476,6 +476,7 @@ function Card.Render()
 	end
 	if Card.Locked() then
 		Repaint()
+		Card.CheckDiagnostic()
 		if not pending then
 			pending = true
 			K.Combat.Queue(AfterCombat)
@@ -556,6 +557,7 @@ function Card.Render()
 	end
 	card:SetHeight(chrome + viewHeight)
 	card:Show()
+	Card.CheckDiagnostic()
 	if InCombatLockdown() then
 		if not waiting then
 			waiting = true
@@ -751,4 +753,124 @@ end
 
 function Card.Parts()
 	return { card = card, glass = glass, cap = cap, view = view, more = more, track = track, thumb = thumb }
+end
+
+local function DiagnosticText(value)
+	if Widgets.IsSecret(value) then
+		return "<secret>"
+	end
+	local text = tostring(value)
+	return #text > 80 and text:sub(1, 80) or text
+end
+
+local function DiagnosticRead(frame, method)
+	if Widgets.IsSecret(frame) or type(frame) ~= "table" or type(frame[method]) ~= "function" then
+		return "<unavailable>"
+	end
+	local ok, value = pcall(frame[method], frame)
+	return ok and DiagnosticText(value) or "<unavailable>"
+end
+
+local function DiagnosticPart(label, frame)
+	local fields = { "part=" .. label }
+	local parentOK, parent = pcall(function() return frame:GetParent() end)
+	fields[#fields + 1] = "parent=" .. (parentOK and DiagnosticRead(parent, "GetName") or "<unavailable>")
+	for _, method in ipairs({ "GetName", "IsShown", "IsVisible", "GetAlpha", "GetEffectiveAlpha", "GetFrameStrata", "GetFrameLevel", "DoesClipChildren", "GetFlattensRenderLayers" }) do
+		fields[#fields + 1] = method .. "=" .. DiagnosticRead(frame, method)
+	end
+	local ok, left, bottom, width, height = pcall(function()
+		return frame:GetRect()
+	end)
+	fields[#fields + 1] = "rect=" .. (ok and table.concat({ DiagnosticText(left), DiagnosticText(bottom), DiagnosticText(width), DiagnosticText(height) }, ",") or "<unavailable>")
+	K.DevTest.Log("Skins.Quests", table.concat(fields, " "))
+end
+
+function Card.Diagnose()
+	K.DevTest.Log("Skins.Quests", "combat=" .. DiagnosticText(InCombatLockdown()) .. " active=" .. DiagnosticText(active)
+		.. " total=" .. DiagnosticText(Data.Count()) .. " offset=" .. DiagnosticText(offset) .. " wanted=" .. DiagnosticText(wanted)
+		.. " maxHeight=" .. DiagnosticText(maxHeight) .. " rowWidth=" .. DiagnosticText(rowWidth)
+		.. " pending=" .. DiagnosticText(pending) .. " waiting=" .. DiagnosticText(waiting))
+	DiagnosticPart("holder", card and card:GetParent())
+	DiagnosticPart("card", card)
+	DiagnosticPart("glass", glass)
+	DiagnosticPart("cap", cap and cap.row)
+	DiagnosticPart("cap.title", cap and cap.title)
+	DiagnosticPart("cap.count", cap and cap.trail)
+	DiagnosticPart("view", view)
+	DiagnosticPart("more", more)
+	local row = rows[1]
+	DiagnosticPart("row.1", row)
+	DiagnosticPart("row.1.title", row and row.title)
+	DiagnosticPart("row.1.objective", row and row.lines[1].text)
+	DiagnosticPart("row.1.count", row and row.lines[1].count)
+	return true, "quest card render state recorded in devlog"
+end
+
+local automaticDiagnostics, diagnosticKeys = 0, {}
+
+local function DiagnosticPixels(frame, clipLeft, clipBottom, clipWidth, clipHeight)
+	local ok, visible = pcall(frame.IsVisible, frame)
+	if not ok or Widgets.IsSecret(visible) then
+		return nil
+	end
+	if not visible then
+		return false
+	end
+	local alphaOK, alpha = pcall(frame.GetEffectiveAlpha, frame)
+	if not alphaOK or Widgets.IsSecret(alpha) or type(alpha) ~= "number" then
+		return nil
+	end
+	if alpha <= 0 then
+		return false
+	end
+	local rectOK, left, bottom, width, height = pcall(frame.GetRect, frame)
+	if not rectOK then
+		return nil
+	end
+	if Widgets.IsSecret(left) or Widgets.IsSecret(bottom) or Widgets.IsSecret(width) or Widgets.IsSecret(height) then
+		return nil
+	end
+	if type(left) ~= "number" or type(bottom) ~= "number" or type(width) ~= "number" or type(height) ~= "number" then
+		return false
+	end
+	if width <= 0 or height <= 0 then
+		return false
+	end
+	if clipLeft then
+		return left < clipLeft + clipWidth and left + width > clipLeft and bottom < clipBottom + clipHeight and bottom + height > clipBottom
+	end
+	return true, left, bottom, width, height
+end
+
+function Card.CheckDiagnostic()
+	if not active or not card or Data.Count() == 0 or automaticDiagnostics >= 3 then
+		return
+	end
+	local clip, left, bottom, width, height = DiagnosticPixels(view)
+	if clip == nil then
+		return
+	end
+	local measured, unknown = 0, false
+	for _, row in ipairs(rows) do
+		if row.questID then
+			measured = measured + 1
+			local pixels = clip and DiagnosticPixels(row, left, bottom, width, height)
+			if pixels == nil then
+				unknown = true
+			elseif pixels then
+				return
+			end
+		end
+	end
+	if unknown then
+		return
+	end
+	local key = DiagnosticText(InCombatLockdown()) .. ":" .. DiagnosticText(Data.Count()) .. ":" .. DiagnosticText(maxHeight) .. ":" .. DiagnosticText(measured)
+	if diagnosticKeys[key] then
+		return
+	end
+	diagnosticKeys[key] = true
+	automaticDiagnostics = automaticDiagnostics + 1
+	K.DevTest.Log("Skins.Quests", "automatic=no-visible-rows measuredRows=" .. measured .. " slotHeight=" .. DiagnosticText(maxHeight))
+	Card.Diagnose()
 end
