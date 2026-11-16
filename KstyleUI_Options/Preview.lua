@@ -200,12 +200,23 @@ end
 
 local function Overflow(holder, frame)
 	local l, r, t, b = Widgets.OrnamentExtent({ [frame] = true })
+	local margin = 2 * K.Scale.Pixel(1)
+	if l then
+		l, r, t, b = l - margin, r + margin, t + margin, b - margin
+	end
+	if frame.Reserve then
+		local cl, cr, ct, cb = Bounds(frame)
+		local root = Edge(K.Scale.Root():GetEffectiveScale())
+		if cl and Known(root) then
+			l, r = math.min(l or cl / root, cl / root), math.max(r or cr / root, cr / root)
+			t, b = math.max(t or ct / root, ct / root), math.min(b or cb / root, cb / root)
+		end
+	end
 	local hl, hr, ht, hb, f = Edge(holder:GetLeft()), Edge(holder:GetRight()), Edge(holder:GetTop()), Edge(holder:GetBottom()), Widgets.ScaleFactor(holder)
 	if not (l and hl and hr and ht and hb and Known(f)) then
 		return nil
 	end
-	local margin = 2 * K.Scale.Pixel(1)
-	hl, hr, ht, hb = hl * f + margin, hr * f - margin, ht * f - margin, hb * f + margin
+	hl, hr, ht, hb = hl * f, hr * f, ht * f, hb * f
 	local left, right, top, bottom = math.max(0, hl - l), math.max(0, r - hr), math.max(0, t - ht), math.max(0, hb - b)
 	local fit = math.min((hr - hl) / (math.max(r, hr) - math.min(l, hl)), (ht - hb) / (math.max(t, ht) - math.min(b, hb)))
 	return left, right, top, bottom, left + right + top + bottom < 0.5, fit
@@ -308,6 +319,26 @@ local function Choose(pane, frame)
 	end
 end
 
+local function FitLabels(frame)
+	for _, text in ipairs({ frame:GetRegions() }) do
+		if text:GetObjectType() == "FontString" and text:IsShown() then
+			local cut = text.IsTruncated and text:IsTruncated()
+			local room, width = Edge(text:GetWidth()), Widgets.TextWidth(text, 0)
+			if not Widgets.IsSecret(cut) and cut and Known(room) and Known(width) and width > room then
+				local path, size, flags = text:GetFont()
+				if Known(size) then
+					local pixel = Widgets.Border(text)
+					Widgets.Fitted(text)
+					Widgets.ApplyFont(text, path, math.max(pixel, math.floor(size * room / width / pixel) * pixel), flags)
+				end
+			end
+		end
+	end
+	for _, child in ipairs({ frame:GetChildren() }) do
+		if child:IsShown() then FitLabels(child) end
+	end
+end
+
 local function Settle(pane)
 	local frame = pane.current
 	local wide = frame.Choose ~= nil and Widgets.Setting("ornaments") ~= "Off" and Widgets.Setting("cardMaterial") ~= "Glass"
@@ -328,6 +359,7 @@ local function Settle(pane)
 	else
 		Reserve(pane, frame)
 	end
+	if frame.Reserve then FitLabels(frame) end
 end
 
 local function Span(pane, frame)
@@ -463,7 +495,7 @@ end
 function Preview.Create(parent)
 	local pane = Widgets.Panel(parent, { shape = "tile", fill = "buttonFill", shadow = false })
 	pane.caption = Widgets.SectionCap(pane, { text = L["Live preview"] })
-	pane.holder = CreateFrame("Frame", nil, pane)
+	pane.holder = Widgets.MarkPreview(CreateFrame("Frame", nil, pane))
 	pane.holder:SetClipsChildren(true)
 	pane.built = {}
 	pane.held = {}

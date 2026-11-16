@@ -85,7 +85,6 @@ gallery_minimap	3840x1080	KstyleUI_Minimap/Face.lua	2
 gallery_minimap	3840x2160	KstyleUI_Minimap/Face.lua	2
 gallery_minimap	5120x1440	KstyleUI_Minimap/Face.lua	12
 gallery_options	1280x720	Core/Widgets/Base.lua	3
-gallery_options	1280x720	Core/Widgets/Slider.lua	2
 gallery_options	1280x720	KstyleUI_Options/Preview.lua	104
 gallery_options	1280x720	KstyleUI_Options/Rail.lua	30
 gallery_options	1280x720	KstyleUI_Options/Rows.lua	22
