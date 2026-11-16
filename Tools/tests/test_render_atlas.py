@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 RENDER = Path(__file__).resolve().parents[1] / "render"
 
@@ -87,6 +88,7 @@ class AtlasMapTest(unittest.TestCase):
     def test_tsv_round_trip(self):
         path = self.dir / "atlas.tsv"
         self.atlas.write_tsv(self.map, path)
+        self.assertNotIn(b"\r\n", path.read_bytes())
         lines = path.read_text(encoding="utf-8").splitlines()
         self.assertEqual(lines[0], "name\tfile\tatlasWidth\tatlasHeight\tleft\tright\ttop\tbottom\twidth\theight\ttilesH\ttilesV")
         self.assertIn("roleicon-tiny-tank\t1004\t64\t32\t0\t16\t0\t16\t16\t16\t0\t0", lines)
@@ -227,27 +229,29 @@ class PathsTest(unittest.TestCase):
         tool = tools / "casc" / "TACTTool" / "TACTTool"
         tool.parent.mkdir(parents=True)
         record = self.dir / "argv.txt"
-        # A stand-in TACTTool: records its arguments and extracts the first listed name under the output folder.
         tool.write_text(
-            "#!/bin/sh\n"
-            f"printf '%s\\n' \"$@\" > '{record}'\n"
-            "while [ $# -gt 0 ]; do case $1 in -i) list=$2;; -o) out=$2;; esac; shift; done\n"
-            "first=$(head -n 1 \"$list\")\n"
-            "mkdir -p \"$out/$(dirname \"$first\")\" && printf 'BLP2' > \"$out/$first\"\n",
-            encoding="utf-8",
+            "import sys\nfrom pathlib import Path\n"
+            f"Path({str(record)!r}).write_text('\\n'.join(sys.argv[1:]), encoding='utf-8', newline='\\n')\n"
+            "opts = dict(zip(sys.argv[1::2], sys.argv[2::2]))\n"
+            "first = Path(opts['-i']).read_text(encoding='utf-8').splitlines()[0]\n"
+            "out = Path(opts['-o']) / first\n"
+            "out.parent.mkdir(parents=True, exist_ok=True)\nout.write_bytes(b'BLP2')\n",
+            encoding="utf-8", newline="\n",
         )
-        tool.chmod(0o755)
+        run = self.atlas.subprocess.run
         cache = Path("cache-relative")
         cwd = os.getcwd()
         os.chdir(self.dir)
         try:
-            found = self.atlas.tacttool_paths(["interface/buttons/white8x8", "interface/test/nowhere"], "extract", cache, tools=tools, wow_dir=Path("wow"))
+            with mock.patch.object(self.atlas.subprocess, "run", side_effect=lambda command, **kwargs: run([sys.executable, *command], **kwargs)):
+                found = self.atlas.tacttool_paths(["interface/buttons/white8x8", "interface/test/nowhere"], "extract", cache, tools=tools, wow_dir=Path("wow"))
         finally:
             os.chdir(cwd)
         argv = record.read_text(encoding="utf-8").splitlines()
         listing = argv[argv.index("-i") + 1]
         self.assertTrue(Path(listing).is_absolute(), listing)
         self.assertEqual(Path(listing).read_text(encoding="utf-8"), "interface/buttons/white8x8.blp\ninterface/test/nowhere.blp\n")
+        self.assertNotIn(b"\r\n", Path(listing).read_bytes())
         self.assertTrue(Path(argv[argv.index("-o") + 1]).is_absolute())
         self.assertEqual(sorted(found), ["interface/buttons/white8x8"])
         self.assertEqual(found["interface/buttons/white8x8"], (self.dir / "extract" / "interface" / "buttons" / "white8x8.blp").resolve())

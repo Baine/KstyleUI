@@ -69,6 +69,7 @@ class IconNamesTest(unittest.TestCase):
             out = tmp / "icon_names.csv"
             summary = iconset.write_icon_names(tmp / "listfile.csv", [132089, 5834819, 424242], out, blizzard_dir=blizzard)
             text = out.read_text()
+            self.assertNotIn(b"\r\n", out.read_bytes())
         self.assertEqual(text, "132089;Interface/ICONS/Ability_Ambush.blp\n5834819;Interface/ICONS/INV_Store_Mount.blp;encrypted\n")
         self.assertEqual(summary, {"named": 2, "encrypted": 1, "unnamed": [424242]})
 
@@ -182,6 +183,7 @@ class InstallTest(unittest.TestCase):
                          ["Ability_Ambush.tga", iconset.MANIFEST, "Spell_Fire_FlameBolt.tga"])
         self.assertEqual((self.icons / "Ability_Ambush.tga").read_bytes(), (self.pack / "Ability_Ambush.tga").read_bytes())
         manifest = json.loads((self.icons / iconset.MANIFEST).read_text())
+        self.assertNotIn(b"\r\n", (self.icons / iconset.MANIFEST).read_bytes())
         digest = hashlib.sha256((self.pack / "Ability_Ambush.tga").read_bytes()).hexdigest()
         self.assertEqual(manifest["files"]["Ability_Ambush.tga"], digest)
         self.assertEqual(set(manifest["files"]), {"Ability_Ambush.tga", "Spell_Fire_FlameBolt.tga"})
@@ -232,7 +234,16 @@ class InstallTest(unittest.TestCase):
     def test_install_refuses_a_symlinked_icons_folder_or_file(self):
         elsewhere = Path(self.tmp.name) / "elsewhere"
         elsewhere.mkdir()
-        (self.wow / "Interface" / "Icons").symlink_to(elsewhere)
+        try:
+            (self.wow / "Interface" / "Icons").symlink_to(elsewhere, target_is_directory=True)
+        except NotImplementedError as error:
+            print(f"skip: {self.id()}: symbolic links are unavailable: {error}")
+            self.skipTest(f"symbolic links are unavailable: {error}")
+        except OSError as error:
+            if getattr(error, "winerror", None) != 1314:
+                raise
+            print(f"skip: {self.id()}: symbolic links require a privilege this Windows user lacks: {error}")
+            self.skipTest(f"symbolic links require a privilege this Windows user lacks: {error}")
         with self.assertRaisesRegex(SystemExit, "symbolic link"):
             self.install()
         self.assertEqual(list(elsewhere.iterdir()), [])

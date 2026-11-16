@@ -16,6 +16,15 @@ except ImportError:  # pragma: no cover - depends on the machine
     Image = None
 
 
+def setUpModule():
+    if Image is None:
+        print("glyph table capabilities: Pillow=unavailable; RAQM=unavailable")
+    else:
+        from PIL import features
+
+        print(f"glyph table capabilities: Pillow=available; RAQM={features.check('raqm')}")
+
+
 def load(name):
     spec = importlib.util.spec_from_file_location(name, RENDER / (name + ".py"))
     module = importlib.util.module_from_spec(spec)
@@ -211,6 +220,12 @@ class MissingMockupTest(unittest.TestCase):
 class GlyphsTest(unittest.TestCase):
     def test_glyph_table_is_current(self):
         """glyphs.lua matches the fonts in Media/Fonts, so the scene measures text as the page draws it."""
+        from PIL import features
+
+        if not features.check("raqm"):
+            reason = "committed glyph table is generated with RAQM layout; this Pillow lacks RAQM"
+            print(f"skip: {self.id()}: {reason}")
+            self.skipTest(reason)
         gen = load("gen_glyphs")
         fonts_dir = RENDER.parents[1] / "Media" / "Fonts"
         paths = sorted(fonts_dir.glob("*.ttf"))
