@@ -24,13 +24,11 @@ import runner_platform
 
 HERE = Path(__file__).resolve().parent
 
-# Measured on 2026-11-09: CI's ubuntu-24.04 runner (4 CPUs, 16 GB) runs a test about 4 times slower
-# under lua5.1 than an Apple M5 Max runs it under Lua 5.1.5 or luajit -joff. The slowest file then
-# took 9.8 s and the largest peaked at 2.8 GB.
 TIME_BUDGET = 20.0
-CI_SLOWDOWN = 4
+ALLOWANCE_THRESHOLD = 16.0
+WINDOWS_CPU_FACTOR = 2.21
 MEMORY_BUDGET_MB = 4096
-STOP_AFTER = 3
+HANG_GUARD = 120.0
 TAIL_LINES = 5
 SLOWEST = 5
 AFFECTED_LINES = 40
@@ -38,8 +36,6 @@ MARGIN = 0.2
 SLOT_POLL = 0.25
 
 LUA51_HELP = "Install Lua 5.1 with bash Tools/dev/install-lua51.sh, or set LUA."
-SLOW_FIX = "Make the test cheaper; CI runs Lua 5.1, about {0} times slower than this Mac.".format(CI_SLOWDOWN)
-BIG_FIX = "Make the test use less memory; CI runs 4 test files at once on 16 GB."
 
 
 def interpreter():
@@ -54,9 +50,8 @@ def interpreter():
         if not found:
             return None, "{0} not found. {1}".format(command[0], LUA51_HELP)
         command[0] = found
-        if Path(command[0]).name.startswith("luajit") and "-joff" not in command[1:]:
-            return command, ("LUA={0}: fast mode, not CI-equivalent. The JIT runs some tests 100 times faster than "
-                             "CI's Lua 5.1, so the times and the budget do not predict CI. Run without LUA before a push.").format(chosen)
+        if Path(command[0]).name.lower().startswith("luajit") and "-joff" not in command[1:]:
+            return command, "LUA={0}: fast mode, not budgeted. Run without LUA before a push.".format(chosen)
         return command, "LUA={0}".format(chosen)
     found = shutil.which("lua5.1")
     home = Path(os.environ.get("HOME", "~")).expanduser() / ".local" / "bin" / ("lua5.1.exe" if os.name == "nt" else "lua5.1")
@@ -66,18 +61,24 @@ def interpreter():
         return [found], "lua: {0} (Lua 5.1, as CI runs)".format(found)
     found = shutil.which("luajit")
     if found:
-        return [found, "-joff"], ("lua: luajit -joff (no JIT, close to CI's Lua 5.1 in speed). "
+        return [found, "-joff"], ("lua: luajit -joff (not budgeted). "
                                      "For CI's exact interpreter: bash Tools/dev/install-lua51.sh")
     return None, "No Lua found: lua5.1, ~/.local/bin/lua5.1 and luajit are missing. " + LUA51_HELP
 
 
 def budgets():
-    seconds = os.environ.get("TEST_TIME_BUDGET")
-    if seconds:
-        seconds = float(seconds)
-    else:
-        seconds = TIME_BUDGET * (CI_SLOWDOWN if os.environ.get("CI") == "true" else 1)
-    return seconds, float(os.environ.get("TEST_MEMORY_BUDGET", MEMORY_BUDGET_MB))
+    return float(os.environ.get("TEST_TIME_BUDGET", TIME_BUDGET)), float(os.environ.get("TEST_MEMORY_BUDGET", MEMORY_BUDGET_MB))
+
+
+def budgeted(command):
+    if "LUA" in os.environ:
+        return False
+    try:
+        probe = subprocess.run(command + ["-v", "-e", 'print(_VERSION); print(jit == nil)'],
+                               capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return probe.returncode == 0 and probe.stdout.splitlines() == ["Lua 5.1", "true"] and probe.stderr.startswith("Lua 5.1.5 ")
 
 
 class Children:
@@ -223,7 +224,7 @@ def run_held(command, path, log, limit, trace, load, others):
         timer.join()
         CHILDREN.done(child)
     return {"seconds": time.monotonic() - start, "mb": mb, "cpu": cpu, "ok": child.returncode == 0, "stopped": bool(stopped),
-            "load": load, "others": others}
+            "load": load, "others": others, "hang_limit": limit}
 
 
 def fmt(seconds):
@@ -236,17 +237,61 @@ def memory_text(mb):
     return "{0:.0f}".format(mb) if mb is not None else "n/a"
 
 
-def problems(name, result, seconds, megabytes):
+def problems(name, result, seconds, megabytes, strict_cpu=True):
     lines = []
-    seen = " Machine load was {0:.1f} when it started; run it alone before you call it load.".format(result["load"]) if result["load"] is not None else ""
     if result["stopped"]:
-        lines.append("FAIL {0}: stopped after {1} s, {2} times the {3} s budget. {4}{5}".format(
-            name, fmt(seconds * STOP_AFTER), STOP_AFTER, fmt(seconds), SLOW_FIX, seen))
-    elif result["seconds"] > seconds:
-        lines.append("FAIL {0}: took {1:.1f} s, over the {2} s budget. {3}{4}".format(name, result["seconds"], fmt(seconds), SLOW_FIX, seen))
-    if result["mb"] is not None and result["mb"] > megabytes:
-        lines.append("FAIL {0}: peaked at {1:.0f} MB, over the {2:.0f} MB budget. {3}".format(name, result["mb"], megabytes, BIG_FIX))
+        lines.append("FAIL {0}: stopped by the {1} s wall-clock hang guard.".format(name, fmt(result.get("hang_limit", HANG_GUARD))))
+    elif seconds is not None and result["cpu"] is not None and result["cpu"] > seconds:
+        lines.append("{0} {1}: used {2:.2f} CPU s, over the {3} CPU s budget. Make the test cheaper.".format(
+            "FAIL" if strict_cpu else "WARN", name, result["cpu"], fmt(seconds)))
+    if megabytes is not None and result["mb"] is not None and result["mb"] > megabytes:
+        lines.append("FAIL {0}: peaked at {1:.0f} MB, over the {2:.0f} MB budget. Make the test use less memory.".format(name, result["mb"], megabytes))
     return lines
+
+
+def near_budget(result, seconds, megabytes):
+    return ((seconds is not None and result["cpu"] is not None and result["cpu"] >= seconds * (1 - MARGIN)) or
+            (megabytes is not None and result["mb"] is not None and result["mb"] >= megabytes * (1 - MARGIN)))
+
+
+def hang_limit(seconds):
+    return max(HANG_GUARD, 5 * seconds) if seconds is not None else HANG_GUARD
+
+
+def cpu_factor(windows=runner_platform.WINDOWS):
+    return WINDOWS_CPU_FACTOR if windows else 1.0
+
+
+def cpu_enforced():
+    return os.environ.get("CI") == "true" and sys.platform == "darwin"
+
+
+def load_allowances():
+    path = HERE / "cpu_allowances.tsv"
+    lines = path.read_text(encoding="ascii").splitlines() if path.exists() else []
+    base_ref = "HEAD^1" if os.environ.get("GITHUB_ACTIONS") == "true" else "origin/staging"
+    ref = subprocess.run(["git", "cat-file", "-e", base_ref], capture_output=True)
+    if ref.returncode:
+        raise ValueError("fetch {0} before checking the shrinking CPU allowance list".format(base_ref))
+    entry = subprocess.run(["git", "ls-tree", base_ref, "--", "Tools/regression/cpu_allowances.tsv"],
+                           capture_output=True, text=True)
+    if entry.returncode:
+        raise ValueError("cannot read origin/staging CPU allowance baseline")
+    base = subprocess.run(["git", "show", base_ref + ":Tools/regression/cpu_allowances.tsv"],
+                          capture_output=True, text=True) if entry.stdout else None
+    if base is not None and base.returncode:
+        raise ValueError("cannot read origin/staging CPU allowance baseline")
+    if base is not None and not path.exists():
+        raise ValueError("keep cpu_allowances.tsv empty instead of deleting it; the list may only shrink (LEE-5827)")
+    if base is not None and not set(lines).issubset(base.stdout.splitlines()):
+        raise ValueError("cpu_allowances.tsv may only shrink; make the test cheaper (LEE-5827)")
+    allowances = {}
+    for line in lines:
+        name, seconds, ticket = line.split()
+        if ticket != "LEE-5827" or int(seconds) < TIME_BUDGET or name in allowances:
+            raise ValueError("cpu_allowances.tsv needs unique names, measured allowances of at least 20 and LEE-5827")
+        allowances[name] = int(seconds)
+    return allowances
 
 
 def load_weights():
@@ -362,12 +407,28 @@ def main(argv):
         print("no tests found in Tools/regression")
         return 1
     seconds, megabytes = budgets()
+    measured = budgeted(command)
+    strict_cpu = measured and cpu_enforced()
+    try:
+        allowances = load_allowances() if measured else {}
+    except (OSError, ValueError) as error:
+        print("FAIL " + str(error))
+        return 1
+    factor = cpu_factor()
+    seconds *= factor
+    allowances = {name: limit * factor for name, limit in allowances.items()}
     jobs = jobs_for(args)
     slots, off = make_slots()
     if slots:
         jobs = min(jobs, slots.count)
     print(label)
-    print("budget {0} s and {1:.0f} MB per test file".format(fmt(seconds), megabytes), flush=True)
+    print(("budget {0} CPU s and {1:.0f} MB per test file".format(fmt(seconds), megabytes) if measured else
+           "not budgeted: CPU requires default PUC Lua 5.1.5 (_VERSION=Lua 5.1, jit=nil); LUA overrides are not budgeted") +
+          "; CPU overruns {0}; memory limit {1:.0f} MB; CPU platform factor {2:g}; wall-clock hang guard {3}".format(
+              "fail on Mac CI" if strict_cpu else "warn only", megabytes, factor,
+              "max({0} s, 5 x file CPU limit)".format(fmt(HANG_GUARD)) if measured else "{0} s".format(fmt(HANG_GUARD))), flush=True)
+    if not measured:
+        seconds = None
     start_load = load_now()
     print("machine load {0} on {1} CPUs; {2}".format(fmt(start_load), os.cpu_count() or 0, off or (
         "worker slots: {0} for every run on this machine, {1} held by other runs".format(slots.count, slots.others()))), flush=True)
@@ -394,7 +455,8 @@ def main(argv):
             nonlocal completed
             stem = Path(path).stem
             trace = os.path.join(logs, stem + ".trace") if args.affected else None
-            result = run_one(command, path, os.path.join(logs, stem + ".out"), seconds * STOP_AFTER, trace, slots)
+            result = run_one(command, path, os.path.join(logs, stem + ".out"),
+                             hang_limit(allowances.get(Path(path).name, seconds)), trace, slots)
             with progress_lock:
                 completed += 1
                 print("progress: {0}/{1} test files done".format(completed, len(tests)), flush=True)
@@ -413,14 +475,25 @@ def main(argv):
         passed = failed = 0
         for path in tests:
             name, result = Path(path).stem, results[path]
-            lines = problems(name, result, seconds, megabytes)
+            print("usage: {0} cpu={1} wall={2} peak_mb={3}".format(
+                Path(path).name, "{0:.6f}".format(result["cpu"]) if result["cpu"] is not None else "n/a",
+                "{0:.6f}".format(result["seconds"]), memory_text(result["mb"])))
+            if measured and (result["cpu"] is None or result["mb"] is None):
+                print("not budgeted: {0}: OS CPU or peak memory measurement unavailable".format(name))
+            allowance = allowances.get(Path(path).name)
+            lines = problems(name, result, allowance if allowance is not None else seconds, megabytes, strict_cpu)
+            if (args.margins and sys.platform == "darwin" and allowance is not None and result["ok"] and
+                    result["cpu"] is not None and result["cpu"] < ALLOWANCE_THRESHOLD):
+                print("allowance review: {0} is below 16 CPU s here; remove its line only after every sampled Mac agrees (LEE-5827)".format(name))
             if args.affected and result["ok"]:
                 try:
                     with open(os.path.join(logs, name + ".trace"), encoding="utf-8", errors="replace") as trace:
                         records[path] = dict(affected.record_from_trace(trace.read(), os.getcwd()), sha=affected.fingerprint(path))
                 except OSError:
                     pass
-            if result["ok"] and not lines:
+            for line in lines:
+                print(line)
+            if result["ok"] and not any(line.startswith("FAIL ") for line in lines):
                 passed += 1
                 continue
             failed += 1
@@ -430,8 +503,6 @@ def main(argv):
                     tail = log.read().splitlines()[-TAIL_LINES:]
                 for line in tail:
                     print(line)
-            for line in lines:
-                print(line)
 
     if locale_lines:
         print("\n".join(locale_lines))
@@ -448,12 +519,13 @@ def main(argv):
     for path in ranked[:SLOWEST]:
         print("  {0:6.1f} s {1:>6} MB  {2}".format(results[path]["seconds"], memory_text(results[path]["mb"]), Path(path).stem))
     if args.margins:
-        near = [path for path in ranked if results[path]["seconds"] >= seconds * (1 - MARGIN) or (results[path]["mb"] is not None and results[path]["mb"] >= megabytes * (1 - MARGIN))]
+        near = [path for path in ranked if near_budget(results[path], allowances.get(Path(path).name, seconds), megabytes)]
         print("within {0:.0f}% of the budget, run alone:".format(MARGIN * 100) + ("" if near else " none"))
         for path in near:
             result = results[path]
-            print("  {0:6.1f} s ({1:3.0f}%) {2:>6} MB ({3}%), load {4}  {5}".format(
-                result["seconds"], 100 * result["seconds"] / seconds, memory_text(result["mb"]),
+            limit = allowances.get(Path(path).name, seconds)
+            print("  {0} CPU s ({1}%) {2:>6} MB ({3}%), load {4}  {5}".format(
+                fmt(result["cpu"]), fmt(100 * result["cpu"] / limit) if result["cpu"] is not None and limit is not None else "n/a", memory_text(result["mb"]),
                 fmt(100 * result["mb"] / megabytes) if result["mb"] is not None else "n/a",
                 fmt(result["load"]), Path(path).stem))
     total = sum(result["seconds"] for result in results.values())

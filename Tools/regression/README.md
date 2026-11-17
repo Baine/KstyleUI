@@ -55,15 +55,15 @@ It uses `JOBS` files at a time, a third of the CPUs by default (6 on the 18-CPU 
 
 ## Worker slots
 
-Many runs share the Mac, and a test file that takes 18 s alone can take 23 s on a loaded Mac and fail the 20 s budget for no fault of its own. So every local run takes a **worker slot** for each test file it runs, and all the runs on the machine together run at most as many files as there are slots: a third of the CPUs by default (6 on the 18-CPU Mac, which leaves the rest for the game), `KSTYLEUI_SLOTS` sets another count and `KSTYLEUI_SLOTS=0` turns the limit off. A run that finds every slot taken waits and polls; the wait is not part of a file's time.
+Every run takes a **worker slot** per test file, so all local runs together use at most a third of the CPUs by default (6 on the 18-CPU Mac, leaving room for the game). `KSTYLEUI_SLOTS` sets the count; `KSTYLEUI_SLOTS=0` disables it. A run waits and polls when every slot is held; waiting does not consume a test's CPU budget.
 
 Each slot is a lock file, `~/.cache/kstyleui/worker-slot-N.lock` (`KSTYLEUI_SLOT_DIR` moves the folder), held with nonblocking `flock` on POSIX or `msvcrt.locking` on Windows. The OS releases a crashed or killed runner's locks. A hung runner keeps its slots until it exits or is killed; stop only a runner you started, by its PID. The runner never kills a process it did not start, and nobody needs a `pkill` or a full-suite `lockf`. On a GitHub-hosted runner `CI=true` turns the limit off, because that runner has no other runs. CI's self-hosted Mac runners set `RUNNER_ENVIRONMENT=self-hosted`, so there CI takes slots like any other run on the Mac.
 
-Each completed file prints `progress: N/T test files done`. Each run prints the load it saw (`n/a` where the OS has no load average). The second line is `machine load N on C CPUs; worker slots: S for every run on this machine, K held by other runs`. The line before `passed` is `machine load N at the start, M at the end, P at most when a test started; waited W s for worker slots, other runs held up to K of S`. A time failure adds `Machine load was N when it started`, so the first thing to do with one is to run that file alone (`lua5.1 Tools/regression/test-NAME.lua`) and read its time against the load.
+Each completed file prints `progress: N/T test files done`. Each file also prints `usage: NAME cpu=SECONDS wall=SECONDS peak_mb=MB`, including passing files, so CI logs contain calibration data. Load averages print `n/a` where the OS does not provide them. The summary reports slot waiting separately from test wall time.
 
 ### Margins
 
-`bash Tools/regression/run-all.sh --margins` runs the files one at a time and lists those that took 80% or more of the time budget, or of the memory budget, with their load. The list is the files a slower or busier machine tips over the budget. Run it when the Mac is quiet (the load is printed beside each file) and make the top of the list cheaper before it fails somebody's run.
+`bash Tools/regression/run-all.sh --margins` runs files serially and lists those using at least 80% of their CPU or peak memory budget. Wall time does not determine this list. Runs without a CPU budget still report peak-memory margins. Allowance removal is a dedicated serial `--margins` calibration review: propose deleting a line only when the file is below 16 CPU seconds on every sampled Mac. Normal shard runs never expire an allowance from a single fast sample. LEE-5827 owns reducing these files and removing the lines; the list may only shrink.
 
 ## Interface size in tests
 
@@ -112,7 +112,7 @@ CI runs the tests with Lua 5.1.5 on the owner's self-hosted Mac runners. With no
 
 1. `lua5.1` on the `PATH`. This is what CI runs.
 2. `~/.local/bin/lua5.1` (`lua5.1.exe` on Windows). `bash Tools/dev/install-lua51.sh` builds Lua 5.1.5 on POSIX and installs the SHA-256-checked LuaBinaries 5.1.5 Win64 archive plus luacheck 1.2.0 on Windows; Homebrew has no Lua 5.1.
-3. `luajit -joff`, LuaJIT with its compiler off. Its speed is within 10% of Lua 5.1's on this suite. It is not the same interpreter: it accepts `goto`, and `test-widgets-statusbar` fails its allocation check in about one run in ten under it.
+3. `luajit -joff`, LuaJIT with its compiler off. These runs print `not budgeted`. It is not the same interpreter: it accepts `goto`, and `test-widgets-statusbar` fails its allocation check in about one run in ten under it.
 
 `gate.sh` and `run-all.sh` choose Python in this order: `$KSTYLEUI_PYTHON`, `~/.local/share/wow-dev/venv/bin/python` or `Scripts/python.exe`, `py -3`, `python3`, `python`. Each candidate must run `-c 'import sys'`; a Microsoft Store alias that fails the probe is rejected. The command uses a Bash array, and `KSTYLEUI_PYTHON` exports its resolved executable for child scripts. A quoted `LUA` path may contain spaces and Windows backslashes.
 
@@ -120,20 +120,116 @@ CI runs the tests with Lua 5.1.5 on the owner's self-hosted Mac runners. With no
 
 ## Time and memory budget
 
-Each test file has a budget. `run-all.sh` fails a file that goes over it and names the fix:
+The **Mac CI runners are the CPU budget of record**, using default PUC Lua 5.1.5. Their default file limit is **20 CPU seconds**. Windows and every non-CI run print a warning naming a file and its measured CPU time when it exceeds its CPU limit; they do not fail for CPU overruns. The **4096 MB peak-memory limit and hang guard fail everywhere**, including interpreter overrides. CPU time is user plus system time: POSIX `wait4` supplies it alongside `ru_maxrss`; Windows `GetProcessTimes` and `PeakPagefileUsage` supply process CPU time and peak committed memory. Peak committed memory cannot be hidden by working-set trimming. Measurements are collected after exit; missing measurements print `n/a` and an explicit `not budgeted` note. Wall time remains in the summary and sharding weights, so the scheduler is unchanged.
 
-```text
-FAIL test-groupframes-depth: took 57.4 s, over the 20 s budget. Make the test cheaper; CI runs Lua 5.1, about 4 times slower than this Mac.
-FAIL test-groupframes-depth: peaked at 10028 MB, over the 4096 MB budget. Make the test use less memory; CI runs 4 test files at once on 16 GB.
-```
+CPU limits fail only on macOS with `CI=true`; other platforms and local runs use them as warning thresholds. `cpu_allowances.tsv` holds the measured LEE-5827 exceptions: name, CPU seconds, ticket, one file per line. Every file whose worst recorded Mac time is **at least 16 CPU seconds** receives an allowance of that worst time plus 25%, rounded up to a whole second. The list currently has 53 files, with every raw worst value and source run in the allowance-input table below. This covers the 10-16% same-runner variation measured by verification; in particular, `test-text-floor.lua` initially measured 19.918132 CPU seconds (25-second allowance); its newer 20.662359-second maximum now receives 26 seconds. On Mac CI a listed file fails above its allowance and an unlisted file fails above 20 seconds. On Windows and non-CI runs both overruns are warnings. The runner rejects any added or changed baseline line against `origin/staging` locally or the shallow CI checkout's `HEAD^1`, once the initial approved list has merged; deletions remain allowed. The runner probes `_VERSION == "Lua 5.1"`, `jit == nil`, and the `Lua 5.1.5` release banner before applying CPU thresholds. Any `LUA` override, including an empty override, and LuaJIT with or without `-joff` print **not budgeted**. The memory limit, hang guard and functional failures still fail those runs. `TEST_TIME_BUDGET` (CPU seconds) and `TEST_MEMORY_BUDGET` (MB) override the limits for runner checks; CI does not set them.
 
-- **Time.** The budget is 20 s of wall time under Lua 5.1 on the Mac. When `CI=true` the budget is 80 s, set when CI ran on Ubuntu runners about 4 times slower than the Mac and kept when CI moved to the Macs. On 2026-11-09 the slowest file took 9.8 s here.
-- **Memory.** The budget is 4096 MB: OS peak resident memory on POSIX, or Windows `PeakPagefileUsage` (peak committed memory). Windows reads memory and process CPU time from the child handle after it exits; unavailable measurements print `n/a`. CPU time is recorded but does not change the wall-time budget. CI runs as many files at once as the Mac's worker slots allow, beside other work on that Mac, and a file over the budget can push it into swap. On 2026-11-09 the largest file peaked at 2.8 GB.
-- **Stop.** A file still running at 3 times the time budget is stopped and fails. POSIX kills the test's process group; Windows kills and waits for the direct test process. Windows has no Job object or descendant-kill command, so tests must limit shell children to short commands.
+The wall-clock hang guard is **max(120 seconds, five times the file CPU limit)**, including its allowance and platform factor. The 120-second floor applies when a run is not budgeted. POSIX kills the owned process group; Windows kills and waits for the direct test process. Tests must limit shell children to short commands. CPU diagnostics and memory failures name the fix: make the file cheaper, use less memory, or split it. Never raise a budget without measured calibration evidence.
 
-After the results, `run-all.sh` prints the five slowest files with their time and peak memory, then the total test time, the wall time and the number of jobs. The last line always starts with `passed N, failed M`; `--affected` adds a note on how many files did not run. `TEST_TIME_BUDGET` (seconds) and `TEST_MEMORY_BUDGET` (MB) change the budgets for the runner's own tests in `Tools/tests/test_run_all.py`. CI never sets them.
+The perf tests retain their existing per-call clock measurements and allocation checks. On POSIX, `os.clock` measures CPU time: budgets must be at least **five times** the measured PUC Lua 5.1 time, including in CI. Windows MSVC `os.clock` measures wall time, so `HeadroomProblem` prints a skip note there; per-call time and allocation checks still run. LuaJIT also skips the PUC headroom check rather than estimating PUC speed.
 
-When a file goes over a budget, make it cheaper: build fewer frames, run fewer rounds, or split it into two files. Never raise the budget to make a file pass.
+### Runtime portability
+
+`test-lua-runtime.lua` records the seeded random hash, large integer formatting, infinity and NaN spelling. The measured seed-7 hashes are 708739911 on macOS and 1701382795 on Windows LuaBinaries 5.1.5; Windows also prints -2147483648 for `%d` of 2^40 and `1.#INF` / `-1.#IND`. No fixture requires those spellings or wide `%d` conversion; numeric infinity/NaN and the integer range fixtures use remain asserted.
+
+The only existing random consumer is `test-ornament-tiers.lua`: it removes random subsets of assets and asserts that every drawn piece exists and resolves to an available tier, with a coverage floor of 1000 pieces, rather than expecting any particular draw. Both platform sequences pass those assertions. The runtime probe rejects additional `math.random` callers: new fixtures must use `property_lib.lua`'s portable generator. The property tests already do. This keeps the installed, isolated Lua 5.1.5 build instead of changing its C runtime to imitate another platform.
+
+### CPU calibration (2026-11-16)
+
+The table records the 20 slowest files in the initial calibration, before the later perf recalibration listed below. Mac columns name `mac-KstyleUI-1`, `-2` and `-3`; a dash means no sample on that runner. Every file has samples from at least two Mac runners. Values are user plus system CPU seconds, not wall time.
+
+Mac evidence: [full run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980), [cross-run 43944756619](https://github.com/korallis/KstyleUI/actions/runs/43944756619), and the completed 30-file `lua 2/2` calibration job in [run 43948081097](https://github.com/korallis/KstyleUI/actions/runs/43948081097/job/133582934893). The remaining queued jobs of that calibration run were cancelled after the required second-runner samples were collected. Temporary calibration selection and reversed sharding were removed before the final full-suite verification.
+
+Windows evidence: Beast, LuaBinaries PUC 5.1.5, 21 serial files (the final slowest 20 plus the original twentieth-ranked grid-10) (`KSTYLEUI_SLOTS=1`), 2026-11-16. The calibration-only wall guard was 600 seconds, to capture complete CPU samples under the machine's concurrent agent load; no stopped sample enters the table. Raw measurements and commands are attached to the PR evidence. The installed runner uses the budget-derived guard described above.
+
+| File | Mac 1 CPU s | Mac 2 CPU s | Mac 3 CPU s | Windows CPU s | Mac allowance s |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `test-ornament-surfaces-minimap-subtle.lua` | — | 38.50 | 35.73 | 49.72 | 49 |
+| `test-ornament-surfaces-minimap-full.lua` | 34.50 | — | 37.13 | 44.42 | 47 |
+| `test-render-story-guard-tank.lua` | — | 26.22 | 23.38 | 29.31 | 33 |
+| `test-render-scenes-gallery.lua` | — | 26.08 | 23.84 | 40.11 | 33 |
+| `test-text-pixels-hud.lua` | 25.76 | — | 23.84 | 44.70 | 33 |
+| `test-render-story-guard-healer.lua` | 23.52 | — | 25.61 | 31.75 | 33 |
+| `test-render-story-guard-dps.lua` | 21.30 | — | 24.30 | 30.16 | 31 |
+| `test-pixel-grid-16.lua` | 24.28 | — | 24.14 | 43.45 | 31 |
+| `test-pixel-grid-8.lua` | 22.26 | — | 23.10 | 39.73 | 29 |
+| `test-pixel-grid-3.lua` | — | 22.58 | 21.73 | 39.50 | 29 |
+| `test-groupframes-rows.lua` | 22.28 | — | 20.79 | 36.48 | 28 |
+| `test-pixel-grid-2.lua` | 22.06 | — | 21.46 | 38.58 | 28 |
+| `test-pixel-grid-15.lua` | — | 21.89 | 20.35 | 30.33 | 28 |
+| `test-pixel-grid-12.lua` | — | 21.70 | 20.74 | 34.16 | 28 |
+| `test-render-scenes-classes.lua` | 21.49 | — | 21.50 | 35.61 | 27 |
+| `test-pixel-grid-9.lua` | — | 21.35 | 20.27 | 34.05 | 27 |
+| `test-pixel-grid-14.lua` | 21.15 | — | 21.30 | 41.20 | 27 |
+| `test-perf.lua` | — | 21.27 | 20.29 | 44.88 | 27 |
+| `test-hud-material-tank.lua` | — | 21.13 | 20.27 | 46.58 | 27 |
+| `test-pixel-grid-11.lua` | 20.75 | — | 21.08 | 37.30 | 27 |
+
+The Windows factor is **2.21**, the largest ratio in the 21-file serial Windows calibration of Windows CPU / worst Mac CPU rounded up to 0.01: `test-hud-material-tank.lua` = 46.578125 / 21.126243 = 2.204752. It scales Windows CPU warning thresholds and the budget-derived hang guard, including every allowance; it does not make Windows CPU time authoritative. The 4096 MB memory limit is unchanged. POSIX uses factor 1. The initial LEE-5827 allowances are `ceil(worst observed Mac CPU × 1.25)` for every measured file at or above 16 CPU seconds; files omitted from the list retain 20 seconds.
+
+The original same-logical-core time-slicing probe changed from 2.343750 CPU / 2.994216 wall seconds to 2.421875 CPU / 24.619557 wall seconds. That did not test sibling-hyperthread contention. Verification subsequently measured identical Windows work at 43.609375 CPU seconds alone and 64.000000 CPU seconds under load, and a sibling-core probe rose about 1.7 times. CPU accounting therefore does not make Windows verdicts independent of load: Windows CPU overruns are advisory, and Mac CI decides the CPU verdict. The memory and hang limits remain fatal.
+
+LuaJIT `-joff` prints `not budgeted` for CPU; memory and hangs remain checked. The native timeout and freed-allocation peak-memory checks pass. LEE-1537 margin and ordering tests use injected measurements; fixture ordering uses separate per-file markers and the held-slot test waits for an observed-lock handshake.
+
+### Allowance inputs
+
+These worst observed Mac CPU values include calibration runs, full run 43953802560, and the latest merged-staging run 43972698741. The 16-second inclusion threshold and 25% allowance apply to all rows; LEE-5827 owns reducing them.
+
+| File | Worst Mac CPU s | Allowance s | Source |
+| --- | ---: | ---: | --- |
+| `test-actionbars-vehicle.lua` | 19.811575 | 25 | Mac 1, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-centre-clearance-dps-cat.lua` | 16.530659 | 21 | Mac 3, [run 43944756619](https://github.com/korallis/KstyleUI/actions/runs/43944756619) |
+| `test-centre-clearance-healer-bear.lua` | 17.407659 | 22 | Mac 2, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-centre-clearance-healer-cat.lua` | 18.035937 | 23 | Mac 3, [run 43944756619](https://github.com/korallis/KstyleUI/actions/runs/43944756619) |
+| `test-centre-clearance-healer-paladin.lua` | 18.073578 | 23 | Mac 3, [run 43944756619](https://github.com/korallis/KstyleUI/actions/runs/43944756619) |
+| `test-centre-clearance-healer-rogue.lua` | 18.200957 | 23 | Mac 3, [run 43944756619](https://github.com/korallis/KstyleUI/actions/runs/43944756619) |
+| `test-centre-clearance-tank-bear.lua` | 17.435912 | 22 | Mac 2, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-centre-clearance-tank-cat.lua` | 17.872141 | 23 | Mac 2, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-centre-clearance-tank-paladin.lua` | 17.948227 | 23 | Mac 3, [run 43944756619](https://github.com/korallis/KstyleUI/actions/runs/43944756619) |
+| `test-centre-clearance-tank-rogue.lua` | 17.489064 | 22 | Mac 2, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-groupframes-grid.lua` | 17.034914 | 22 | Mac 1, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-groupframes-medallions-tiles-wide.lua` | 18.470120 | 24 | Mac 1, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-groupframes-medallions-tiles.lua` | 18.362331 | 23 | Mac 1, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-groupframes-raid-tile.lua` | 16.931091 | 22 | Mac 1, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-groupframes-rows.lua` | 22.281631 | 28 | Mac 1, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-hud-material-tank.lua` | 21.126243 | 27 | Mac 2, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-ornament-surfaces-minimap-full.lua` | 38.294389 | 48 | Mac 3, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-ornament-surfaces-minimap-subtle.lua` | 38.498007 | 49 | Mac 2, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-ornament-surfaces-xp-b.lua` | 16.370179 | 21 | Mac 1, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-ornament-surfaces-xp-c.lua` | 16.431729 | 21 | Mac 3, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-ornament-surfaces-xp-d.lua` | 16.154422 | 21 | Mac 3, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-ornament-surfaces-xp-f.lua` | 16.128701 | 21 | Mac 2, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-ornament-surfaces-xp-h.lua` | 16.370400 | 21 | Mac 1, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-ornament-surfaces-xp-j.lua` | 16.171037 | 21 | Mac 2, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-perf-frames.lua` | 16.497820 | 21 | Mac 1, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-perf-skins.lua` | 25.667379 | 33 | Mac 1, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-perf.lua` | 30.999676 | 39 | Mac 1, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-pixel-grid-1.lua` | 21.265459 | 27 | Mac 3, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-pixel-grid-10.lua` | 21.913607 | 28 | Mac 3, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-pixel-grid-11.lua` | 21.578320 | 27 | Mac 3, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-pixel-grid-12.lua` | 21.700801 | 28 | Mac 2, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-pixel-grid-13.lua` | 21.528263 | 27 | Mac 3, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-pixel-grid-14.lua` | 22.265655 | 28 | Mac 3, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-pixel-grid-15.lua` | 21.891535 | 28 | Mac 2, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-pixel-grid-16.lua` | 25.913421 | 33 | Mac 3, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-pixel-grid-2.lua` | 22.405043 | 29 | Mac 3, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-pixel-grid-3.lua` | 22.579293 | 29 | Mac 2, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-pixel-grid-4.lua` | 20.680394 | 26 | Mac 2, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-pixel-grid-5.lua` | 19.684303 | 25 | Mac 2, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-pixel-grid-6.lua` | 20.574053 | 26 | Mac 3, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-pixel-grid-7.lua` | 20.774353 | 26 | Mac 3, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-pixel-grid-8.lua` | 23.231944 | 30 | Mac 3, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-pixel-grid-9.lua` | 21.348517 | 27 | Mac 2, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-render-scenes-classes.lua` | 22.390381 | 28 | Mac 3, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-render-scenes-gallery.lua` | 26.079952 | 33 | Mac 2, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-render-story-guard-dps.lua` | 24.303940 | 31 | Mac 3, [run 43944756619](https://github.com/korallis/KstyleUI/actions/runs/43944756619) |
+| `test-render-story-guard-healer.lua` | 26.347332 | 33 | Mac 3, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-render-story-guard-tank.lua` | 26.221612 | 33 | Mac 2, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-setup-collisions.lua` | 19.201334 | 25 | Mac 1, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-text-floor.lua` | 20.662359 | 26 | Mac 3, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
+| `test-text-pixels-hud.lua` | 25.756223 | 33 | Mac 1, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-type-roles.lua` | 20.670064 | 26 | Mac 2, [run 43943487980](https://github.com/korallis/KstyleUI/actions/runs/43943487980) |
+| `test-unitframes-column-keep.lua` | 18.874668 | 24 | Mac 1, [run 43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) |
 
 ## Files
 
@@ -274,7 +370,7 @@ The lint follows locals within a file. It does not follow values through functio
 
 `measure.lua` calls the path 10 times to fill caches, then runs 5 rounds of 1,000 calls with the garbage collector stopped. The time is the CPU time per call in the fastest round, so a round that another process slowed does not set it. When the rounds allocate, it runs 1,000 more calls under a debug hook that charges each allocation to the line that ran it, so a line that allocates only on some calls is found too; the hook costs about fifty times a plain call, which is most of a perf test's time. Memory that a C function such as `string.format` allocates is charged to the Lua line that called it. Only lines in files outside `Tools/` count against the path, so memory that a stub or a fake allocates, such as a duration object from `UnitCastingDuration`, never fails it. A line that allocates less often than once in 1,000 calls can escape the trace. `measure.lua` switches LuaJIT's compiler off, because the game runs an interpreter and a compiled trace is itself an allocation.
 
-The paths run as four test files so each stays well inside its 20 s budget while run-all runs 18 files at once: `test-perf.lua` measures the core, action bar, combat text, cooldown, group frame and meter files, `test-perf-frames.lua` the nameplate and unit frame files, `test-perf-skins.lua` the quest card's, and `test-perf-hud.lua` the data bars' and the minimap's. `perf_runner.lua` holds the lists (`GROUPS`) and fails every file when a `perf/` file sits in no group, or in two. A slow path can lower `calls` (the quest card's use 100) so its allocation trace, about fifty times a plain call, stays inside the file's time.
+The paths run as four test files to bound each file's work; their CPU limits, including `test-perf.lua`'s measured allowance, are recorded in `cpu_allowances.tsv`: `test-perf.lua` measures the core, action bar, combat text, cooldown, group frame and meter files, `test-perf-frames.lua` the nameplate and unit frame files, `test-perf-skins.lua` the quest card's, and `test-perf-hud.lua` the data bars' and the minimap's. `perf_runner.lua` holds the lists (`GROUPS`) and fails every file when a `perf/` file sits in no group, or in two. A slow path can lower `calls` (the quest card's use 100) so its allocation trace, about fifty times a plain call, stays inside the file's time.
 
 A path that fails on time alone (over budget, or under the headroom rule below) is measured again, up to 3 attempts in all, and its fastest attempt counts; the printed line then says `(fastest of N attempts)`. An allocation never clears on another attempt. When a failure stands, the report ends with the machine's load average (`KSTYLEUI_LOAD`, which the runner sets; without it the load is unknown and not printed), so a run that failed under five parallel test runs can be told from a real regression (round 3 to 5 of the ranking loop saw `test-perf` fail a different untouched path on each loaded run).
 
@@ -312,7 +408,7 @@ return {
 ```
 
 - `name` is unique across `perf/`. Start it with the module.
-- `budget` is the time per call in microseconds. `lua5.1 Tools/regression/test-perf.lua` prints each path's time. Set the budget near 10 times the time Lua 5.1 prints. Use at least 10.
+- `budget` is the time per call in microseconds. `lua5.1 Tools/regression/test-perf.lua` prints each path's time. Use at least five times the measured PUC Lua 5.1 CPU time on the Mac.
 - `setup` builds a stub environment and returns it with the function to measure. It runs once.
 - `calls`, optional, sets the calls per round and the trace. The default is 1,000.
 
@@ -328,13 +424,20 @@ Fix the line: reuse a table that the object owns, or pass values as arguments. A
 
 ### Calibrate a budget
 
-A budget is set on the Mac and must also pass on CI, so it follows one rule: **set it near 10 times the time Lua 5.1 takes on the Mac.** The test fails a budget below 5 times that time and prints the value to use:
+A per-call budget must be **at least five times the measured PUC Lua 5.1 CPU time on a Mac**, including CI. The test reports the minimum when a budget is too tight:
 
 ```text
-Nameplates interrupt readiness flipping under three casts: budget 40 us is 2.8 times the 14.2 us Lua 5.1 takes here, and CI runs about 4 times slower; set it near 142 us (10 times)
+Nameplates interrupt readiness flipping under three casts: budget 40 us is 2.8 times the 14.2 us Lua 5.1 CPU time; set it to at least 71 us (5 times)
 ```
 
-- CI's runner takes about 4 times as long per call. On 2026-11-09 that path took 13 us under Lua 5.1 on the Mac and 51.9 us on CI, over its 40 us budget.
-- 10 times leaves CI 2.5 times its usual time. The shared runner varies, and other test files run beside `test-perf`.
-- LuaJIT's interpreter runs a path about 1.5 times faster than Lua 5.1, so under LuaJIT the test scales the time up by 1.5 before the check.
-- On CI (`CI=true`) the test skips this check. There the budget itself is the check.
+Run [43972698741](https://github.com/korallis/KstyleUI/actions/runs/43972698741) measured five paths below their required headroom. Their budgets were recalibrated from the reported minimums, rounded up, while retaining the fivefold check:
+
+| Path | Measured CPU us/call | Budget us |
+| --- | ---: | ---: |
+| UnitFrames target change, rank changes | 208 | 1050 |
+| Skins quest update, 25 quests (LEE-5831) | 1291.75 | 6500 |
+| ActionBars pet cooldown update | 33.2 | 170 |
+| GroupFrames UNIT_FLAGS | 8.58 | 45 |
+| Meters raid-of-twenty damage refresh | 413 | 2100 |
+
+LEE-5831 tracks the Skins quest-update slowdown since #418. The historical slower-runner multiplier is gone. Windows prints a headroom skip note because MSVC `os.clock` measures wall time; LuaJIT also skips this PUC CPU-headroom check. Per-call timing, allocation and error checks continue to run.
