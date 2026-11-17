@@ -1750,7 +1750,7 @@ end
 
 local function Reach(owner, gem)
 	local holder = gem:GetParent()
-	if not holder or Widgets.Restricted(holder) then
+	if gem.headerHidden or not holder or Widgets.Restricted(holder) then
 		return nil
 	end
 	local _, _, top = Widgets.Edges(owner)
@@ -1801,8 +1801,24 @@ local function CardAt(node)
 	end
 end
 
-function Widgets.CardHeader(gem)
+function Widgets.CardHeader(gem, shown)
+	if shown ~= nil then
+		local hidden = not shown
+		if gem.headerHidden == hidden then
+			return
+		end
+		gem.headerHidden = hidden
+	end
 	local node = gem:GetParent()
+	if node and not gem.headerTracked then
+		gem.headerTracked = true
+		hooksecurefunc(node, "Show", function() Widgets.CardHeader(gem, true) end)
+		hooksecurefunc(node, "Hide", function() Widgets.CardHeader(gem, false) end)
+		hooksecurefunc(node, "SetShown", function(_, wanted) Widgets.CardHeader(gem, wanted) end)
+	end
+	if not Widgets.Medallions() then
+		return
+	end
 	for _ = 1, HEADER_DEPTH do
 		if not node then
 			return
