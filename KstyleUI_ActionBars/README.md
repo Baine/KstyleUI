@@ -2,6 +2,14 @@
 
 Main bar with stance, stealth, form and possess paging, extra bars, pet bar, stance bar, keybind text, cooldown sweeps, proc glows, usable and range shading, and mouseover fade.
 
+## Hover keybindings
+
+Type `/kb`, `/kstyle kb` or `/kstyle keybind`, hover a button, and press a key, middle or extra mouse button, or wheel with optional modifiers. Shift, Ctrl, Alt and Meta (Cmd on Mac) use Blizzard's chord order. Left and right clicks are ignored to preserve world selection and camera controls. Escape clears every binding for the hovered button. The panel highlights the button and shows its keys using the client's localized key names. **Save** applies the edits to account bindings, or character bindings with **Character bindings** selected. Switching from character to account bindings requires confirmation and loads the existing account set before applying edits. **Discard**, toggling the mode off, disabling Action Bars, switching input devices or entering combat drops unsaved edits. Binding mode cannot start in combat. `/kb` and `/bb` are registered only when another loaded addon has not claimed them; `/kstyle kb` always opens KstyleUI's mode.
+
+Bindings use the game's commands (`ACTIONBUTTONn`, `MULTIACTIONBARnBUTTONn`, `BONUSACTIONBUTTONn`, `SHAPESHIFTBUTTONn`, and `VEHICLEEXIT`), appear in Blizzard's Key Bindings, and remain when KstyleUI is disabled. Stance buttons securely forward clicks to Blizzard's stance buttons, whose form selector toggles stealth off; directly casting the form spell cannot do that.
+
+Blizzard's native possess buttons remain visible and can also be hovered in `/kb`. Forever has no `POSSESSBUTTONn` binding entry, so these use persistent `CLICK PossessButtonn:LeftButton` game bindings; the cancel slot retains Blizzard's taxi, vehicle and pet-possession behavior. Slot 1 keeps Blizzard's informational behavior. Forever also disables the extra-action button and omits its binding; on a client exposing that button, `/kb` supports `EXTRAACTIONBUTTON1`. No placeholder extra button is created.
+
 | Field | Value |
 | --- | --- |
 | Module name | `ActionBars`: its switch in `Core/Features.lua` and the `name` it registers with `KstyleUI.Modules.Register` |
@@ -39,6 +47,7 @@ These come from the [design spec](../docs/superpowers/specs/2026-11-07-kstyleui-
 | `Slab.lua` | The [Medallions slab](#medallions-slab): the slab behind bars 1 and 2, the crest hub between them and its motion |
 | `SlabEffects.lua` | The Medallions effects beside the slab: the slot ready flash, the hub's resource-cap ring and the hub's 3D models ([medallions-effects.md](../docs/medallions-effects.md)) |
 | `Bindings.lua` | Keybind mirroring and the hotkey text |
+| `Keybind.lua` | Hover overlays, the Save/Discard panel and staged game bindings |
 | `Blizzard.lua` | Hiding and restoring Blizzard's bars, and the gamepad check |
 | `Vehicle.lua` | The leave-vehicle button below the Medallions slab, beyond the power orb or beside bar 1 (beyond an active Frames stance bar) |
 | `Preview.lua` | The settings window's live preview |
@@ -72,7 +81,7 @@ Each button is `KstyleUI.Widgets.IconButton` built on `SecureActionButtonTemplat
 | --- | --- | --- |
 | Action | `type = "action"`, the button's ID 1 to 12, `useparent-actionpage`, `checkselfcast`, `checkfocuscast`, `checkmouseovercast` | `AnyUp` and `AnyDown`, so `ActionButtonUseKeyDown` decides when a press acts |
 | Pet | `type = "pet"`, `action` = the slot, `type2 = "click"`, `clickbutton` = `PetActionBar.actionButtons[slot]` | Right-click forwards to Blizzard's pet button through `SECURE_ACTIONS.click`, never by calling an autocast toggle |
-| Stance | `type = "spell"`, `spell` = the form's spell ID from `GetShapeshiftFormInfo` | Set out of combat when the forms change |
+| Stance | `type = "click"`, `clickbutton` = `StanceBar.actionButtons[slot]`; the spell ID is retained for change detection | Blizzard's secure stance click selects or cancels the form, including stealth |
 
 | State | Source |
 | --- | --- |

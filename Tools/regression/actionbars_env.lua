@@ -334,6 +334,55 @@ local function InstallGame(env, opts)
 	env.GetBindingText = function(key)
 		return "text:" .. tostring(key)
 	end
+	env.GetCurrentBindingSet = function() return g.bindingSet or 1 end
+	local function CopyBindings(bindings)
+		local copy = {}
+		for command, keys in pairs(bindings) do copy[command] = { unpack(keys) } end
+		return copy
+	end
+	g.bindingSets = {}
+	env.LoadBindings = function(set)
+		Block(env, "LoadBindings")
+		local current = env.GetCurrentBindingSet()
+		g.bindingSets[current] = g.bindingSets[current] or CopyBindings(g.bindings)
+		g.bindings = CopyBindings(g.bindingSets[set] or g.bindings)
+		return true
+	end
+	env.GetBindingAction = function(key)
+		for name, keys in pairs(g.bindings) do
+			for _, value in ipairs(keys) do
+				if value == key then return name end
+			end
+		end
+		return ""
+	end
+	env.SetBinding = function(key, command)
+		Block(env, "SetBinding")
+		if g.failBinding == key then return false end
+		local set = env.GetCurrentBindingSet()
+		g.bindingSets[set] = g.bindingSets[set] or CopyBindings(g.bindings)
+		for _, keys in pairs(g.bindings) do
+			for i = #keys, 1, -1 do
+				if keys[i] == key then table.remove(keys, i) end
+			end
+		end
+		if command then
+			g.bindings[command] = g.bindings[command] or {}
+			table.insert(g.bindings[command], key)
+		end
+		env.FireEvent("UPDATE_BINDINGS")
+		return true
+	end
+	env.SaveBindings = function(set)
+		Block(env, "SaveBindings")
+		g.bindingSets[set] = CopyBindings(g.bindings)
+		g.savedSet, g.bindingSet = set, set
+		return true
+	end
+	env.IsShiftKeyDown = function() return g.shift == true end
+	env.IsControlKeyDown = function() return g.ctrl == true end
+	env.IsAltKeyDown = function() return g.alt == true end
+	env.IsMetaKeyDown = function() return g.meta == true end
 	env.SetOverrideBindingClick = function(owner, priority, key, buttonName, mouse)
 		Block(env, "SetOverrideBindingClick")
 		g.overrides[owner] = g.overrides[owner] or {}
@@ -502,6 +551,28 @@ local function InstallGame(env, opts)
 		env.CreateFrame("Frame", name, env.UIParent)
 	end
 	local petBar = env.PetActionBar
+	env.StanceBar.actionButtons = {}
+	for i = 1, 10 do
+		local button = env.CreateFrame("CheckButton", "StanceButton" .. i, env.StanceBar)
+		button.Click = function()
+			local form = g.forms[i]
+			if form then
+				form.isActive = not form.isActive
+				g.used[#g.used + 1] = "form" .. i
+			end
+		end
+		env.StanceBar.actionButtons[i] = button
+	end
+	env.CreateFrame("Frame", "PossessActionBar", env.UIParent)
+	env.PossessActionBar.actionButtons = {}
+	for i = 1, 2 do
+		local button = env.CreateFrame("CheckButton", "PossessButton" .. i, env.PossessActionBar)
+		button:SetID(i)
+		button.Click = function()
+			if i == 2 then g.possess = false; g.used[#g.used + 1] = "cancelpossess" end
+		end
+		env.PossessActionBar.actionButtons[i] = button
+	end
 	petBar.actionButtons = {}
 	for i = 1, 10 do
 		petBar.actionButtons[i] = {
@@ -658,6 +729,9 @@ function AB.PressKey(env, key)
 			return true
 		end
 	end
+	local command = env.GetBindingAction(key)
+	local name = command:match("^CLICK (.-):LeftButton$")
+	if name and env[name] then env[name]:Click("LeftButton"); return true end
 	return false
 end
 
