@@ -11,6 +11,7 @@ ns.Slab = Slab
 local HOSTILE_MAX = 3
 local UNKNOWN_LEVEL = "??"
 local LEVEL_MEDAL = 3
+local TEXT_GAP = 4
 local SHEEN = { player = true, target = true }
 
 local function IsSecret(value)
@@ -78,7 +79,8 @@ local function NameLine(view, g)
 	level:ClearAllPoints()
 	name:SetHeight(Snap(parent, rect.h))
 	level:SetHeight(Snap(parent, rect.h))
-	name:SetWidth(view.nameBound and Snap(parent, g.nameRoom) or 0)
+	name:SetWidth(view.nameBound and math.max(Widgets.Border(name), Snap(parent, g.nameRoom)) or 0)
+	name:SetShown(g.nameRoom > 0)
 	level:SetWidth(0)
 	if g.mirror then
 		level:SetPoint("RIGHT", parent, "TOPLEFT", Snap(parent, rect.x + rect.w), y)
@@ -93,6 +95,64 @@ local function NameLine(view, g)
 	level:Show()
 end
 
+local function CaptionWidth(view)
+	local text = view.caption
+	local ruler = view.captionRuler
+	if not ruler then
+		ruler = Widgets.FontString(view.top, "OVERLAY")
+		ruler:SetWordWrap(false)
+		ruler:Hide()
+		Widgets.Fitted(ruler)
+		view.captionRuler = ruler
+	end
+	Widgets.ApplyFont(ruler, text:GetFont())
+	local function Measure(label)
+		ruler:SetText(ns.Unit.Tracked(label, (ruler:GetFont())))
+		local width = ruler:GetUnboundedStringWidth()
+		return Plain(width, "number") and width or 0
+	end
+	if view.plainCaption then
+		return Measure(view.plainCaption)
+	end
+	local api, width = C_CreatureInfo, 0
+	if api and api.GetCreatureTypeIDs and api.GetCreatureTypeInfo then
+		for _, id in ipairs(api.GetCreatureTypeIDs()) do
+			local info = api.GetCreatureTypeInfo(id)
+			if info and Plain(info.name, "string") then
+				width = math.max(width, Measure(info.name))
+			end
+		end
+	end
+	return width > 0 and width or view.geometry.health.w
+end
+
+function Slab.SetCaption(view, label)
+	view.plainCaption = Plain(label, "string") and label or nil
+	if view.caption.ClearText then view.caption:ClearText() end
+	view.caption:SetText(view.plainCaption and ns.Unit.Tracked(label, (view.caption:GetFont())) or label)
+	Slab.Caption(view)
+end
+
+function Slab.Caption(view)
+	local g = view.geometry
+	if not (g and g.form == "slab" and g.caption) then
+		return
+	end
+	local text, bar, rect = view.caption, g.health, g.caption
+	local size = Settings.FontSize(view.kind, "level")
+	local levelWidth = Widgets.TextWidth(view.slabLevel, math.ceil(ns.Geometry.SLAB_PAD.levelEm * size))
+	local levelRoom = g.name and math.ceil(levelWidth) + g.levelGap or 0
+	local gap = g.name and TEXT_GAP or 0
+	rect.w = math.min(CaptionWidth(view) + 2 * Widgets.Border(view.parent), math.max(0, bar.w - levelRoom - gap))
+	if g.name then
+		local room = math.max(0, bar.w - rect.w - TEXT_GAP)
+		g.name.x, g.name.w = bar.x + bar.w - room, room
+		g.nameRoom = math.max(0, room - levelRoom)
+	end
+	Extra(view, text, rect, "LEFT")
+	NameLine(view, g)
+end
+
 function Slab.Layout(view, g)
 	if g.form ~= "slab" then
 		if view.slab then
@@ -103,6 +163,8 @@ function Slab.Layout(view, g)
 	if not view.slab then
 		Build(view)
 	end
+	local resized = view.slabWidth ~= g.glass.w or view.slabHeight ~= g.glass.h
+	view.slabWidth, view.slabHeight = g.glass.w, g.glass.h
 	Widgets.ShowSlice(view.slab, true)
 	Widgets.LayoutSlice(view.slab, view.panel, select(3, Tokens.Texture("medUnitSlab")))
 	local m, rect = view.medallion, g.medal
@@ -121,6 +183,8 @@ function Slab.Layout(view, g)
 	local opposite = g.mirror and "LEFT" or "RIGHT"
 	Extra(view, view.healthSub, g.healthSub, opposite)
 	Extra(view, view.caption, g.caption, opposite)
+	Slab.Caption(view)
+	if resized then ns.Unit.Refit(view) end
 	view.levelText:Hide()
 end
 
@@ -230,6 +294,7 @@ function Slab.Level(view, unit)
 		level = UNKNOWN_LEVEL
 	end
 	view.medallion:SetLevel(level)
+	if not IsSecret(level) then level = tostring(level) end
 	view.slabLevel:SetText(level)
 end
 

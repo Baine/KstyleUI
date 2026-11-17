@@ -5,7 +5,7 @@ local O = dofile("Tools/regression/options_env.lua")
 local U = dofile("Tools/regression/unitframes_env.lua")
 local Load = dofile("Tools/regression/load_files.lua")
 local failures = {}
-for _, screen in ipairs({ { 1920, 1080 }, { 5120, 1440 }, { 2383, 1540 }, { 1920, 1080, "frFR", "Frames" }, { 5120, 1440, "frFR", "Frames" } }) do
+for _, screen in ipairs({ { 1920, 1080 }, { 5120, 1440 }, { 2383, 1540 }, { 1920, 1080, "frFR", "Frames" }, { 5120, 1440, "frFR", "Frames" }, { 1920, 1080, "esES", "Medallions" } }) do
 	rawset(_G, "RENDER_SCREEN", { width = screen[1], height = screen[2], uiScale = 768 / 1080 })
 	rawset(_G, "RENDER_HUD_STYLE", screen[4] or "Medallions")
 	rawset(_G, "RENDER_LOCALE", screen[3] or "enUS")
@@ -20,7 +20,7 @@ for _, screen in ipairs({ { 1920, 1080 }, { 5120, 1440 }, { 2383, 1540 }, { 1920
 			end
 		end,
 	}))
-	if screen[3] then assert(K.L["Frost Howler"] == "Hurleur du givre", "the French preview fixture is loaded") end
+	if screen[3] == "frFR" then assert(K.L["Frost Howler"] == "Hurleur du givre", "the French preview fixture is loaded") end
 	K.Options.Write("UnitFrames", "edit", "target")
 	K.Options.Open("UnitFrames")
 	local ns = env._addons.KstyleUI_Options
@@ -39,6 +39,24 @@ for _, screen in ipairs({ { 1920, 1080 }, { 5120, 1440 }, { 2383, 1540 }, { 1920
 		local label = (screen[3] or "enUS") .. " " .. (screen[4] or "Medallions") .. " " .. screen[1] .. "x" .. screen[2] .. " scale " .. scale
 		local _, name = view.name:GetFont()
 		local _, caption = view.caption:GetFont()
+		if view.form == "slab" then
+			local unit = env._addons.KstyleUI_UnitFrames.Unit
+			assert(U.Shown(env, view.caption) == unit.Tracked(K.L["Beast"], (view.caption:GetFont())), label .. ": show the preview creature type before fitting the row")
+			assert(not view.caption:IsTruncated(), label .. ": show the complete preview creature type")
+			local reference = K.Widgets.FontString(view.name:GetParent(), "OVERLAY")
+			reference:Hide()
+			K.Widgets.ApplyFont(reference, env._addons.KstyleUI_UnitFrames.Settings.Font("target", "name"))
+			local _, capsSize = reference:GetFont()
+			if view.name:GetFont() == K.Tokens.Font("body") then
+				assert(name <= capsSize + 0.01, label .. ": fallback " .. name .. " must not enlarge caps " .. capsSize)
+			end
+			if screen[3] == "esES" and scale == 1 then
+				assert(view.name:GetFont() == K.Tokens.Font("body"), label .. ": exercise the Spanish body fallback")
+				local pixel = K.Widgets.Border(view.name)
+				local floor = math.ceil(9 / (K.Scale.AppliedUserScale() * K.Scale.Pixel(1)) - 1e-6) * pixel
+				assert(name <= math.min(capsSize, floor) + 0.01, label .. ": fallback must not exceed the last caps size")
+			end
+		end
 		if not screen[3] and name < caption - 0.01 then failures[#failures + 1] = label .. ": initialise preview fonts before building the unit preview" end
 		local scene = Common.Scene.Build(env)
 		local rings = 0
@@ -59,6 +77,17 @@ for _, screen in ipairs({ { 1920, 1080 }, { 5120, 1440 }, { 2383, 1540 }, { 1920
 		for _, finding in ipairs(Guard.Check(scene)) do
 			if finding.kind == "ellipsis" and finding.subject == K.L["Frost Howler"] then failures[#failures + 1] = label .. ": show the whole preview name " .. finding.subject end
 		end
+	end
+	if screen[3] == "esES" then
+		assert(K.Theme.SetFontScale(1.3))
+		env.RunTimers()
+		U.SetUnit(env, "target", { name = K.L["Frost Howler"], creature = "Mechanical", level = 61, health = 90, healthMax = 100, reaction = 2 })
+		env.SetTarget(true)
+		local live = env._addons.KstyleUI_UnitFrames.Frames.Get("target").views[1]
+		local font, size = live.name:GetFont()
+		assert(font == K.Tokens.Font("body"), "esES Text size 1.3 exercises the live body fallback")
+		local pixels = size * live.name:GetEffectiveScale() * screen[2] / 768
+		assert(pixels <= math.ceil(9 * screen[2] / 1080 - 1e-6) + 0.01, "esES Text size 1.3 fallback must not exceed the last caps size at the reading floor")
 	end
 	assert(#env._errors == 0, table.concat(env._errors, "\n"))
 	collectgarbage("collect")
