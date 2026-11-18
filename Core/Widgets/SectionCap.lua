@@ -22,7 +22,8 @@ Widgets.SECTION_CAP_CHROME = GEM_CENTRE + TEXT_FROM_GEM + GEM_GAP + COUNT_GAP
 function Widgets.CapsSize(text, plain)
 	Widgets.CapsSized[text] = plain or false
 	local path, floor, flags = Tokens.Font("caps")
-	Widgets.ApplyFont(text, path, math.max(floor, CAP_SIZE * ns.Theme.FontScale()), flags, plain)
+	local size = Widgets.Readability("sectionHeadings") and 10 * ns.Theme.FontScale() or math.max(floor, CAP_SIZE * ns.Theme.FontScale())
+	Widgets.ApplyFont(text, path, size, flags, plain)
 end
 
 function Widgets.PaintCapRule(rule, alpha)
@@ -56,16 +57,27 @@ function Widgets.PaintCapMaterial(gem, rule, alpha)
 	end
 end
 
+function Widgets.RuleBelow(rule, cap, label, left)
+	local below = -Widgets.TextHeight(label, Widgets.LineHeight(label)) / 2 - Widgets.Snap(cap, 2) - Widgets.Border(cap) / 2
+	rule:ClearAllPoints()
+	Widgets.Point(rule, "LEFT", cap, "LEFT", left, below)
+	Widgets.Point(rule, "RIGHT", cap, "RIGHT", 0, below)
+end
+
 local function Placed(self)
 	local count = self.counted
-	self.rule:ClearAllPoints()
-	Widgets.Point(self.rule, "LEFT", self.label, "RIGHT", Widgets.Snap(self, GEM_GAP - Widgets.TrackPad(self.label)), 0)
-	if count then
-		Widgets.Point(self.rule, "RIGHT", self.count, "LEFT", -Widgets.Snap(self, COUNT_GAP), 0)
-	elseif self.reserve then
-		Widgets.Point(self.rule, "RIGHT", self, "RIGHT", -(self.reserve + Widgets.Snap(self, COUNT_GAP)), 0)
+	if Widgets.Readability("sectionHeadings") then
+		Widgets.RuleBelow(self.rule, self, self.label, Widgets.Snap(self, GEM_CENTRE + TEXT_FROM_GEM))
 	else
-		Widgets.Point(self.rule, "RIGHT", self, "RIGHT")
+		self.rule:ClearAllPoints()
+		Widgets.Point(self.rule, "LEFT", self.label, "RIGHT", Widgets.Snap(self, GEM_GAP - Widgets.TrackPad(self.label)), 0)
+		if count then
+			Widgets.Point(self.rule, "RIGHT", self.count, "LEFT", -Widgets.Snap(self, COUNT_GAP), 0)
+		elseif self.reserve then
+			Widgets.Point(self.rule, "RIGHT", self, "RIGHT", -(self.reserve + Widgets.Snap(self, COUNT_GAP)), 0)
+		else
+			Widgets.Point(self.rule, "RIGHT", self, "RIGHT")
+		end
 	end
 	self.count:SetShown(count)
 end
@@ -120,6 +132,12 @@ function Cap:Paint()
 	Widgets.PaintCapMaterial(self.gem, self.rule, RULE_ALPHA)
 	Widgets.TextColor(self.label, "capsGold")
 	Widgets.TextColor(self.count, "muted")
+	if Widgets.Readability("sectionHeadings") then
+		self.label:SetTextColor(Tokens.Color("capsGold"))
+		self.gem:SetVertexColor(Tokens.Color("capsGold"))
+		local r, g, b = Tokens.Color("capsGold")
+		self.rule:SetColorTexture(r, g, b, RULE_ALPHA)
+	end
 end
 
 function Cap:Restyle()
@@ -130,6 +148,11 @@ function Cap:Restyle()
 	self.gem:ClearAllPoints()
 	Widgets.Point(self.gem, "CENTER", self, "LEFT", Widgets.Snap(self, GEM_CENTRE), 0)
 	Widgets.CapsSize(self.label)
+	Widgets.StyleText(self.count, "number")
+	if Widgets.Readability("sectionHeadings") then
+		local _, size, flags = self.count:GetFont()
+		Widgets.ApplyFont(self.count, Tokens.FontPath("PTSerifBold"), size, flags)
+	end
 	self.label:ClearAllPoints()
 	Widgets.Point(self.label, "LEFT", self.gem, "CENTER", Widgets.Snap(self, TEXT_FROM_GEM), 0)
 	self.rule:SetHeight(Widgets.Border(self))

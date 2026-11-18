@@ -14,6 +14,16 @@ local function New(saved, version, screen)
 end
 local env, K, calls = New()
 assert(calls() > 0, "a cold login must really run the scale search")
+do
+	local oldEnv, current = New()
+	local expected = string.format("%.17g", current.Scale.AppliedUserScale())
+	for _, entry in ipairs(oldEnv.KstyleUIDB.scaleCache.entries) do
+		entry.key = entry.key:gsub("scaled%-text%-v2", "scaled-text")
+		entry.maximum, entry.auto, entry.nearest, entry.previousNearest = "0.6", "0.6", "0.6", "0.6"
+	end
+	local _, upgraded, misses = New(oldEnv.KstyleUIDB)
+	assert(misses() > 0 and string.format("%.17g", upgraded.Scale.AppliedUserScale()) == expected, "discard saved answers from the superseded text-floor policy")
+end
 local profile = K.Store.Profile()
 for _, element in ipairs(K.Setup.Layouts.ELEMENTS) do
 	profile[element.module] = profile[element.module] or {}
@@ -28,6 +38,14 @@ local before = hits()
 warm.FireEvent("DISPLAY_SIZE_CHANGED")
 warm.RunTimers()
 assert(hits() == before, "P1: no-op and late display rechecks must skip Limit")
+W.Options.Write("Appearance", "textFloor", false)
+assert(hits() > before, "C1: a changed text floor must never reuse the old scale cache key")
+local legacyFloor = string.format("%.17g", W.Scale.AppliedUserScale())
+local _, legacy, legacyHits = New(warm.KstyleUIDB)
+assert(string.format("%.17g", legacy.Scale.AppliedUserScale()) == legacyFloor, "C1: reload keeps the exact scale for the selected floor")
+assert(legacyHits() == 0, "C1: after Appearance restores the floor, reuse only its matching cache entry")
+W.Options.Write("Appearance", "textFloor", true)
+before = hits()
 local width, height = 3456, 2234
 warm.GetPhysicalScreenSize = function() return width, height end
 warm.FireEvent("DISPLAY_SIZE_CHANGED")

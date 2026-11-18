@@ -49,12 +49,13 @@ end
 local function EdgeColor(slot)
 	local state = slot.state
 	if state.coloured then
-		local r, g, b = Theme.QualityColor(state.quality)
+		local r, g, b = Theme.QualityColor(state.quality, Settings.Get("qualityColors"))
 		return r, g, b, 1
 	end
 	if state.empty then
 		return Widgets.Rgba("edgeInner")
 	end
+	if Settings.Get("qualityColors") then return Tokens.Color("slotRim") end
 	return Widgets.IconRim(Accent())
 end
 
@@ -230,7 +231,7 @@ function Slot.Update(slot, record, level, match, packed)
 	end
 	if level and Settings.Get("showItemLevel") then
 		slot.level:SetText(tostring(level))
-		slot.level:SetTextColor(Theme.QualityColor(quality))
+		slot.level:SetTextColor(Theme.QualityColor(quality, Settings.Get("qualityColors")))
 		slot.level:Show()
 	else
 		slot.level:Hide()

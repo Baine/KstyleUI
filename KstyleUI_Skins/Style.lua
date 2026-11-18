@@ -157,6 +157,11 @@ function Style.Text(text, role, colorName, size)
 	role = role or roles[text] or "body"
 	roles[text] = role
 	local wanted = sizes[text]
+	local section = role == "caps" and type(wanted) ~= "function" and Widgets.Readability("sectionHeadings")
+	if section then
+		wanted = 10 * K.Theme.FontScale() * Style.Setting("text", "size")
+		colorName = "capsGold"
+	end
 	if type(wanted) == "function" then
 		wanted = wanted()
 	end
@@ -165,6 +170,7 @@ function Style.Text(text, role, colorName, size)
 	end
 	if colorName then
 		Widgets.TextColor(text, colorName)
+		if section then text:SetTextColor(Tokens.Color("capsGold")) end
 	end
 	return text
 end

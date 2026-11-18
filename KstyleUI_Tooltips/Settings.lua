@@ -12,9 +12,10 @@ ns.MODULE = MODULE
 
 local SIZE_MIN, SIZE_MAX, SIZE_STEP = 8, 32, 1
 local BAR_MIN, BAR_MAX, BAR_STEP, BAR_SIZE = 2, 16, 1, 6
-local ICON_MIN, ICON_MAX, ICON_STEP, ICON_SIZE = 20, 64, 1, 50
+local ICON_MIN, ICON_MAX, ICON_STEP, ICON_SIZE = 20, 64, 1, 44
 local OFFSET_MIN, OFFSET_MAX, OFFSET_STEP = -64, 64, 1
-local TITLE_SIZE, BODY_SIZE, SMALL_SIZE = 11, 11, 9
+local TITLE_SIZE, BODY_SIZE, SMALL_SIZE = 13, 12, 11
+local LEGACY_SIZES = { ["title.size"] = 11, ["body.size"] = 11, ["small.size"] = 9, iconSize = 50 }
 
 local FACE = "theme"
 local accentR, accentG, accentB = Tokens.Color("accentDefault")
@@ -26,6 +27,8 @@ local function Text(size)
 end
 
 Settings.defaults = {
+	hierarchy = true,
+	qualityColors = true,
 	anchor = "cursorOutOfCombat",
 	minimapAnchor = true,
 	cursorX = 0,
@@ -128,6 +131,10 @@ local schema = {
 		min = OFFSET_MIN, max = OFFSET_MAX, step = OFFSET_STEP, showWhen = Cursor,
 	},
 	{ type = "header", label = L["Text"] },
+	{ type = "toggle", key = "hierarchy", label = L["Clear tooltip hierarchy"],
+		help = L["Larger titles, readable lines and smaller icons. Off restores the original sizes and title face."] },
+	{ type = "toggle", key = "qualityColors", label = L["Refined tooltip colours"],
+		help = L["Softer item qualities, bright stat lines and readable hostile names. Off uses original colours."] },
 	{
 		type = "toggle", key = "followFont", label = L["Use KstyleUI's font"],
 		help = L["Tooltips use the font from Appearance. Turn off to pick a font for each kind of line."],
@@ -355,6 +362,7 @@ function Settings.Get(key)
 		value = nil
 	end
 	if row and value ~= nil and VALID[row.type](row, value) then
+		if key ~= "hierarchy" and Settings.Get("hierarchy") == false and LEGACY_SIZES[key] and value == default then return LEGACY_SIZES[key] end
 		return value
 	end
 	if not row and type(value) == type(default) then

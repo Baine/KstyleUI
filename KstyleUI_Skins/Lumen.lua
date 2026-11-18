@@ -157,13 +157,23 @@ function Cap:Paint()
 	Widgets.TextColor(self.trail, "textEmphasis")
 	self.rule:SetColorTexture(r, g, b, RULE_ALPHA)
 	Widgets.PaintCapMaterial(self.gem, self.rule, RULE_ALPHA)
+	if Widgets.Readability("sectionHeadings") then
+		self.title:SetTextColor(Tokens.Color("capsGold"))
+		self.gem:SetVertexColor(Tokens.Color("capsGold"))
+		local cr, cg, cb = Tokens.Color("capsGold")
+		self.rule:SetColorTexture(cr, cg, cb, RULE_ALPHA)
+	end
 end
 
 function Cap:Restyle()
 	local row, opts = self.row, self.opts
 	local y = Widgets.Snap(row, Units(opts.y, row))
-	Style.ApplyFont(self.title, "caps", Lumen.Size(row, CAP_SIZE))
+	local headings = Widgets.Readability("sectionHeadings")
+	Style.ApplyFont(self.title, "caps", Lumen.Size(row, headings and 10 or CAP_SIZE))
 	Style.ApplyFont(self.trail, "number", Lumen.Size(row, CAP_SIZE))
+	if headings then
+		Widgets.ApplyFont(self.trail, Tokens.FontPath("PTSerifBold"), select(2, self.trail:GetFont()))
+	end
 	local left = Widgets.Snap(row, Units(opts.left, row))
 	local gem = Lumen.Size(row, GEM_UNITS)
 	Widgets.Size(self.gem, gem, gem)
@@ -179,7 +189,14 @@ function Cap:Restyle()
 	self.rule:ClearAllPoints()
 	Widgets.Point(self.rule, "LEFT", self.title, "RIGHT", Widgets.Snap(row, Lumen.Size(row, RULE_LEAD) - Widgets.TrackPad(self.title)), 0)
 	Widgets.Point(self.rule, "RIGHT", self.trail, "LEFT", -Widgets.Snap(row, Lumen.Size(row, RULE_TRAIL)), 0)
-	self.rule:SetHeight(math.max(Widgets.Border(row), Widgets.Snap(row, Lumen.Size(row, RULE_UNITS))))
+	local ruleHeight = math.max(Widgets.Border(row), Widgets.Snap(row, Lumen.Size(row, RULE_UNITS)))
+	self.rule:SetHeight(ruleHeight)
+	if headings then
+		local below = y - Widgets.TextHeight(self.title, Widgets.LineHeight(self.title)) / 2 - Widgets.Snap(row, Lumen.Size(row, 2)) - ruleHeight / 2
+		self.rule:ClearAllPoints()
+		Widgets.Point(self.rule, "LEFT", row, "LEFT", left + Lumen.CapColumn(row), below)
+		Widgets.Point(self.rule, "RIGHT", row, "RIGHT", -Widgets.Snap(row, Units(opts.right, row)), below)
+	end
 	self:Paint()
 	self:SetTitle(self.titleValue)
 	self:SetTrail(self.trailValue)

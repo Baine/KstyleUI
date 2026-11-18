@@ -755,19 +755,40 @@ local function PlaceHeading(h)
 	end
 	rule:ClearAllPoints()
 	local length = width and room and Widgets.Snap(panel, room - stop) - indent - width - 2 * gap
+	if Widgets.Readability("sectionHeadings") and room then length = Widgets.Snap(panel, room - stop) - indent end
 	if not length or length < 2 * gap then
 		rule:Hide()
 		return
 	end
-	Widgets.Point(rule, "LEFT", caption, "LEFT", width + CAP_RULE_GAP, 0)
+	if Widgets.Readability("sectionHeadings") then
+		rule:SetPoint("TOPLEFT", caption, "BOTTOMLEFT", 0, -Widgets.Snap(panel, 2))
+	else
+		Widgets.Point(rule, "LEFT", caption, "LEFT", width + CAP_RULE_GAP, 0)
+	end
 	rule:SetSize(Widgets.Snap(h.holder, length), Widgets.Border(h.holder))
 	rule:Show()
 end
 
 local function RestyleHeading(h)
+	if Widgets.Readability("sectionHeadings") then
+		ns.Style.ApplyFont(h.caption, "caps", 10 * K.Theme.FontScale() * ns.Style.Setting("text", "size") / Widgets.ScaleFactor(h.caption))
+		local label = h.caption:GetText()
+		if not Widgets.IsSecret(label) and type(label) == "string" and label:find("%d") then
+			Widgets.ApplyFont(h.caption, Tokens.FontPath("PTSerifBold"), select(2, h.caption:GetFont()))
+		end
+		h.caption:SetTextColor(Tokens.Color("capsGold"))
+	else
+		Widgets.ApplyFont(h.caption, unpack(h.font))
+		h.caption:SetTextColor(unpack(h.color))
+	end
 	PlaceHeading(h)
 	h.gem:SetVertexColor(Widgets.Rgba("capsGold", 1))
 	Widgets.PaintCapMaterial(h.gem, h.rule, CAP_ALPHA)
+	if Widgets.Readability("sectionHeadings") then
+		h.gem:SetVertexColor(Tokens.Color("capsGold"))
+		local r, g, b = Tokens.Color("capsGold")
+		h.rule:SetColorTexture(r, g, b, CAP_ALPHA)
+	end
 end
 
 function Parts.Heading(panel, caption, opts)
@@ -789,13 +810,14 @@ function Parts.Heading(panel, caption, opts)
 	lane:SetPoint("TOPLEFT", panel, "TOPLEFT")
 	lane:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT")
 	local h = { panel = panel, caption = caption, row = row, lane = lane, close = opts.close, inset = opts.inset, holder = holder }
+	h.font, h.color = { caption:GetFont() }, { caption:GetTextColor() }
 	h.gem = holder:CreateTexture(nil, "OVERLAY")
 	h.rule = holder:CreateTexture(nil, "OVERLAY")
 	h.Restyle = RestyleHeading
 	h.Place = PlaceHeading
 	headings[caption] = h
 	local function place()
-		PlaceHeading(h)
+		if Widgets.Readability("sectionHeadings") then RestyleHeading(h) else PlaceHeading(h) end
 	end
 	hooksecurefunc(caption, "SetText", place)
 	panel:HookScript("OnSizeChanged", place)
