@@ -1480,10 +1480,12 @@ function modules.meters(opts)
 	local rows = opts.damage or {}
 	local hide
 	local env, K, ns = M.New(Common.ScreenOpts({
+		followRole = opts.followRole,
 		restricted = true,
 		saved = saved(opts, "Meters"),
 		setup = function(env)
 			shared(env, opts)
+			env.UnitGroupRolesAssigned = function() return opts.role or "DAMAGER" end
 			classColours(env)
 			env.UnitClass = function(unit)
 				local u = env._units[unit]
@@ -1524,6 +1526,7 @@ function modules.meters(opts)
 			end
 		end,
 	}))
+	if opts.followRole then K.Options.Write("Meters", "followRole", true) end
 	if not K.Modules.IsRunning("Meters") then
 		K.Modules.Enable("Meters")
 	end
