@@ -7,6 +7,7 @@ local Measure = dofile("Tools/regression/databars_env.lua")
 local W = S.W
 
 local HOOKED = {
+	SetTexture = true, SetRotation = true, SetTexCoord = true,
 	SetAlpha = true, SetVertexColor = true, SetChecked = true, SetFont = true, SetFontObject = true, SetText = true, Show = true, Hide = true, SetShown = true, UpdateVisuals = true, SetMinMaxValues = true,
 	SetStep = true, UpdateText = true, SortTimers = true, SetStatusBarColor = true, DoLayout = true, SetScale = true, StopMovingOrSizing = true,
 }
@@ -339,8 +340,8 @@ do
 	assert(near(select(2, arrow.text:GetFont()), K.Widgets.FontSize(arrow.text, caption), 1e-6), "and never under the kit's caption size")
 	arrow.text:SetFont(path, 9, "")
 	assert(arrow.text:GetText() == "Talk to " .. Hex(K, "friend") .. "Aarnor Galestrike|r\n(1344yd)", "with RestedXP's default colours swapped for KstyleUI's, got " .. arrow.text:GetText())
-	local ar, ag, ab = ns.Style.Accent()
-	assert(W.SameColor(arrow.texture, ar, ag, ab), "under the accent arrow")
+	local ar, ag, ab = K.Tokens.Color("textEmphasis")
+	assert(W.SameColor(arrow.texture, ar, ag, ab), "under the bright ivory arrow")
 	rxp.UpdateItemFrame(rxp.activeItemFrame, 2)
 	rxp.targeting:UpdateTargetFrame(1, 1)
 	for name, frame in pairs({ ["ACTIVE ITEMS"] = rxp.activeItemFrame, ["ACTIVE TARGETS"] = rxp.targeting.activeTargetFrame }) do
