@@ -76,11 +76,12 @@ end
 local textCurves = {}
 
 local function TextCurves(token)
-	local curves = textCurves[token]
+	local cache = token .. (Widgets.Readability("readableBars") and ":readable" or ":original")
+	local curves = textCurves[cache]
 	if curves ~= nil or not LowCurve() then
 		return curves or nil
 	end
-	local low, high = { Tokens.Color("healthLow") }, { Tokens.Color(token) }
+	local low, high = { Tokens.Color("healthLowText") }, { Tokens.Color(token) }
 	curves = {}
 	for i = 1, 3 do
 		local curve = C_CurveUtil.CreateCurve()
@@ -94,7 +95,7 @@ local function TextCurves(token)
 		curve:AddPoint(1, high[i])
 		curves[i] = curve
 	end
-	textCurves[token] = curves
+	textCurves[cache] = curves
 	return curves
 end
 
@@ -140,6 +141,29 @@ function Bar:SetBarColor(...)
 	c[1], c[2], c[3], c[4] = ...
 	self.ownColor = true
 	self:SetStatusBarColor(...)
+	local r, g, b = c[1], c[2], c[3]
+	if Widgets.Readability("barColors") and not (Widgets.IsSecret(r) or Widgets.IsSecret(g) or Widgets.IsSecret(b))
+		and type(r) == "number" and type(g) == "number" and type(b) == "number" and type(CreateColor) == "function" then
+		local gradient = self.gradients
+		if gradient.lossR == r and gradient.lossG == g and gradient.lossB == b then
+			return
+		end
+		gradient.lossR, gradient.lossG, gradient.lossB = r, g, b
+		gradient.lossFallback = nil
+		gradient.lossBottom = CreateColor(r + (1 - r) * 0.35, g + (1 - g) * 0.35, b + (1 - b) * 0.35, 0.75)
+		gradient.lossTop = CreateColor(r + (1 - r) * 0.5, g + (1 - g) * 0.5, b + (1 - b) * 0.5, 0.75)
+		Gradient(self.under:GetStatusBarTexture(), gradient.lossBottom, gradient.lossTop)
+		Gradient(self.recent:GetStatusBarTexture(), gradient.lossBottom, gradient.lossTop)
+	else
+		local gradient = self.gradients
+		local refined = Widgets.Readability("barColors")
+		if gradient.lossFallback == refined then return end
+		gradient.lossFallback = refined
+		gradient.lossR, gradient.lossG, gradient.lossB = nil, nil, nil
+		gradient.lossBottom, gradient.lossTop = NewColor("barLoss"), NewColor("barLossLit")
+		Gradient(self.under:GetStatusBarTexture(), gradient.lossBottom, gradient.lossTop)
+		Gradient(self.recent:GetStatusBarTexture(), gradient.lossBottom, gradient.lossTop)
+	end
 end
 
 function Bar:SetBarValue(value)
@@ -362,6 +386,7 @@ local function Wrap(bar)
 		PlaceUnder(self)
 		PlaceFill(self)
 		PlaceSpark(self)
+		if self.ownColor then self:SetBarColor(unpack(self.colorRGBA, 1, self.colorRGBA.n)) end
 		Paint(self)
 		self:ColorByHealth()
 	end

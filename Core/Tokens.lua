@@ -73,9 +73,10 @@ local COLORS = {
 	track = { "05090e", 0.88 },
 	barTrack = { "090a0a", 1 },
 	barEdgeSoft = { "000000", 0.45 },
-	barLoss = { "f1b98a", 0.85 },
-	barLossLit = { "ffe9c9", 0.85 },
+	barLoss = { "ffffff", 0.32 },
+	barLossLit = { "ffffff", 0.45 },
 	healthLow = { "c5443e", 1 },
+	healthLowText = { "ffb3a7", 1 },
 	barEdge = { "202327", 1 },
 	powerEdge = { "12160a", 1 },
 	castEdge = { "040502", 1 },
@@ -94,7 +95,7 @@ local COLORS = {
 	plateHostile = { "c3433d", 1 },
 	hudPlayerHealth = { "2c69cc", 1 },
 	hudTargetHealth = { "c5443e", 1 },
-	hudMana = { "3d3dec", 1 },
+	hudMana = { "2a3fa8", 1 },
 	hudRested = { "5a9cca", 1 },
 	orbHealth = { "c0302b", 1 },
 	orbMana = { "2a64c8", 1 },
@@ -230,8 +231,8 @@ local FONT_FACES = {
 	{ key = "InterSemiBold", label = "Inter SemiBold", path = FONTS_DIR .. "Inter-SemiBold.ttf" },
 	{ key = "FolioDisplay", label = "IM Fell Double Pica SC", path = FONTS_DIR .. "FolioDisplay-Regular.ttf", tracking = 0 },
 	{ key = "FolioCaps", label = "Folio Caps", path = FONTS_DIR .. "FolioCaps-SemiBold.ttf", tracking = 0.045, shadow = false },
-	{ key = "FolioNames", label = "Cinzel Names SemiBold", path = FONTS_DIR .. "CinzelNames-SemiBold.ttf", tracking = 0, shadow = { x = 1, y = 1, alpha = 0.5 } },
-	{ key = "FolioUnit", label = "Cinzel Unit SemiBold", path = FONTS_DIR .. "CinzelUnit-SemiBold.ttf", tracking = -0.064, shadow = { x = 1, y = 1, alpha = 0.5 } },
+	{ key = "FolioNames", label = "Cinzel Names SemiBold", path = FONTS_DIR .. "CinzelNames-SemiBold.ttf", tracking = 0, shadow = { x = 1, y = 1, alpha = 0.85 } },
+	{ key = "FolioUnit", label = "Cinzel Unit SemiBold", path = FONTS_DIR .. "CinzelUnit-SemiBold.ttf", tracking = -0.064, shadow = { x = 1, y = 1, alpha = 0.85 } },
 	{ key = "PTSerifRegular", label = "PT Serif", path = FONTS_DIR .. "PTSerif-Regular.ttf", tracking = 0 },
 	{ key = "PTSerifBold", label = "PT Serif Bold", path = FONTS_DIR .. "PTSerif-Bold.ttf", tracking = 0 },
 	{ key = "BarlowSemiBold", label = "Barlow Semi Condensed SemiBold", path = FONTS_DIR .. "BarlowSemiCondensedTabular-SemiBold.ttf", tracking = 0 },
@@ -438,7 +439,19 @@ local function unknown(kind, name)
 	error("KstyleUI.Tokens." .. kind .. ": unknown name " .. tostring(name), 3)
 end
 
+local LEGACY_COLOR = {
+	barLoss = { 241 / 255, 185 / 255, 138 / 255, 0.85 },
+	barLossLit = { 1, 233 / 255, 201 / 255, 0.85 },
+	hudMana = { 61 / 255, 61 / 255, 236 / 255, 1 },
+	healthLowText = { 197 / 255, 68 / 255, 62 / 255, 1 },
+}
+
 function Tokens.Color(name)
+	local key = name == "healthLowText" and "readableBars" or "barColors"
+	local legacy = LEGACY_COLOR[name]
+	if legacy and ns.Appearance and not ns.Appearance.Readability(key) then
+		return legacy[1], legacy[2], legacy[3], legacy[4]
+	end
 	if name == "accent" then
 		local theme = ns.Theme
 		if theme and theme.Accent then
@@ -553,7 +566,11 @@ function Tokens.FaceTracking(path)
 	return FACE_TRACKING[path] or 0
 end
 
+local LEGACY_NAME_SHADOW = { x = 1, y = 1, alpha = 0.5 }
 function Tokens.FaceShadow(path)
+	if ns.Appearance and not ns.Appearance.Readability("worldText") and (path == Tokens.FontPath("FolioNames") or path == Tokens.FontPath("FolioUnit")) then
+		return LEGACY_NAME_SHADOW
+	end
 	local shadow = FACE_SHADOW[path]
 	if shadow == nil then
 		return true

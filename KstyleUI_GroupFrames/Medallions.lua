@@ -17,10 +17,10 @@ local MIN_CELL = 8
 local PIP_SHARE = 0.6
 local PIP_ROOM = 0.25
 local TILE_TEXT = "NONE"
-local INK_LUMINANCE = 0.75
-local INK_SHADOW_ALPHA = 0.4
+local INK_SHADOW_ALPHA = 0.25
 local LOW_STEP = 0.001
-local CHIP_ALPHA = 0.72
+local CHIP_ALPHA = 0.55
+local CHIP_WIDTH = 30
 local LABEL_FACE = Tokens.FontPath("InterSemiBold")
 local NUMBER_FACE = Tokens.FontPath("PTSerifBold")
 local LOOK = {
@@ -223,12 +223,17 @@ function Medallions.Inked(class)
 	if Unit.IsSecret(class) or type(class) ~= "string" then
 		return false
 	end
-	local value = inked[class]
+	local key = class .. (Widgets.Readability("readableBars") and ":readable" or ":original")
+	local value = inked[key]
 	if value == nil then
 		local r, g, b = Unit.ClassColor(class)
-		value = not (Unit.IsSecret(r) or Unit.IsSecret(g) or Unit.IsSecret(b)) and type(r) == "number"
-			and 0.2126 * r + 0.7152 * g + 0.0722 * b >= INK_LUMINANCE
-		inked[class] = value
+		if Widgets.Readability("readableBars") then
+			value = select(5, Widgets.InkFor(r, g, b)) == ""
+		else
+			value = not (Unit.IsSecret(r) or Unit.IsSecret(g) or Unit.IsSecret(b)) and type(r) == "number"
+				and 0.2126 * r + 0.7152 * g + 0.0722 * b >= 0.75
+		end
+		inked[key] = value
 	end
 	return value
 end
@@ -261,14 +266,22 @@ local function InkCurves()
 end
 
 local function InkShadow(text)
-	local r, g, b = Tokens.Color("white")
-	text:SetShadowColor(r, g, b, INK_SHADOW_ALPHA)
+	local refined = Widgets.Readability("readableBars")
+	local r, g, b = Tokens.Color(refined and "textEmphasis" or "white")
+	text:SetShadowColor(r, g, b, refined and INK_SHADOW_ALPHA or 0.4)
 end
 
 local nameColored = Unit.NameColored
 function Unit.NameColored(f, class)
 	nameColored(f, class)
-	local ink = f.parts and f.parts.tile and not f.status and Medallions.Active() and Medallions.Inked(class)
+	if not (f.parts and f.parts.tile and Medallions.Active()) then
+		f.medInked = nil
+		return
+	end
+	local ink = not f.status and Medallions.Inked(class)
+	local refined = Widgets.Readability("readableBars")
+	local path, size = f.name:GetFont()
+	Widgets.ApplyFont(f.name, path, size, (not refined or ink) and "" or "OUTLINE")
 	if ink then
 		local curves = f.unit and InkCurves()
 		if curves then
@@ -277,12 +290,10 @@ function Unit.NameColored(f, class)
 			f.name:SetTextColor(Tokens.Color("slabBottom"))
 		end
 	end
-	if (ink or false) ~= (f.medInked or false) then
-		f.medInked = ink or nil
-		Widgets.TextShadow(f.name, "")
-		if ink then
-			InkShadow(f.name)
-		end
+	f.medInked = ink or nil
+	Widgets.TextShadow(f.name, (not refined or ink) and "" or "OUTLINE")
+	if ink then
+		InkShadow(f.name)
 	end
 end
 
@@ -299,12 +310,31 @@ local function Chip(f, shown)
 	if not shown then
 		return
 	end
-	local r, g, b = Tokens.Color("steelFill")
-	chip:SetColorTexture(r, g, b, CHIP_ALPHA)
-	local pad = Widgets.Snap(f, Tokens.Size("gapTiny"))
+	if not Widgets.Readability("readableBars") then
+		local r, g, b = Tokens.Color("steelFill")
+		chip:SetColorTexture(r, g, b, 0.72)
+		if f.medChipGradient then
+			chip:SetColorTexture(Tokens.Color("white"))
+			chip:SetGradient("HORIZONTAL", CreateColor(r, g, b, 0.72), CreateColor(r, g, b, 0.72))
+		end
+		local pad = Widgets.Snap(f, Tokens.Size("gapTiny"))
+		chip:ClearAllPoints()
+		chip:SetPoint("TOPLEFT", f.healthText, "TOPLEFT", -pad, 0)
+		chip:SetPoint("BOTTOMRIGHT", f.healthText, "BOTTOMRIGHT", pad, 0)
+		return
+	end
+	local r, g, b = Tokens.Color("slabBottom")
+	chip:SetColorTexture(Tokens.Color("white"))
+	if type(chip.SetGradient) == "function" and type(CreateColor) == "function" then
+		f.medChipGradient = true
+		chip:SetGradient("HORIZONTAL", CreateColor(r, g, b, 0), CreateColor(r, g, b, CHIP_ALPHA))
+	else
+		chip:SetColorTexture(r, g, b, CHIP_ALPHA)
+	end
 	chip:ClearAllPoints()
-	chip:SetPoint("TOPLEFT", f.healthText, "TOPLEFT", -pad, 0)
-	chip:SetPoint("BOTTOMRIGHT", f.healthText, "BOTTOMRIGHT", pad, 0)
+	chip:SetPoint("TOPRIGHT", f.health, "TOPRIGHT")
+	chip:SetPoint("BOTTOMRIGHT", f.health, "BOTTOMRIGHT")
+	chip:SetWidth(Widgets.Snap(f, CHIP_WIDTH))
 end
 
 local function ShowCap(f, shown)
@@ -329,10 +359,14 @@ local function TileText(f)
 	local right = Widgets.Snap(f, tile.right)
 	local gap = Widgets.Snap(f, tile.gap)
 	local reserve = TextReserve(f, k)
-	local nameRight = reserve > 0 and right - reserve - gap or right
-	if block and block.left then
+	local lines = 1.2 * (Widgets.FontSize(f.name, 12) + Widgets.FontSize(f.healthText, k.healthTextSize))
+	local refined = Widgets.Readability("readableBars")
+	local separated = refined and tile.stacked and health.height - 2 * tile.inset >= lines
+	local nameRight = not separated and reserve > 0 and right - reserve - gap or right
+	if block and block.left and (not refined or not tile.stacked) then
 		nameRight = math.min(nameRight, Widgets.Snap(f, block.left) - gap)
 	end
+	f.nameLetterCut = refined
 	f.tileText = { left = left, nameRight = nameRight, textRight = right, reserve = reserve, stacked = tile.stacked }
 	f.nameWidth = math.max(1, nameRight - left)
 	f.name:SetWidth(f.nameWidth)
@@ -378,8 +412,9 @@ local function Tile(f, parts, k)
 	local fit = f.nameFit
 	if fit then
 		fit.path, fit.kit = LABEL_FACE, false
+		if Widgets.Readability("readableBars") then fit.size, fit.min = 12, 11 end
 		fit.set = function(text, size)
-			Style.SetFont(text, LABEL_FACE, size, TILE_TEXT)
+			Style.SetFont(text, LABEL_FACE, size, (not Widgets.Readability("readableBars") or f.medInked) and TILE_TEXT or "OUTLINE")
 			if f.medInked then
 				InkShadow(text)
 			end
@@ -392,7 +427,7 @@ local function Tile(f, parts, k)
 		local _, percent = TextReserve(f, k)
 		local right = Widgets.Snap(f, tile.right)
 		block.left = (percent > 0 and right - percent - Widgets.Snap(f, tile.gap) or right) - block.width
-		block.top = tile.stacked and health.top + tile.inset or health.top + math.floor((health.height - block.height) / 2)
+		block.top = tile.stacked and (Widgets.Readability("readableBars") and health.top + health.height - tile.inset - block.height or health.top + tile.inset) or health.top + math.floor((health.height - block.height) / 2)
 	end
 	TileText(f)
 end
@@ -407,6 +442,7 @@ function Style.PlaceRowEnd(f)
 end
 
 local function Applied(f, parts, k)
+	f.nameLetterCut = false
 	local on = Medallions.Active()
 	if f.kind == "party" then
 		Badge(f, on and f.showPortrait)
@@ -414,6 +450,22 @@ local function Applied(f, parts, k)
 			f.tileless = true
 			f.chrome:SetShadow(false)
 			f.chrome:Restyle()
+		end
+		if on or f.medPartyScrim then
+			f.medPartyScrim = f.medPartyScrim or Widgets.NineSlice(f, "chamferTile", "BACKGROUND", -1)
+			Widgets.ShowSlice(f.medPartyScrim, on and Widgets.Readability("worldText"))
+			if on then
+				Widgets.ColorSlice(f.medPartyScrim, Widgets.Rgba("slabBottom", 0.5))
+				if not f.medPartyInk then
+					f.medPartyInk = CreateFrame("Frame", nil, f)
+					f.medPartyInk:SetFrameLevel(f:GetFrameLevel())
+				end
+				local box, pad = f.medPartyInk, Widgets.Snap(f, 4)
+				box:ClearAllPoints()
+				box:SetPoint("TOPLEFT", f.name, "TOPLEFT", -pad, pad)
+				box:SetPoint("BOTTOMRIGHT", f.health, "BOTTOMRIGHT", pad, -pad)
+				Widgets.LayoutSlice(f.medPartyScrim, box, Tokens.Size("radiusTile"), 0)
+			end
 		end
 	elseif on and parts.tile then
 		Tile(f, parts, k)
@@ -443,7 +495,7 @@ local function PaintSample(f, sample)
 		return
 	end
 	f.health:SetBarColor(K.Theme.ClassColor(sample.class))
-	f.name:SetTextColor(Tokens.Color("textEmphasis"))
+	if Widgets.Readability("readableBars") then Unit.NameColored(f, sample.class) else f.name:SetTextColor(Tokens.Color("textEmphasis")) end
 end
 Style.painters[#Style.painters + 1] = PaintSample
 

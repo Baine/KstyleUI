@@ -845,7 +845,7 @@ Layouts.MEDALLIONS_RING, Layouts.MEDALLIONS_HUB_GAP = 150, 158
 Layouts.MEDALLIONS_SLOT = { size = 42, gap = 5, floor = 33, [ASPECTS[1]] = 33.5 }
 Layouts.MEDALLIONS_SIDE = { rows = 2, gap = 4, pad = 6, clear = 12 }
 Layouts.MEDALLIONS_SLAB = { pad = 9, stripGap = 3, strip = 3, bottom = 3 }
-Layouts.MEDALLIONS_UNITS = { frame = { 300, 58 }, mini = { 170, 34 }, cast = { 300, 20 }, lift = 14, reach = 12, medal = 41, outboard = 12, stack = 46, castGap = 10, castStack = 6 }
+Layouts.MEDALLIONS_UNITS = { frame = { 300, 58 }, mini = { 170, 34 }, cast = { 300, 20 }, lift = 14, reach = 12, medal = 41, outboard = 12, stack = 46, castGap = 15, castStack = 9 }
 Layouts.MEDALLIONS_MEDALS = { ["unitframes.player"] = { side = -1, d = 86 }, ["unitframes.target"] = { side = 1, d = 86 }, ["unitframes.pet"] = { side = -1, d = 56 } }
 
 function Layouts.MedallionsGroup(class)
@@ -876,6 +876,8 @@ function Layouts.StyleSize(style, class, key)
 end
 
 function Layouts.BuildMedallions()
+	Layouts.MEDALLIONS_UNITS.castGap = ns.Appearance.Readability("readableBars") and 15 or 10
+	Layouts.MEDALLIONS_UNITS.castStack = ns.Appearance.Readability("readableBars") and 9 or 6
 	local hub, slab = Layouts.MEDALLIONS_HUB_GAP, Layouts.MEDALLIONS_SLAB
 	local unit = Layouts.MEDALLIONS_UNITS
 	local sets = {}
@@ -939,7 +941,6 @@ function Layouts.BuildMedallions()
 	end
 end
 Layouts.BuildMedallions()
-Layouts.BuildMedallions = nil
 
 function Layouts.Aspect(class, style, name, key)
 	local styled = style ~= "frames" and Layouts.Style(style, name, key) ~= nil
