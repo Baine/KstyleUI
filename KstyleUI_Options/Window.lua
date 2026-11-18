@@ -31,12 +31,19 @@ local function CalmLists()
 	return K.Appearance.Get("calmLists")
 end
 
+local function RestyleText()
+	local scale = win:GetScale()
+	if not K.Store.Module("OptionsPresentation").readableText then win:SetScale(1) end
+	K.Setup.RestyleText(win, preview)
+	win:SetScale(scale)
+end
+
 local function Snap(units)
 	return Widgets.Snap(win, units)
 end
 
 local function CurrentPage()
-	return Pages.Find(state.pages, state.page) or state.pages[1]
+	return Pages.Find(state.pages, state.page) or Pages.Find(state.pages, "General") or state.pages[1]
 end
 
 local function Note(text)
@@ -129,7 +136,7 @@ function ns.Changed()
 end
 
 local function Select(id)
-	local page = Pages.Find(state.pages, id) or state.pages[1]
+	local page = Pages.Find(state.pages, id) or Pages.Find(state.pages, "General") or state.pages[1]
 	if not page then
 		return
 	end
@@ -144,6 +151,16 @@ local function Select(id)
 	Preview.Show(preview, page)
 	Relayout()
 	Render(false, true, changed)
+end
+
+function Window.Jump(target)
+	Select(target.page)
+	for i, item in ipairs(state.items) do
+		if target.key and item.module == target.module and item.key == target.key or target.labelTarget and item.label == target.labelTarget then
+			content:ScrollToIndex(i, true, "TOP")
+			return
+		end
+	end
 end
 
 local function SetQuery(text)
@@ -235,6 +252,18 @@ function Relayout()
 	local shown = preview:IsShown()
 	local side = shown and PREVIEW_WIDTH + gap or 0
 	local contentWidth = max(1, width - 2 * pad - RAIL_WIDTH - gap - side)
+	local columns = K.Store.Module("OptionsPresentation").columns
+	local capTop = top + pad
+	local capHeight = columns and Widgets.SECTION_CAP_HEIGHT + pad + gap or 0
+	win.categoryCap:SetShown(columns)
+	win.pageCap:SetShown(columns)
+	win.categoryCap:ClearAllPoints()
+	Widgets.Point(win.categoryCap, "TOPLEFT", win, "TOPLEFT", pad, -capTop)
+	win.categoryCap:SetWrapWidth(RAIL_WIDTH)
+	win.pageCap:ClearAllPoints()
+	Widgets.Point(win.pageCap, "TOPLEFT", win, "TOPLEFT", pad + RAIL_WIDTH + gap + Tokens.Size("gapMedium"), -capTop)
+	win.pageCap:SetText(CurrentPage() and CurrentPage().label or "")
+	win.pageCap:SetWrapWidth(max(1, contentWidth - 2 * Tokens.Size("gapMedium")))
 	win.logo:ClearAllPoints()
 	win.logo:SetPoint("TOPLEFT", win, "TOPLEFT", Snap(pad), -Snap(pad))
 	Widgets.Size(win.logo, LOGO_SIZE, LOGO_SIZE)
@@ -256,8 +285,8 @@ function Relayout()
 	win.header:SetPoint("TOPRIGHT", win, "TOPRIGHT")
 	win.header:SetHeight(Snap(top))
 	rail:ClearAllPoints()
-	rail:SetPoint("TOPLEFT", win, "TOPLEFT", Snap(pad), -Snap(top))
-	Widgets.Size(rail, RAIL_WIDTH, bodyHeight)
+	rail:SetPoint("TOPLEFT", win, "TOPLEFT", Snap(pad), -Snap(top + capHeight))
+	Widgets.Size(rail, RAIL_WIDTH, max(1, bodyHeight - capHeight))
 	win.split:ClearAllPoints()
 	local splitGap = Snap(Tokens.Size("gapSmall"))
 	win.split:SetPoint("TOPLEFT", rail, "TOPRIGHT", splitGap, 0)
@@ -266,7 +295,7 @@ function Relayout()
 	Widgets.Tint(win.split, "edgeFaint")
 	content:ClearAllPoints()
 	content:SetPoint("TOPLEFT", rail, "TOPRIGHT", Snap(gap), 0)
-	Widgets.Size(content, contentWidth, shown and bodyHeight or max(1, bodyHeight - footer - gap))
+	Widgets.Size(content, contentWidth, max(1, bodyHeight - capHeight - (shown and 0 or footer + gap)))
 	preview:ClearAllPoints()
 	preview:SetPoint("TOPRIGHT", win, "TOPRIGHT", -Snap(pad), -Snap(top))
 	preview:SetRoom(PREVIEW_WIDTH, max(1, bodyHeight - footer - gap))
@@ -351,6 +380,8 @@ local function Build()
 		TrackSection()
 	end
 	preview = Preview.Create(win)
+	win.categoryCap = Widgets.SectionCap(win, { text = L["Settings"] })
+	win.pageCap = Widgets.SectionCap(win)
 	layoutButton = Widgets.Button(win, { text = L["Layout Mode"], primary = true, onClick = EnterLayout })
 	resetButton = Widgets.Button(win, { text = L["Reset"], onClick = AskReset })
 
@@ -362,15 +393,27 @@ local function Build()
 	win:HookScript("OnSizeChanged", Relayout)
 	Relayout()
 
-	state.scale = win:GetScale()
 	Widgets.Place(win, Pages.WINDOW_KEY, DEFAULT_POSITION, {
 		label = L["Settings window"], module = "Options", window = true,
 		resizable = true, scalable = true,
 		minWidth = MIN_WIDTH, minHeight = MIN_HEIGHT, maxWidth = MAX_WIDTH, maxHeight = MAX_HEIGHT,
 	})
+	if K.Store.Module("OptionsPresentation").readableText then
+		RestyleText()
+		Widgets.RestyleUnder({ [win] = true })
+	end
+	state.scale = win:GetScale()
 
-	K.Callbacks.Register("SettingChanged", OWNER, function(_, module)
-		Preview.Refresh(preview, module)
+	K.Callbacks.Register("SettingChanged", OWNER, function(_, module, key)
+		if module == "OptionsPresentation" then
+			if key == "readableText" then RestyleText(); Widgets.RestyleUnder({ [win] = true }) end
+			preview.held = {}
+			ReloadPages()
+			Preview.Refresh(preview)
+			Relayout()
+		else
+			Preview.Refresh(preview, module)
+		end
 		ns.Changed()
 	end)
 	K.Callbacks.Register("ScaleChanged", OWNER, ns.Changed)
@@ -386,6 +429,7 @@ local function Build()
 			local scale = win:GetScale()
 			if scale ~= state.scale then
 				state.scale = scale
+				if K.Store.Module("OptionsPresentation").readableText then RestyleText() end
 				Widgets.RestyleAll()
 			end
 		end
@@ -424,6 +468,8 @@ function Window.Show(page)
 	end
 	if page ~= nil then
 		state.page = page
+	elseif K.Store.Module("OptionsPresentation").tasks then
+		state.page = "Tasks"
 	end
 	state.query = nil
 	search:SetText("")
