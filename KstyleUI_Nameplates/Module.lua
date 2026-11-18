@@ -14,8 +14,9 @@ end
 
 local function Rehighlight()
 	if Plates.running then
+		local sigilCasts = ns.Cast.SigilCasts()
 		Plates.Each(function(plate)
-			plate:UpdateHighlight()
+			plate:UpdateHighlight(sigilCasts)
 		end)
 	end
 end
@@ -35,6 +36,9 @@ local function OnSetting(_, module, key)
 		return
 	end
 	Settings.Invalidate()
+	if key == "personalResource" then
+		return
+	end
 	if type(key) == "string" and key:find("^cvars%.") then
 		CVars.Schedule()
 		return
@@ -44,6 +48,7 @@ local function OnSetting(_, module, key)
 	elseif key == "cast.interruptSpell" and Plates.running then
 		ns.Interrupt.Resolve()
 	end
+	Plates.ReadSize()
 	Plates.RestyleAll()
 	Stacking.Schedule()
 end

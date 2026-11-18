@@ -53,7 +53,7 @@ local TEXTS = {
 	name = { justify = "LEFT", color = "textEmphasis" },
 	healthText = { element = "health", justify = "RIGHT", color = "textEmphasis" },
 	healthSub = { element = "health", justify = "RIGHT", color = "textEmphasis", share = Geometry.DETAIL_SHARE },
-	powerText = { element = "power", justify = "LEFT", color = "text" },
+	powerText = { element = "power", justify = "LEFT", color = "textEmphasis" },
 	levelText = { element = "level", justify = "CENTER", color = "textEmphasis" },
 	caption = { element = "level", justify = "LEFT", color = "text", lumen = "caption" },
 	capLabel = { element = "level", justify = "LEFT", color = "textEmphasis", lumen = "cap", lumenColor = "goldLit" },
@@ -111,6 +111,10 @@ function Style.New(parent, kind)
 	Widgets.RecordAll(view.health, view.power)
 	view.trackLine = panel:CreateTexture(nil, "ARTWORK")
 	view.trackLine:SetColorTexture(Tokens.Color("white"))
+	view.powerTypeLine = view.power:CreateTexture(nil, "OVERLAY")
+	view.powerTypeLine:SetPoint("BOTTOMLEFT", view.power, "BOTTOMLEFT")
+	view.powerTypeLine:SetPoint("BOTTOMRIGHT", view.power, "BOTTOMRIGHT")
+	view.powerTypeLine:Hide()
 
 	local portraitFrame = CreateFrame("Frame", nil, parent)
 	portraitFrame:SetFrameLevel(base + LEVEL_PORTRAIT)
@@ -172,6 +176,24 @@ function Style.New(parent, kind)
 	view.top = top
 	for _, key in ipairs(TEXT_KEYS) do
 		view[key] = NewText(top, key)
+	end
+	local clip = CreateFrame("Frame", nil, top)
+	clip:SetFrameLevel(top:GetFrameLevel() + 1)
+	clip:SetClipsChildren(true)
+	local fill = view.power:GetStatusBarTexture()
+	clip:SetPoint("TOPLEFT", fill, "TOPLEFT")
+	clip:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT")
+	view.powerFillClip = clip
+	view.powerFillText = NewText(clip, "powerText")
+	view.powerFillText:SetAllPoints(view.powerText)
+	view.powerFillText:SetJustifyH("RIGHT")
+	clip:Hide()
+	for _, method in ipairs({ "SetText", "SetFormattedText" }) do
+		local write = view.powerText[method]
+		view.powerText[method] = function(self, ...)
+			write(self, ...)
+			write(view.powerFillText, ...)
+		end
 	end
 	view.health.ornament.texts = { view.name, view.healthText, view.healthSub, view.powerText, view.levelText, view.caption, view.capLabel }
 	Widgets.RecordAll(unpack(view.health.ornament.texts))
@@ -241,6 +263,7 @@ local function PlaceBar(view, bar, rect)
 	bar:ClearAllPoints()
 	bar:SetPoint("TOPLEFT", view.parent, "TOPLEFT", Snap(view, rect.x), -Snap(view, rect.y))
 	bar:Restyle()
+	if bar == view.power then view.powerTypeLine:SetHeight(Snap(view, 1)) end
 	bar:Show()
 end
 
@@ -343,7 +366,8 @@ local function LumenTexts(view, g)
 		view[key]:SetJustifyV("MIDDLE")
 	end
 	view.healthText:SetJustifyH("RIGHT")
-	view.powerText:Hide()
+	PlaceText(view, view.powerText, g.powerText)
+	view.powerText:SetJustifyH("RIGHT")
 	view.capRule:Hide()
 	if form == "bar" then
 		for key, justify in pairs({ name = "CENTER", healthText = "LEFT", caption = "LEFT", healthSub = "RIGHT" }) do
@@ -683,10 +707,52 @@ local function Plain(...)
 end
 
 function Style.HealthTint(view, r, g, b)
+	view.healthR, view.healthG, view.healthB = nil, nil, nil
+	if Plain(r, g, b) then view.healthR, view.healthG, view.healthB = r, g, b end
+	if view.s and view.s.powerSeparate and view.powerR then Style.PowerTint(view, view.powerR, view.powerG, view.powerB) end
 	if view.geometry and view.geometry.form == "plate" and not view.geometry.compact and Plain(r, g, b) then
 		view.healthText:SetTextColor(r + (1 - r) * TINT, g + (1 - g) * TINT, b + (1 - b) * TINT)
 	else
 		view.healthText:SetTextColor(Tokens.Color("textEmphasis"))
+	end
+end
+
+local function Hue(r, g, b)
+	local high, low = math.max(r, g, b), math.min(r, g, b)
+	local delta = high - low
+	if delta == 0 then return nil end
+	if high == r then return ((g - b) / delta % 6) * 60 end
+	if high == g then return ((b - r) / delta + 2) * 60 end
+	return ((r - g) / delta + 4) * 60
+end
+
+function Style.PowerTint(view, r, g, b)
+	view.powerR, view.powerG, view.powerB = nil, nil, nil
+	local separate = false
+	if Plain(r, g, b) then
+		view.powerR, view.powerG, view.powerB = r, g, b
+		if view.s and view.s.powerSeparate and view.healthR then
+			local health, power = Hue(view.healthR, view.healthG, view.healthB), Hue(r, g, b)
+			if health and power then
+				local gap = math.abs(health - power)
+				separate = math.min(gap, 360 - gap) <= 35
+			end
+		end
+	end
+	view.powerTypeLine:SetShown(separate)
+	if separate then
+		view.powerTypeLine:SetColorTexture(r, g, b, 1)
+		r, g, b = Tokens.Color("steelLit")
+	end
+	view.power:SetBarColor(r, g, b)
+	local geometry = view.geometry
+	local inside = geometry and geometry.form ~= "plate" and geometry.powerText and not geometry.powerReserve
+	view.powerFillClip:SetShown(inside == true)
+	if inside then
+		Widgets.InkText(view.powerText, Tokens.Color(TRACK))
+		local path, size = view.powerText:GetFont()
+		Widgets.ApplyFont(view.powerFillText, path, size)
+		Widgets.InkText(view.powerFillText, r, g, b)
 	end
 end
 

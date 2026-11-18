@@ -32,6 +32,7 @@ local hooked = setmetatable({}, { __mode = "k" })
 local refading = false
 local plateFor = { target = nil, focus = nil }
 local plateForWorks = { target = true, focus = true }
+local highlighted = {}
 
 local LogOnce = ns.LogOnce
 
@@ -226,6 +227,9 @@ local function Detach(unit)
 		return
 	end
 	byUnit[unit] = nil
+	for which, selected in pairs(highlighted) do
+		if selected == plate then highlighted[which] = nil end
+	end
 	Unfade(plate.unitFrame)
 	plate.unitFrame = nil
 	plate:ClearUnit()
@@ -262,6 +266,9 @@ local function Attach(unit)
 	end
 	byUnit[unit] = plate
 	plate:SetUnit(unit)
+	for which in pairs(plateForWorks) do
+		if Plates.IsUnit(plate, which) then highlighted[which] = plate end
+	end
 	local unitFrame = base.UnitFrame
 	if unitFrame then
 		plate.unitFrame = unitFrame
@@ -340,11 +347,31 @@ local function AddComponentEvents()
 	componentsAdded = #components
 end
 
-local function OnHighlight()
-	UpdateTokens()
+local function FindHighlight(which)
+	local base = plateFor[which]
+	if base then return byBase[base] end
 	for _, plate in pairs(byUnit) do
-		plate:UpdateHighlight()
+		if Plates.IsUnit(plate, which) then return plate end
 	end
+end
+
+local function OnHighlight(event)
+	local hadTarget = ns.state.hasTarget
+	UpdateTokens()
+	local target, focus = FindHighlight("target"), FindHighlight("focus")
+	local sigilCasts = ns.Cast.SigilCasts()
+	if not event or hadTarget ~= ns.state.hasTarget and Settings.Get("target.dimOthers") < 1 then
+		for _, plate in pairs(byUnit) do plate:UpdateHighlight(sigilCasts) end
+	else
+		local which = event == "PLAYER_FOCUS_CHANGED" and "focus" or "target"
+		local before, after = highlighted[which], target
+		if which == "focus" then after = focus end
+		if before ~= after then
+			if before and before.unit then before:UpdateHighlight(sigilCasts) end
+			if after then after:UpdateHighlight(sigilCasts) end
+		end
+	end
+	highlighted.target, highlighted.focus = target, focus
 end
 
 local function OnRole()
@@ -377,14 +404,14 @@ Plates.LAYOUT_KEY = "nameplates.plate"
 
 function Plates.ReadSize()
 	local state = ns.state
-	local w, h = Plate.DEFAULT_WIDTH, Plate.DEFAULT_HEIGHT
+	local w, h = Settings.Get("health.width"), Settings.Get("health.height")
 	local Layout = K.Layout
 	local settings = Layout and Layout.Get and Layout.Get(Plates.LAYOUT_KEY)
 	if type(settings) == "table" then
-		if type(settings.width) == "number" and settings.width > 0 then
+		if type(settings.width) == "number" and settings.width > 0 and settings.width ~= Plate.DEFAULT_WIDTH then
 			w = settings.width
 		end
-		if type(settings.height) == "number" and settings.height > 0 then
+		if type(settings.height) == "number" and settings.height > 0 and settings.height ~= Plate.DEFAULT_HEIGHT then
 			h = settings.height
 		end
 	end

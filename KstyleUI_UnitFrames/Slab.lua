@@ -95,6 +95,12 @@ local function NameLine(view, g)
 	level:Show()
 end
 
+local function MeasureCaption(ruler, label)
+	ruler:SetText(ns.Unit.Tracked(label, (ruler:GetFont())))
+	local width = ruler:GetUnboundedStringWidth()
+	return Plain(width, "number") and width or 0
+end
+
 local function CaptionWidth(view)
 	local text = view.caption
 	local ruler = view.captionRuler
@@ -106,20 +112,15 @@ local function CaptionWidth(view)
 		view.captionRuler = ruler
 	end
 	Widgets.ApplyFont(ruler, text:GetFont())
-	local function Measure(label)
-		ruler:SetText(ns.Unit.Tracked(label, (ruler:GetFont())))
-		local width = ruler:GetUnboundedStringWidth()
-		return Plain(width, "number") and width or 0
-	end
 	if view.plainCaption then
-		return Measure(view.plainCaption)
+		return MeasureCaption(ruler, view.plainCaption)
 	end
 	local api, width = C_CreatureInfo, 0
 	if api and api.GetCreatureTypeIDs and api.GetCreatureTypeInfo then
 		for _, id in ipairs(api.GetCreatureTypeIDs()) do
 			local info = api.GetCreatureTypeInfo(id)
 			if info and Plain(info.name, "string") then
-				width = math.max(width, Measure(info.name))
+				width = math.max(width, MeasureCaption(ruler, info.name))
 			end
 		end
 	end
@@ -182,6 +183,12 @@ function Slab.Layout(view, g)
 	view.healthText:SetJustifyH(g.mirror and "LEFT" or "RIGHT")
 	local opposite = g.mirror and "LEFT" or "RIGHT"
 	Extra(view, view.healthSub, g.healthSub, opposite)
+	if view.kind == "target" and view.s.percentLead and view.s.healthText == "both" and g.healthText then
+		local bar, pad = g.health, ns.Geometry.SLAB_PAD.valuePad
+		Extra(view, view.healthSub, { x = bar.x + bar.w / 2, y = bar.y, w = bar.w / 2 - pad, h = bar.h }, "RIGHT")
+		view.healthText:SetWidth(Widgets.Snap(view.parent, math.max(0, bar.w / 2 - pad)))
+		view.healthText:SetJustifyH("LEFT")
+	end
 	Extra(view, view.caption, g.caption, opposite)
 	Slab.Caption(view)
 	if resized then ns.Unit.Refit(view) end
@@ -198,6 +205,9 @@ function Slab.Restyle(view, form)
 	view.health:SetBarTexture("Flat")
 	view.power:SetBarTexture("Flat")
 	Muted(view, view.healthSub)
+	if view.kind == "target" and view.s.percentLead then
+		Widgets.ApplyFont(view.healthSub, (Tokens.Font("number")), 10 * K.Theme.FontScale(), "OUTLINE")
+	end
 	Muted(view, view.caption)
 	if view.slabLevel then
 		Muted(view, view.slabLevel)

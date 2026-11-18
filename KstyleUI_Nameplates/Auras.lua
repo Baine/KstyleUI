@@ -96,9 +96,29 @@ end
 local function StyleText(text, size)
 	local flags = OUTLINE_FLAGS[Settings.Get("debuffs.outline")] or "OUTLINE"
 	size = size or Settings.Get("debuffs.textSize")
-	if not Widgets.ApplyFont(text, Settings.Get("font"), size, flags) then
+	local font = Settings.Get("debuffs.readableText") and Tokens.Font("number") or Settings.Get("font")
+	if not Widgets.ApplyFont(text, font, size, flags) then
 		Widgets.ApplyFont(text, (Tokens.Font("world")), size, flags)
 	end
+end
+
+local function ExpiringColor()
+	local expiring = Settings.Get("debuffs.expiring")
+	local util, E = C_CurveUtil, Enum
+	if expiring <= 0 or not (util and type(util.CreateColorCurve) == "function" and type(CreateColor) == "function" and E and E.DurationTextBindingProperty and E.LuaCurveType) then
+		return nil
+	end
+	local ok, curve = pcall(function()
+		local c = util.CreateColorCurve()
+		c:SetType(E.LuaCurveType.Step)
+		c:AddPoint(0, CreateColor(Tokens.Color("hostile")))
+		c:AddPoint(expiring, CreateColor(Tokens.Color("timerText")))
+		return c
+	end)
+	if ok then
+		return { curve = curve, property = E.DurationTextBindingProperty.RemainingDuration }
+	end
+	return nil
 end
 
 local function NewTile(owner)
@@ -143,9 +163,10 @@ local function StyleButton(button)
 	StyleText(p.count, math.max(COUNT_MIN, Settings.Get("debuffs.textSize") - COUNT_STEP))
 	StyleText(p.time)
 	p.time:ClearAllPoints()
-	p.time:SetPoint("TOP", p.timeHolder, "BOTTOM", 0, -Widgets.Snap(p.skin, TIMER_GAP))
+	p.time:SetPoint("TOP", p.timeHolder, "BOTTOM", Widgets.Snap(p.skin, size / 2) - size / 2, -Widgets.Snap(p.skin, TIMER_GAP))
 	p.countHolder:SetShown(Settings.Get("debuffs.showCount"))
 	p.timeHolder:SetShown(Settings.Get("debuffs.showTime"))
+	button:SetDurationText(p.time, { textColor = ExpiringColor() })
 end
 
 local function BuildButton(button)
@@ -184,7 +205,6 @@ local function BuildButton(button)
 	button:SetIcon(icon)
 	button:SetDurationCooldown(cooldown)
 	button:SetApplicationCount(count)
-	button:SetDurationText(time)
 end
 
 local function InitButton(button)
@@ -455,6 +475,17 @@ local function BuildSamples(plate)
 		tile.icon:SetTexture(fileID)
 		frame.tile, frame.icon = tile, tile.icon
 		plate.sampleAuras[i] = frame
+	end
+end
+
+function Auras.Reanchor(plate)
+	if plate.sample then
+		LayoutSamples(plate)
+	elseif plate.auras then
+		local size, spacing, columns = Grid(plate)
+		local anchor = Logic.AuraGrowth(Settings.Get("debuffs.growthX"), Settings.Get("debuffs.growthY"))
+		Anchor(plate, plate.auras, anchor)
+		LayoutChip(plate, anchor, size, spacing, columns)
 	end
 end
 

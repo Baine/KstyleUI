@@ -36,7 +36,7 @@ for _, preset in ipairs({ "lumen", "compact", "tank", "healer" }) do
 	N.Cast(env, "nameplate1", { name = "Shadow Bolt", text = "Shadow Bolt", texture = 136197, notInterruptible = false, secret = true })
 	assert(plate.cast:IsVisible(), "the target's secret cast is visible")
 	assert(plate.castBar.caps == nil and plate.castBar.chrome == nil, "the cast bar is square too")
-	assert(not plate.castIcon:IsShown() and not plate.castName:IsShown() and not plate.castTime:IsShown(), "the cast under the plate is only a thin bar")
+	assert(not plate.castIcon:IsShown() and plate.castName:IsShown() and not plate.castTime:IsShown(), "the selected plate names its cast without an icon or time")
 	assert(env.Look(plate.castBar:GetHeight()) == 6, "the cast bar is six root units tall")
 	assert(#env._errors == 0 and K.ErrorCount() == 0, tostring(env._errors[1]))
 end
@@ -111,7 +111,7 @@ do
 	local _ = default
 	local get = ns.Settings.Get
 	assert(get("name.size") == 16 and get("level.show") == true and get("level.size") == 13 and get("level.outline") == "NONE", "settings still at the old picture's defaults follow the bible")
-	assert(get("debuffs.size") == 29 and get("debuffs.growthX") == "LEFT" and get("debuffs.showTime") == false and get("debuffs.textSize") == 13, "and so do the old effect defaults")
+	assert(get("debuffs.size") == 29 and get("debuffs.growthX") == "LEFT" and get("debuffs.showTime") == true and get("debuffs.textSize") == 13, "unconfigured debuffs keep their size and gain readable time")
 	local tr, tg, tb = K.Tokens.Color("giltLit")
 	local target = get("target.color")
 	assert(N.SameColor(target.r, target.g, target.b, tr, tg, tb), "an empty saved target colour reads the new default")

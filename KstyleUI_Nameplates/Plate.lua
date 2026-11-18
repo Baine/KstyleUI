@@ -26,7 +26,7 @@ local function BottomRoom(plate)
 	for i = 1, #Components do
 		local fn = Components[i].Room
 		if fn then
-			room = room + fn(plate)
+			room = room + fn(plate, true)
 		end
 	end
 	return room
@@ -809,7 +809,7 @@ function Plate:UpdateThreat()
 	end
 end
 
-function Plate:UpdateHighlight()
+function Plate:UpdateHighlight(sigilCasts)
 	local state = ns.state
 	local isTarget, isFocus
 	if self.sample then
@@ -818,7 +818,8 @@ function Plate:UpdateHighlight()
 		isTarget = ns.Plates.IsUnit(self, "target")
 		isFocus = ns.Plates.IsUnit(self, "focus")
 	end
-	ns.Cast.Gate(self, isTarget)
+	ns.Cast.Gate(self, isTarget, sigilCasts)
+	ns.Cast.Selection(self, isTarget, isFocus)
 	local framed = isTarget and Settings.Get("target.highlight") and not self.nameOnly or false
 	self:ShowBrackets(framed)
 	local health = self.health

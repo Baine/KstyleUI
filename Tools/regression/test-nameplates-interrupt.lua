@@ -95,7 +95,7 @@ do
 	-- A secret cooldown state never decides: the bar stays as the player can act.
 	env._cooldowns[PUMMEL] = { isActive = env.Secret(true), isOnGCD = false }
 	env.FireEvent("SPELL_UPDATE_COOLDOWN")
-	assert(barIs(bar, ar, ag, ab), "a secret cooldown counts as ready")
+	assert(ns.Interrupt.ready == nil and barIs(bar, setting(ns, "cast.waitColor")), "a secret cooldown never claims ready")
 
 	-- The wait colour is a setting.
 	K.Options.Write("Nameplates", "cast.waitColor", { r = 0.5, g = 0.1, b = 0.9 })
@@ -152,7 +152,7 @@ do
 	env._cooldowns[PUMMEL] = { isActive = true, isOnGCD = false }
 	env.FireEvent("SPELL_UPDATE_COOLDOWN")
 	local ar, ag, ab = K.Tokens.Color("gilt")
-	assert(barIs(ns.Plates.Get("nameplate1").castBar, ar, ag, ab), "without an interrupt, interruptible casts take the accent")
+	assert(barIs(ns.Plates.Get("nameplate1").castBar, ar, ag, ab), "without an interrupt, interruptible casts keep their normal colour")
 end
 
 print("nameplates interrupt ok")

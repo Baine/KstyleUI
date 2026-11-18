@@ -265,6 +265,7 @@ end
 
 function Reference.Build(opts)
 	opts = opts or {}
+	local style = os.getenv("RENDER_HUD_STYLE") or "Frames"
 	local layout = opts.layout or "DPS"
 	assert(layout == "DPS" or layout == "Tank" or layout == "Healer", "reference layout must be DPS, Tank or Healer")
 	local previous = rawget(_G, "RENDER_SCREEN")
@@ -308,6 +309,11 @@ function Reference.Build(opts)
 		end
 		return Lumen.Build("questing", {
 			class = "SHAMAN",
+			settings = os.getenv("RENDER_COMBAT_LEGACY") == "1" and {
+				UnitFrames = { player = { powerText = "legacy", powerSeparate = false }, target = { percentLead = false } },
+				Nameplates = { cast = { showName = false, combatCues = false, nameBelow = false, textSize = 13 }, debuffs = { size = style == "Medallions" and 17 or 29, textSize = style == "Medallions" and 10 or 13, showTime = false, readableText = false, expiring = 0 } },
+				CombatText = { clearLanes = false },
+			} or nil,
 			layout = layout,
 			applyPreset = true,
 			state = state,
