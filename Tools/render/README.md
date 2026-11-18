@@ -70,11 +70,59 @@ for the page, scripts, asset base and backdrop; no browser shim is needed.
 Both `/c/Users/.../ground.png` and `C:/Users/.../ground.png` backdrops work,
 including spaces and URL punctuation in paths.
 
-Region opacity and vertex-colour opacity multiply, independently of setter
-order; colour-texture and gradient alpha remain additional factors. This can
-change existing harness pictures even when addon code is unchanged. Keep
-`docs/media/readme/frame_raid.jpg` until A7 lands and a real Magic dispel has
-been checked in game; then retake it through the normal README workflow.
+### Alpha model and Forever evidence
+
+The stub owns each object's current alpha; the scene reads that value and
+applies ancestor alpha once. Texture colour fields in scene items carry RGB
+and an alpha of 1, so the canvas does not multiply an old texture colour alpha
+back in. FontStrings retain the previous independent region/text opacity model.
+
+| Object | Model |
+| --- | --- |
+| Texture | `SetAlpha`, `SetAlphaFromBoolean`, `SetVertexColor` and `SetColorTexture` write one alpha: the last write wins. Omitted colour alpha is 1. `GetAlpha` and the fourth `GetVertexColor` return agree. File pixels, masks and gradient stops retain their own coverage. |
+| FontString | Preserve the existing model: `SetTextColor` stores text colour/opacity independently of `SetAlpha`/`SetAlphaFromBoolean`, and the renderer multiplies those opacities. The generated secret-aspect flags do not prove shared storage; stronger client evidence would be required to change this model. |
+| Frame | Its own `SetAlpha`/`SetAlphaFromBoolean` value multiplies down the parent chain, stopping at `SetIgnoreParentAlpha`. Colour writes on a child region do not change the frame. |
+
+Evidence is from [Gethe/wow-ui-source at `9dc84f0`](https://github.com/Gethe/wow-ui-source/tree/9dc84f0d3bbae1768ac3405b3716000bd93eda06/Interface/AddOns), Forever build 1.60.1.70862:
+
+- `Blizzard_APIDocumentationGenerated/SimpleRegionAPIDocumentation.lua`:
+  `SetAlpha` (123) writes `SecretAspect.Alpha`; `SetVertexColor` (191) writes
+  both `VertexColor` and `Alpha`; `GetAlpha` (10) and `GetVertexColor` (66)
+  are marked with that secret aspect. Colour alpha is optional; secret-aspect
+  flags describe information restrictions, not the underlying storage.
+- `Blizzard_APIDocumentationGenerated/SimpleTextureBaseAPIDocumentation.lua`:
+  `SetColorTexture` (403) takes RGB and optional alpha. The generated signatures
+  alone do not specify setter ordering. The client regression below and the
+  chat-window code establish the Texture model.
+- `Blizzard_ChatFrameBase/Mainline/FloatingChatFrame.lua`: temporary chat
+  windows read background opacity through `GetVertexColor` (455), while
+  `FCF_SetWindowAlpha` writes those background textures with `SetAlpha` (1056).
+  This relies on the two methods accessing the same value.
+- `Blizzard_APIDocumentationGenerated/SimpleFontStringAPIDocumentation.lua`:
+  `SetTextColor` (675) and `GetTextColor` (367) carry the `VertexColor` and
+  `Alpha` secret-aspect flags; its inherited region alpha API is the file
+  above. These flags alone do not establish a last-write-wins FontString model.
+- `Blizzard_APIDocumentationGenerated/SimpleFrameAPIDocumentation.lua`:
+  `GetAlpha` (276), `SetAlpha` (1134) and `SetAlphaFromBoolean` (1145) use the
+  frame's Alpha aspect. `Blizzard_ChatFrameBase/Mainline/FloatingChatFrame.lua`
+  (1214) fades the scrollbar frame from its current `GetAlpha` value.
+
+The client observation is also recorded in `CHANGELOG.md`, v0.2.2: retinting
+the Medallions hub with three-component `SetVertexColor` revived its hidden
+shock ring and flash. Retinting now preserves the current alpha in addon code;
+the harness must therefore leave those effects absent at rest. The Options
+dispel sample explicitly passes `WASH_ALPHA` (0.16) to `ColorSlice`, because
+the vertex write replaces the wash's initial alpha.
+
+The corrected `gallery_groupframes` render exposes a separate live-aura issue:
+the fixture writes alpha 1 to every dispel texture, so Ilyra's raid row becomes
+an opaque blue tile. This matches the source path in
+`Blizzard_AuraContainer/Blizzard_CustomAuraButton.lua` (533): `PreserveAsset`
+calls `AuraUtil.SetAuraBorderColor`, which calls `SetVertexColor` with the
+dispel colour's RGBA in `Blizzard_FrameXMLUtil/AuraUtil.lua` (614). The Options
+sample fix does not change that restricted aura path. Keep the existing
+`frame_raid.jpg` until that separate issue is fixed and checked in game, then
+retake through `readme.py`; do not repaint the fixture to hide it.
 
 ### Native context-menu fixtures
 
@@ -236,7 +284,7 @@ Saved data for a scene turns a module on and marks the first-run setup seen: `{ 
 - A frame that clips its children (`SetClipsChildren`) bounds everything drawn under it: an item outside the frame's rect is dropped (counted as `clipped`), one across it carries the rect as `clip` and the page draws it through that rect.
 - Pixel snapping: every rect edge rounds to a device pixel.
 - A font string that wraps and has a width but no height of its own is as tall as its wrapped lines, counted with the glyph table at the solved width, so a text anchored under it sits under the whole paragraph (`WordWrap` off, or an explicit height, keeps one line).
-- Animation groups: a group the addon played (`Play`, recorded by the stub at its clock `env._now`) is sampled at the scene's `time`: a `Translation` moves the frame by its offset times its progress (with the animation's start delay and `IN`, `OUT` and `IN_OUT` smoothing), an `Alpha` animation scales the frame's alpha between its from and to values, `REPEAT` looping wraps the clock, and a finished group leaves each animation at its end, as the game does until `OnFinished` runs. A scene that wants mid-flight numbers advances `env._now` as it ticks (`gallery_combattext.lua`). Scale animations and `SetOrder` (animations of a later order waiting for the earlier ones) are not modelled: every animation in a group starts with the group.
+- Animation groups: a group the addon played (`Play`, recorded by the stub at its clock `env._now`) is sampled at the scene's `time`. `Translation` moves by its offset times progress, `Alpha` replaces the object's own alpha between its from/to values, and `Scale` grows around the texture's centre. Start delays, smoothing and `SetOrder` are honoured: later orders wait for earlier orders, and the latest started Alpha animation wins. `REPEAT` wraps the clock; a finished group leaves each animation at its end until `OnFinished` runs. A scene that wants mid-flight numbers advances `env._now` as it ticks (`gallery_combattext.lua`).
 
 ## Known limitations
 

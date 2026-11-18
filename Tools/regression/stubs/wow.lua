@@ -499,6 +499,7 @@ function Object:GetEffectiveScale()
 end
 
 local function booleanAlpha(value, yes, no)
+	yes, no = yes == nil and 1 or yes, no == nil and 0 or no
 	local selected = plain(value) and yes or no
 	if secretValues[value] or secretValues[selected] then
 		return newSecret(plain(selected))
@@ -523,10 +524,12 @@ function Object:GetAlpha()
 	return self._alpha
 end
 
-function Object:SetVertexColor(...)
-	local a = select(4, ...)
-	self._state.VertexColor = pack(...)
-	self._alpha = a == nil and 1 or a
+for _, field in ipairs({ "VertexColor", "ColorTexture" }) do
+	Object["Set" .. field] = function(self, ...)
+		local a = select(4, ...)
+		self._state[field] = pack(...)
+		self._alpha = a == nil and 1 or a
+	end
 end
 
 function Object:GetVertexColor()
@@ -854,8 +857,7 @@ function Object:IsMouseEnabled() return self._mouse == true end
 function Object:SetIgnoreParentAlpha(ignore) self._ignoreParentAlpha = not not ignore end
 function Object:IsIgnoringParentAlpha() return self._ignoreParentAlpha == true end
 function Object:GetEffectiveAlpha()
-	local own = self._state.Alpha
-	local alpha = own and own[1] or 1
+	local alpha = self:GetAlpha()
 	if self._ignoreParentAlpha or not self._parent then
 		return alpha
 	end
@@ -1107,11 +1109,13 @@ end
 local Quiet = {}
 
 local setAlpha, setBooleanAlpha = quietSetter("Alpha"), quietSetter("AlphaFromBoolean")
-local setVertexColor = quietSetter("VertexColor")
-function Quiet:SetVertexColor(...)
-	setVertexColor(self, ...)
-	local a = select(4, ...)
-	self._alpha = a == nil and 1 or a
+for _, field in ipairs({ "VertexColor", "ColorTexture" }) do
+	local set = quietSetter(field)
+	Quiet["Set" .. field] = function(self, ...)
+		set(self, ...)
+		local a = select(4, ...)
+		self._alpha = a == nil and 1 or a
+	end
 end
 
 function Quiet:SetAlpha(alpha)
