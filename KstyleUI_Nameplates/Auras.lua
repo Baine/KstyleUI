@@ -102,25 +102,6 @@ local function StyleText(text, size)
 	end
 end
 
-local function ExpiringColor()
-	local expiring = Settings.Get("debuffs.expiring")
-	local util, E = C_CurveUtil, Enum
-	if expiring <= 0 or not (util and type(util.CreateColorCurve) == "function" and type(CreateColor) == "function" and E and E.DurationTextBindingProperty and E.LuaCurveType) then
-		return nil
-	end
-	local ok, curve = pcall(function()
-		local c = util.CreateColorCurve()
-		c:SetType(E.LuaCurveType.Step)
-		c:AddPoint(0, CreateColor(Tokens.Color("hostile")))
-		c:AddPoint(expiring, CreateColor(Tokens.Color("timerText")))
-		return c
-	end)
-	if ok then
-		return { curve = curve, property = E.DurationTextBindingProperty.RemainingDuration }
-	end
-	return nil
-end
-
 local function NewTile(owner)
 	local skin = CreateFrame("Frame", nil, owner)
 	skin:SetAllPoints(owner)
@@ -156,6 +137,10 @@ local function StyleButton(button)
 		return
 	end
 	local size = Grid(p.skin)
+	local endings = K.Appearance.Get("auraEndings")
+	if p.cooldown and type(p.cooldown.SetDrawBling) == "function" then
+		p.cooldown:SetDrawBling(not endings)
+	end
 	button:SetSize(size, size)
 	LayoutTile(p)
 	p.count:ClearAllPoints()
@@ -166,7 +151,10 @@ local function StyleButton(button)
 	p.time:SetPoint("TOP", p.timeHolder, "BOTTOM", Widgets.Snap(p.skin, size / 2) - size / 2, -Widgets.Snap(p.skin, TIMER_GAP))
 	p.countHolder:SetShown(Settings.Get("debuffs.showCount"))
 	p.timeHolder:SetShown(Settings.Get("debuffs.showTime"))
-	button:SetDurationText(p.time, { textColor = ExpiringColor() })
+	button:SetDurationText(p.time, {
+		textFormatter = endings and Widgets.Duration.Formatter("short", true) or nil,
+		textColor = Widgets.Duration.ExpiringColor(Settings.Get("debuffs.expiring")),
+	})
 end
 
 local function BuildButton(button)
@@ -200,6 +188,7 @@ local function BuildButton(button)
 	local time = Widgets.FontString(timeHolder, "OVERLAY")
 	time:SetJustifyH("CENTER")
 	tile.count, tile.time, tile.countHolder, tile.timeHolder = count, time, countHolder, timeHolder
+	tile.cooldown = cooldown
 	parts[button] = tile
 	StyleButton(button)
 	button:SetIcon(icon)

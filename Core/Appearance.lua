@@ -30,6 +30,8 @@ Appearance.defaults = {
 	uiScale = Scale.DEFAULT_USER_SCALE,
 	uiScaleAuto = true,
 	motion = "full",
+	calmLists = true,
+	auraEndings = true,
 	readableBars = true, worldText = true, chatTabs = true, barColors = true,
 	textFloor = true, sectionHeadings = true,
 }
@@ -46,6 +48,12 @@ local function IsUnit(v)
 end
 
 local CLEAN = {
+	auraEndings = function(v)
+		if type(v) == "boolean" then return v end
+	end,
+	calmLists = function(v)
+		if type(v) == "boolean" then return v end
+	end,
 	typeSet = function(v)
 		if Tokens.IsFontSet(v) then
 			return v
@@ -148,6 +156,7 @@ local APPLY = {
 	uiScale = Scale.SetUserScale,
 	uiScaleAuto = Scale.SetAuto,
 	motion = Motion.SetLevel,
+	auraEndings = function() ns.Callbacks.Fire("ThemeChanged") end,
 }
 for _, role in ipairs(ROLES) do
 	APPLY[ROLE_KEY[role]] = ApplyRoleFonts
@@ -276,6 +285,10 @@ Appearance.schema = {
 	{ type = "toggle", key = "barColors", label = L["Bar colour refinements"],
 		help = L["Tint lost health from its bar and make mana a darker step below health."] },
 	{ type = "header", label = L["Motion"] },
+	{ type = "toggle", key = "auraEndings", label = L["Quiet aura endings"],
+		help = L["Round up aura timers and hide the finishing flash on aura swipes. Off restores the old endings."] },
+	{ type = "toggle", key = "calmLists", label = L["Calmer settings lists"],
+		help = L["Search appears at once; page lists and previews fade briefly. Off restores the original motion."] },
 	{
 		type = "dropdown", key = "motion", label = L["Motion"],
 		help = L["Full animation, reduced to fades without slides, or off so everything appears at once."],

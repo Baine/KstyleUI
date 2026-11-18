@@ -183,41 +183,17 @@ function Panel.Wait()
 end
 
 local function Formatter(timerFormat)
-	if timerFormat == "short" then
+	local endings = K.Appearance.Get("auraEndings")
+	if timerFormat == "short" and not endings then
 		return nil
 	end
-	local formatter = Widgets.Duration.Formatter(timerFormat)
+	local formatter = Widgets.Duration.Formatter(timerFormat, endings)
 	if formatter then
 		LogOnce("formatter:" .. timerFormat, "the " .. timerFormat .. " timer format uses the kit's seconds formatter")
 	else
 		LogOnce("formatter:" .. timerFormat, "C_StringUtil.CreateSecondsFormatter is missing or failed; timers use the engine's default format")
 	end
 	return formatter
-end
-
-local function ExpiringColor(expiring)
-	if expiring <= 0 then
-		return nil
-	end
-	local util, E = C_CurveUtil, Enum
-	if not (util and type(util.CreateColorCurve) == "function" and type(CreateColor) == "function" and E and E.DurationTextBindingProperty) then
-		LogOnce("curve", "colour curves are missing; timers keep one colour")
-		return nil
-	end
-	local ok, curve = pcall(function()
-		local c = util.CreateColorCurve()
-		if E.LuaCurveType then
-			c:SetType(E.LuaCurveType.Step)
-		end
-		c:AddPoint(0, CreateColor(Tokens.Color("hostile")))
-		c:AddPoint(expiring, CreateColor(Tokens.Color("timerText")))
-		return c
-	end)
-	if not ok then
-		LogOnce("curve", "the timer colour curve failed (" .. tostring(curve) .. "); timers keep one colour")
-		return nil
-	end
-	return { curve = curve, property = E.DurationTextBindingProperty.RemainingDuration }
 end
 
 local function DispelOptions()
@@ -250,7 +226,7 @@ local function Context(desc)
 		icon = snap(group.iconSize),
 		lineSize = Model.LineSize(group, timer, snap),
 		edge = EdgeColor(),
-		timerOptions = { textFormatter = Formatter(timer.format), textColor = ExpiringColor(timer.expiring) },
+		timerOptions = { textFormatter = Formatter(timer.format), textColor = Widgets.Duration.ExpiringColor(timer.expiring) },
 		dispelOptions = group.dispel and DispelOptions() or nil,
 	}
 	ctx.width, ctx.height = Model.ElementSize(group, timer, snap)

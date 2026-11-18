@@ -16,6 +16,23 @@ local MINUTE, HOUR, DAY = 60, 3600, 86400
 
 local made = {}
 
+function Duration.ExpiringColor(expiring)
+	local util, E = C_CurveUtil, Enum
+	if expiring <= 0 or not (util and type(util.CreateColorCurve) == "function" and type(CreateColor) == "function" and E and E.DurationTextBindingProperty and E.LuaCurveType) then
+		return nil
+	end
+	local ok, curve = pcall(function()
+		local c = util.CreateColorCurve()
+		c:SetType(E.LuaCurveType.Step)
+		c:AddPoint(0, CreateColor(ns.Tokens.Color("hostile")))
+		c:AddPoint(expiring, CreateColor(ns.Tokens.Color("timerText")))
+		return c
+	end)
+	if ok then
+		return { curve = curve, property = E.DurationTextBindingProperty.RemainingDuration }
+	end
+end
+
 local function Engine()
 	local inbound = AuraContainerInbound
 	if type(inbound) == "table" and type(inbound.GetDefaultAuraDurationFormatter) == "function" then
@@ -27,7 +44,7 @@ local function Engine()
 	return nil
 end
 
-local function Build(kind)
+local function Build(kind, roundUp)
 	local util, E = C_StringUtil, Enum
 	if not (util and type(util.CreateSecondsFormatter) == "function" and E and E.SecondsFormatterAbbreviation and E.SecondsFormatterRounding and E.SecondsFormatterInterval) then
 		return nil
@@ -35,9 +52,14 @@ local function Build(kind)
 	local ok, formatter = pcall(function()
 		local f = util.CreateSecondsFormatter()
 		f:SetDefaultAbbreviation(E.SecondsFormatterAbbreviation.OneLetter)
-		f:SetRounding(E.SecondsFormatterRounding.Truncate)
+		f:SetRounding(roundUp and E.SecondsFormatterRounding.RoundUp or E.SecondsFormatterRounding.Truncate)
 		f:SetCanRoundUpLastUnit(true)
 		f:SetMinInterval(E.SecondsFormatterInterval.Seconds)
+		if kind == "short" then
+			local engine = Engine()
+			local curve = engine and type(engine.GetMaxIntervalCurve) == "function" and engine:GetMaxIntervalCurve()
+			if curve and type(f.SetMaxIntervalCurve) == "function" then f:SetMaxIntervalCurve(curve) end
+		end
 		if kind == "long" then
 			f:SetDesiredUnitCount(2)
 		else
@@ -51,13 +73,14 @@ local function Build(kind)
 	return ok and formatter or nil
 end
 
-function Duration.Formatter(kind)
+function Duration.Formatter(kind, roundUp)
 	kind = kind or "short"
-	if made[kind] == nil then
-		local formatter = kind == "short" and Engine() or nil
-		made[kind] = formatter or Build(kind) or false
+	local key = kind .. (roundUp and ":roundUp" or "")
+	if made[key] == nil then
+		local formatter = kind == "short" and not roundUp and Engine() or nil
+		made[key] = formatter or Build(kind, roundUp) or false
 	end
-	return made[kind] or nil
+	return made[key] or nil
 end
 
 local function Short(seconds)
