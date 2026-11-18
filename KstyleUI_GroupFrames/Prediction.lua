@@ -158,7 +158,6 @@ local function Shield(f)
 		return
 	end
 	local unit = f.unit
-	f.shield:SetBarRange(0, UnitHealthMax(unit))
 	if type(UnitGetTotalAbsorbs) == "function" then
 		f.shield:SetBarValue(UnitGetTotalAbsorbs(unit))
 	else
@@ -167,8 +166,29 @@ local function Shield(f)
 	end
 end
 
+local function Ranges(f)
+	local cfg = Settings.current.prediction
+	local maximum = UnitHealthMax(f.unit)
+	if cfg.shield then
+		f.shield:SetBarRange(0, maximum)
+	end
+	if cfg.healAbsorbs then
+		f.healAbsorbs:SetBarRange(0, maximum)
+	end
+	if cfg.heals then
+		f.heals:SetBarRange(0, maximum)
+	end
+	if cfg.absorbs then
+		f.absorbs:SetBarRange(0, maximum)
+	end
+	f.predictionRangeDirty = false
+end
+
 local function Update(f)
 	local cfg = Settings.current.prediction
+	if f.predictionRangeDirty ~= false then
+		Ranges(f)
+	end
 	Shield(f)
 	if not cfg.heals and not cfg.absorbs and not cfg.healAbsorbs then
 		return
@@ -183,21 +203,25 @@ local function Update(f)
 	if type(eaten) == "nil" then
 		eaten = 0
 	end
-	local unit = f.unit
 	if cfg.healAbsorbs then
-		f.healAbsorbs:SetBarRange(0, UnitHealthMax(unit))
 		f.healAbsorbs:SetBarValue(eaten)
 	end
 	if cfg.heals then
-		f.heals:SetBarRange(0, UnitHealthMax(unit))
 		f.heals:SetBarValue(heals)
 	end
 	if cfg.absorbs then
-		f.absorbs:SetBarRange(0, UnitHealthMax(unit))
 		f.absorbs:SetBarValue(absorbs)
 	end
 end
-Prediction.Update = Update
+local function Invalidate(f)
+	f.predictionRangeDirty = true
+end
+
+local function Refresh(f)
+	Invalidate(f)
+	Update(f)
+end
+Prediction.Update = Refresh
 
 local function PaintSample(f, sample)
 	local cfg = Settings.current.prediction
@@ -212,9 +236,17 @@ local function PaintSample(f, sample)
 end
 Style.painters[#Style.painters + 1] = PaintSample
 
-Unit.extra[#Unit.extra + 1] = Update
+local settingsRefresh = Settings.Refresh
+function Settings.Refresh()
+	local cfg = settingsRefresh()
+	Unit.ForEach(Invalidate)
+	return cfg
+end
+
+Unit.changed[#Unit.changed + 1] = Invalidate
+Unit.extra[#Unit.extra + 1] = Refresh
 Unit.Chain("UNIT_HEAL_PREDICTION", Update)
 Unit.Chain("UNIT_ABSORB_AMOUNT_CHANGED", Update)
 Unit.Chain("UNIT_HEAL_ABSORB_AMOUNT_CHANGED", Update)
 Unit.Chain("UNIT_HEALTH", Update)
-Unit.Chain("UNIT_MAXHEALTH", Update)
+Unit.Chain("UNIT_MAXHEALTH", Refresh)
