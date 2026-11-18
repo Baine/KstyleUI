@@ -26,7 +26,8 @@ local function Text(size)
 end
 
 Settings.defaults = {
-	anchor = "fixed",
+	anchor = "cursorOutOfCombat",
+	minimapAnchor = true,
 	cursorX = 0,
 	cursorY = 0,
 	followFont = true,
@@ -66,7 +67,7 @@ local OUTLINES = {
 }
 
 local function Cursor(settings)
-	return settings.anchor == "cursor"
+	return settings.anchor == "cursor" or settings.anchor == "cursorOutOfCombat"
 end
 
 local function OwnFont(settings)
@@ -105,11 +106,16 @@ local schema = {
 	{ type = "header", label = L["Position"] },
 	{
 		type = "dropdown", key = "anchor", label = L["Tooltip position"],
-		help = L["At the tooltip anchor, which you move in Layout Mode, or beside the mouse."],
+		help = L["The combat choice follows the mouse outside combat and uses the Layout Mode anchor in combat."],
 		options = {
 			{ value = "fixed", label = L["Tooltip anchor"] },
 			{ value = "cursor", label = L["Mouse cursor"] },
+			{ value = "cursorOutOfCombat", label = L["Mouse cursor out of combat"] },
 		},
+	},
+	{
+		type = "toggle", key = "minimapAnchor", label = L["Keep minimap clear"],
+		help = L["Place minimap tooltips beside the map. Turn off to use Tooltip position for them."],
 	},
 	{
 		type = "slider", key = "cursorX", label = L["Cursor offset X"],

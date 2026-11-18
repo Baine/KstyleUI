@@ -1,4 +1,4 @@
--- Anchor.lua: the tooltip anchor element that Layout places and scales, and the hook that puts GameTooltip at it, lifted over a shown threat card or target of target in its column, or at the cursor.
+-- Anchor.lua: the placed tooltip anchor, Blizzard cursor positioning and shared minimap placement for Blizzard and kit tooltips.
 local _, ns = ...
 
 local K = KstyleUI
@@ -100,11 +100,63 @@ function Anchor.Lift(corner)
 	return Logic.Lift(bottom, right - COLUMN, right, rects, K.Tokens.Size("gapLarge"), REACH)
 end
 
+local function PlaceMinimap(tooltip, owner)
+	local map = Minimap
+	if not ns.active or not map or not Settings.Get("minimapAnchor") then
+		return false
+	end
+	local element = K.Layout and K.Layout.Element and K.Layout.Element("minimap.main")
+	local frame = element and element.frame
+	owner = owner or (type(tooltip.GetOwner) == "function" and tooltip:GetOwner())
+	local found = false
+	while not Logic.IsSecret(owner) and owner do
+		if owner == map or owner == MinimapCluster or owner == frame then
+			found = true
+			break
+		end
+		owner = type(owner.GetParent) == "function" and owner:GetParent() or nil
+	end
+	if not found or (tooltip == GameTooltip and type(tooltip.SetAnchorType) ~= "function") then
+		return false
+	end
+	local x = type(map.GetCenter) == "function" and map:GetCenter()
+	local mapScale, screenScale = map:GetEffectiveScale(), UIParent:GetEffectiveScale()
+	local width = UIParent:GetWidth()
+	local right = true
+	if Logic.IsNumber(x) and Logic.IsNumber(mapScale) and Logic.IsNumber(screenScale) and Logic.IsNumber(width) then
+		right = x * mapScale >= width * screenScale / 2
+	end
+	local root, own = K.Scale.Root():GetEffectiveScale(), tooltip:GetEffectiveScale()
+	local gap = 0
+	if Logic.IsNumber(root) and Logic.IsNumber(own) and own > 0 then
+		gap = K.Tokens.Size("gapMedium") * root / own
+	end
+	if tooltip == GameTooltip then
+		tooltip:SetAnchorType("ANCHOR_NONE")
+	end
+	tooltip:ClearAllPoints()
+	tooltip:SetPoint(right and "TOPRIGHT" or "TOPLEFT", map, right and "TOPLEFT" or "TOPRIGHT", right and -gap or gap, 0)
+	return true
+end
+
 local function Place(tooltip, parent)
 	if not ns.active or tooltip ~= GameTooltip then
 		return
 	end
-	if Settings.Get("anchor") == "cursor" then
+	if PlaceMinimap(tooltip, parent) then
+		return
+	end
+	local mode = Settings.Get("anchor")
+	local cursor = mode == "cursor"
+	if mode == "cursorOutOfCombat" then
+		if type(InCombatLockdown) == "function" then
+			local combat = InCombatLockdown()
+			cursor = not Logic.IsSecret(combat) and not combat
+		else
+			Settings.LogOnce("combatAnchor", "InCombatLockdown is missing; tooltips use the placed anchor")
+		end
+	end
+	if cursor then
 		tooltip:SetOwner(parent or UIParent, "ANCHOR_CURSOR_RIGHT", Settings.Get("cursorX"), Settings.Get("cursorY"))
 		return
 	end
@@ -135,9 +187,32 @@ function Anchor.Hook()
 		return false
 	end
 	hooked = true
+	local createTooltip, widgetHooked = K.Widgets.Tooltip, false
+	hooksecurefunc(K.Widgets, "Tooltip", function()
+		if not widgetHooked then
+			widgetHooked = true
+			local tooltip = createTooltip()
+			hooksecurefunc(tooltip, "Show", function(widget)
+				K.Call(PlaceMinimap, widget, widget.owner)
+			end)
+		end
+	end)
 	hooksecurefunc("GameTooltip_SetDefaultAnchor", function(tooltip, parent)
 		K.Call(Place, tooltip, parent)
 	end)
+	if GameTooltip and type(GameTooltip.SetOwner) == "function" then
+		hooksecurefunc(GameTooltip, "SetOwner", function(tooltip, owner)
+			K.Call(PlaceMinimap, tooltip, owner)
+		end)
+		GameTooltip:HookScript("OnShow", function(tooltip)
+			K.Call(PlaceMinimap, tooltip)
+		end)
+		if type(GameTooltip.SetMinimapMouseover) == "function" then
+			hooksecurefunc(GameTooltip, "SetMinimapMouseover", function(tooltip)
+				K.Call(PlaceMinimap, tooltip, Minimap)
+			end)
+		end
+	end
 	Settings.Log("GameTooltip's default anchor is hooked")
 	return true
 end
