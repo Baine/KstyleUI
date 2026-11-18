@@ -7,7 +7,8 @@ local Motion, Modules, Tokens = ns.Motion, ns.Modules, ns.Tokens
 local Calm = {}
 Layout.Calm = Calm
 
-Calm.ALPHA, Calm.SOFT, Calm.FALL, Calm.RISE, Calm.DELAY, Calm.HOVER = 0.3, 0.75, 0.24, 0.6, 3, 0.24
+Calm.ALPHA, Calm.SOFT = 0.3, 0.75
+Calm.FALL, Calm.RISE, Calm.DELAY, Calm.HOVER = Tokens.Duration("combatIn"), Tokens.Duration("combatOut"), Tokens.Duration("combatOutDelay"), Tokens.Duration("combatIn")
 Calm.FLOOR = 0.65
 Calm.STORY = 0.9
 Calm.IDLE = { "databars.xp", "databars.rep", "databars.honor" }
@@ -41,13 +42,6 @@ local driver, ticker
 
 local function IsSecret(v)
 	return issecretvalue ~= nil and issecretvalue(v) == true
-end
-
-local function Duration(seconds)
-	if Motion.ReducedMotion() then
-		return 0
-	end
-	return seconds
 end
 
 local function Accessible(frame)
@@ -157,7 +151,7 @@ local function Poll()
 	if not calm then
 		return
 	end
-	local duration = Duration(Calm.HOVER)
+	local duration = Motion.FadeDuration(Calm.HOVER)
 	for _, key in ipairs(Calm.CARDS) do
 		local el = Layout.Element(key)
 		local over = el ~= nil and Layout.Live(key) and IsOver(el.frame)
@@ -204,7 +198,7 @@ local function Wake()
 	end
 	calm = false
 	hovered = {}
-	Apply(Duration(Calm.RISE))
+	Apply(Motion.FadeDuration(Calm.RISE))
 end
 
 local function Count(_, elapsed)
@@ -228,7 +222,7 @@ local function Fall()
 		return
 	end
 	calm = true
-	Apply(Duration(Calm.FALL))
+	Apply(Motion.FadeDuration(Calm.FALL))
 	StartPoll()
 end
 

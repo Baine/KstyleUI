@@ -219,7 +219,12 @@ local DURATIONS = {
 	sparkFade = 0.35,
 }
 
+Tokens.Smoothing = { enter = "OUT", exit = "IN", loop = "IN_OUT" }
+
 local EASINGS = {
+	enter = "outCubic",
+	exit = "inQuad",
+	move = "inOutSine",
 	hover = "outQuad",
 	combatIn = "outCubic",
 	combatOut = "inOutSine",
