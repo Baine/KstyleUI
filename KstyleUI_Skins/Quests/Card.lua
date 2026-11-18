@@ -18,7 +18,7 @@ local THUMB_ALPHA, TRACK_ALPHA, HOVER_MIX = 0.35, 0.5, 0.18
 local MORE_SCALE = 0.85
 local COMPACT_PAD = 6
 
-local card, glass, cap, view, more, track, thumb, ruler, countRuler
+local card, glass, cap, view, more, track, thumb, ruler, countRuler, fade
 local rows, buttons, heights = {}, {}, {}
 local pitch, lead, rowWidth = 0, 0, 0
 local offset, wanted, maxHeight = 1, 4, 0
@@ -535,15 +535,18 @@ function Card.Render()
 	local fit = FitFromEnd(total, n, viewHeight, gap)
 	offset = math.max(1, math.min(offset, total - fit + 1))
 	local y, k, cut = 0, 0, 0
-	while k < n and offset + k <= total do
+	local continuation = ns.Skins.Setting("quests", "continuation")
+	while k < n + (continuation and not compact and 1 or 0) and offset + k <= total and y < viewHeight do
 		local h = heights[offset + k]
-		if k > 0 and not Fits(y + h, viewHeight) then
+		if k > 0 and (y >= viewHeight or not continuation and not Fits(y + h, viewHeight)) then
 			break
 		end
 		k = k + 1
 		local row = rows[k]
-		local limit = not Fits(h, viewHeight) and viewHeight or nil
+		local limit = (compact or not continuation) and not Fits(h, viewHeight) and viewHeight or nil
 		cut = Bind(row, Data.Get(offset + k - 1), offset + k - 1, y, h, right, limit)
+		row.clipped = not Fits(y + h, viewHeight)
+		row.itemClipped = continuation and not Fits(y + Snap(SOCKET), viewHeight)
 		y = y + h + gap
 	end
 	for i = k + 1, #rows do
@@ -558,8 +561,10 @@ function Card.Render()
 	Widgets.Point(view, "TOPLEFT", card, "TOPLEFT", inset, -(top + capHeight + capGap))
 	Widgets.Point(view, "TOPRIGHT", card, "TOPRIGHT", -inset, -(top + capHeight + capGap))
 	view:SetHeight(viewHeight)
-	Bar(total, offset, k, viewHeight)
-	local above, below = offset - 1, total - (offset + k - 1)
+	fade:SetShown(continuation and not compact and y - gap > viewHeight)
+	local complete = k - (continuation and rows[k] and rows[k].clipped and 1 or 0)
+	Bar(total, offset, math.max(1, complete), viewHeight)
+	local above, below = offset - 1, total - (offset + complete - 1)
 	if compact then
 		local hint = above + below > 0 and MoreText(above, below) or cut > 0 and string.format(L["%d more"], cut) or ""
 		more:SetText(L["Quests"] .. " " .. total .. (hint ~= "" and ": " .. hint or ""))
@@ -585,6 +590,10 @@ function Card.Render()
 		return
 	end
 	Card.SyncButtons()
+	local rail = ns.RestedXP and ns.RestedXP.Rail
+	if rail and rail.Schedule then
+		rail.Schedule()
+	end
 end
 
 function Card.Scroll(steps)
@@ -640,7 +649,7 @@ function Card.SyncButtons()
 	local used = 0
 	for i = 1, #rows do
 		local row = rows[i]
-		if card:IsShown() and row:IsShown() and row.item then
+		if card:IsShown() and row:IsShown() and row.item and not row.itemClipped then
 			used = used + 1
 			local button = buttons[used] or NewButton()
 			if button:GetAttribute("item") ~= row.item then
@@ -672,6 +681,14 @@ end
 
 function Card.SetShownCount(n)
 	wanted = math.max(1, math.min(MAX_SHOWN, math.floor(tonumber(n) or 4)))
+end
+
+function Card.Resize(height)
+	if math.abs(maxHeight - height) > 0.01 then
+		maxHeight = height
+		Card.Render()
+	end
+	card:SetHeight(Snap(height))
 end
 
 function Card.Place(root, left, top, width, height)
@@ -741,7 +758,17 @@ function Card.Build(root)
 	more = Widgets.FontString(card, "OVERLAY")
 	more:SetJustifyH("CENTER")
 	PaintRest()
-	for i = 1, MAX_SHOWN do
+	local shade = CreateFrame("Frame", nil, card)
+	shade:SetFrameLevel(view:GetFrameLevel() + 4)
+	Widgets.Point(shade, "BOTTOMLEFT", view, "BOTTOMLEFT")
+	Widgets.Point(shade, "BOTTOMRIGHT", view, "BOTTOMRIGHT")
+	shade:SetHeight(Snap(12))
+	fade = shade:CreateTexture(nil, "OVERLAY")
+	fade:SetAllPoints(shade)
+	fade:SetTexture((Tokens.Texture("ruleFade")))
+	fade:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1)
+	Widgets.Tint(fade, "medFillBottom")
+	for i = 1, MAX_SHOWN + 1 do
 		rows[i] = NewRow(i)
 	end
 	local restyler = { Restyle = Restyle }
@@ -768,7 +795,7 @@ function Card.Offset()
 end
 
 function Card.Parts()
-	return { card = card, glass = glass, cap = cap, view = view, more = more, track = track, thumb = thumb }
+	return { card = card, glass = glass, cap = cap, view = view, more = more, track = track, thumb = thumb, fade = fade }
 end
 
 local function DiagnosticText(value)

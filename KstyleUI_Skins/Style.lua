@@ -98,6 +98,11 @@ function Style.Setting(group, key)
 	return Style.defaults[group][key]
 end
 
+function Style.MetricsEnabled()
+	if Style.metricsChoice ~= nil then return Style.metricsChoice end
+	return not K.Store.IsLoaded() or K.Store.Module(MODULE).windowMetrics ~= false
+end
+
 local function Log(message)
 	K.DevTest.Log(MODULE, message)
 end
@@ -184,6 +189,9 @@ local htmls = setmetatable({}, WEAK)
 local function PaintHtml(state)
 	local html = state.html
 	local path, size, flags = Style.Font(state.role)
+	if state.units then
+		size = state.units * K.Theme.FontScale() * Style.Setting("text", "size")
+	end
 	local r, g, b = Tokens.Color(state.color)
 	for _, kind in ipairs(HTML_TYPES) do
 		html:SetFont(kind, path, Widgets.FontSize(html, size), flags)
@@ -192,7 +200,7 @@ local function PaintHtml(state)
 	end
 end
 
-function Style.Html(html, role, colorName)
+function Style.Html(html, role, colorName, units)
 	local state = htmls[html]
 	if not state then
 		state = { html = html, Restyle = PaintHtml }
@@ -200,6 +208,7 @@ function Style.Html(html, role, colorName)
 		Style.Track(state)
 	end
 	state.role, state.color = role or "body", colorName or "text"
+	state.units = units
 	PaintHtml(state)
 	return html
 end
@@ -453,6 +462,26 @@ end
 
 function Style.IsSwept(text)
 	return swept[text] ~= nil
+end
+
+function Style.MetricText(text, title)
+	local role = roles[text]
+	if not title and (role == "number" or role == "caps" or role == "display") then
+		return
+	end
+	local units = title and 16 or role == "caption" and 12 or 13
+	local entry = swept[text]
+	if entry then
+		entry.size = units * K.Theme.FontScale()
+		PaintSwept(text, entry)
+	else
+		Style.Text(text, role or "body", nil, function()
+			return units * K.Theme.FontScale() * Style.Setting("text", "size")
+		end)
+	end
+	if type(text.SetSpacing) == "function" then
+		text:SetSpacing(math.max(0, Widgets.Snap(text, 16 * K.Theme.FontScale()) - Widgets.LineHeight(text)))
+	end
 end
 
 function Style.RestyleAll()

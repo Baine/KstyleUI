@@ -56,6 +56,14 @@ local function NewSection(win, spec, group)
 	end
 	if spec.caption then
 		section.cap = Widgets.SectionCap(parent, { text = spec.caption })
+		local restyle = section.cap.Restyle
+		section.cap.Restyle = function(self)
+			restyle(self)
+			if Settings.Get("readableHeaders") then
+				local path, _, flags = Tokens.Font("caps")
+				Widgets.ApplyFont(self.label, path, 11 * K.Theme.FontScale(), flags)
+			end
+		end
 	end
 	if spec.categories then
 		section.groups = {}
@@ -87,6 +95,7 @@ function Window.New(spec)
 	panel:SetClampedToScreen(true)
 	panel:EnableMouse(true)
 	win.panel = panel
+	win.originalHeader = panel.chrome.headerUnits
 	win.viewport = CreateFrame("Frame", nil, panel)
 	win.viewport:SetClipsChildren(true)
 	win.viewport:EnableMouseWheel(true)
@@ -418,6 +427,13 @@ function Window:Layout(force)
 	if not Widgets.MayMove(panel) then
 		return
 	end
+	if Settings.Get("readableHeaders") then
+		local path, _, flags = Tokens.Font("caps")
+		Widgets.ApplyFont(panel.titleText, path, 14 * K.Theme.FontScale(), flags)
+	else
+		Widgets.StyleText(panel.titleText, "caps")
+		Widgets.CapsSize(panel.titleText)
+	end
 	local columns = Settings.Get(self.spec.columns or "columns")
 	local rowsLimit = Settings.Get("rows")
 	local size, spacing = Snap(self, Settings.Get("slotSize")), Snap(self, Settings.Get("spacing"))
@@ -558,6 +574,7 @@ function Window:Layout(force)
 	self.money:SetPoint("RIGHT", content, "TOPLEFT", contentWidth, -(top + footer / 2))
 	top = top + footer
 	Widgets.Size(panel, contentWidth + 2 * pad, contentTop + top + pad)
+	panel.chrome:SetHeader(Settings.Get("readableHeaders") and panel.titleBar:GetHeight() or self.originalHeader)
 	self:Paint(force)
 end
 

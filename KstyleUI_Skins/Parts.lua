@@ -503,7 +503,11 @@ local function PlaceCap(cap)
 		return
 	end
 	local gap = Widgets.Snap(holder, CAP_RULE_GAP)
-	rule:SetPoint("LEFT", title, "LEFT", width + gap, 0)
+	if ns.Style.MetricsEnabled() then
+		Widgets.Point(rule, "LEFT", title, "LEFT", width + gap, 0)
+	else
+		rule:SetPoint("LEFT", title, "LEFT", width + gap, 0)
+	end
 	local close = cap.close
 	if close then
 		rule:SetPoint("RIGHT", close, "LEFT", -gap, 0)
@@ -559,6 +563,170 @@ function Parts.TitleCap(frame, title, close)
 	RestyleCap(cap)
 	Widgets.Track(cap)
 	return cap
+end
+
+local metricWindows = setmetatable({}, WEAK)
+
+local function MetricAnchorGap(frame, relative)
+	local found = false
+	for i = 1, frame:GetNumPoints() do
+		local point, anchor, on, x, y = frame:GetPoint(i)
+		if anchor == relative and type(point) == "string" and type(on) == "string" and Plain(x) and Plain(y) then
+			local gap
+			if point:find("RIGHT", 1, true) and on:find("LEFT", 1, true) then
+				gap = Widgets.Snap(frame, -8)
+			elseif point:find("LEFT", 1, true) and on:find("RIGHT", 1, true) then
+				gap = Widgets.Snap(frame, 8)
+			end
+			if gap then
+				if math.abs(x - gap) > 0.01 then frame:SetPoint(point, anchor, on, gap, y) end
+				found = true
+			end
+		end
+	end
+	return found
+end
+
+local function MetricButtonGaps(frame)
+	local buttons = {}
+	for _, child in ipairs({ frame:GetChildren() }) do
+		local parts = Skin.Parts(child)
+		local left, right, top = Widgets.Edges(child)
+		if parts and parts.kinds.Button and Plain(left) and Plain(right) and Plain(top) and Widgets.MayMove(child) then
+			buttons[#buttons + 1] = { frame = child, left = left, top = top }
+		end
+	end
+	table.sort(buttons, function(a, b) return a.left < b.left end)
+	for i = 2, #buttons do
+		local before, after = buttons[i - 1], buttons[i]
+		if math.abs(before.top - after.top) < 1 then
+			local left = after.frame:GetLeft()
+			local right = before.frame:GetRight()
+			if Plain(left) and Plain(right) then
+				local gap = left - right
+				if gap >= 0 and gap <= 16 then
+					if not MetricAnchorGap(before.frame, after.frame) and not MetricAnchorGap(after.frame, before.frame) then
+						after.frame:AdjustPointsOffset(Widgets.Snap(after.frame, 8 - gap), 0)
+					end
+				end
+			end
+		end
+	end
+end
+
+local function MetricChildren(frame, depth)
+	if depth > 8 or Widgets.Restricted(frame) or type(frame.GetRegions) ~= "function" then
+		return
+	end
+	if type(frame.GetObjectType) == "function" and frame:GetObjectType() == "StatusBar" then
+		return
+	end
+	local parts = Skin.Parts(frame)
+	if parts and (parts.kinds.Button or parts.kinds.EditBox or chevrons[frame]) and Widgets.MayMove(frame) then
+		local parent = frame:GetParent()
+		local height = parent and parent:GetHeight()
+		if not Plain(height) or height <= 0 or height >= Widgets.Snap(parent, 28) then
+			frame:SetHeight(Widgets.Snap(frame, 28))
+		end
+	end
+	for _, text in ipairs({ frame:GetRegions() }) do
+		if type(text.GetObjectType) == "function" and text:GetObjectType() == "FontString" then
+			ns.Style.MetricText(text)
+		end
+	end
+	if type(frame.GetChildren) == "function" then
+		for _, child in ipairs({ frame:GetChildren() }) do
+			MetricChildren(child, depth + 1)
+		end
+		MetricButtonGaps(frame)
+	end
+	if parts and parts.backdrop then
+		parts.backdrop:Restyle()
+	end
+end
+
+local function PlaceMetrics(state)
+	local frame, title = state.frame, state.title
+	if InCombatLockdown() or not Widgets.MayMove(frame) then
+		return
+	end
+	local shift = 0
+	for _, child in ipairs({ frame:GetChildren() }) do
+		local skin = Skin.Parts(child)
+		if skin and skin.kinds.Button then
+			local point, relative, on, _, y = child:GetPoint(1)
+			if relative == frame and type(point) == "string" and point:find("TOP", 1, true) and type(on) == "string" and on:find("TOP", 1, true) and type(y) == "number" and not IsSecret(y) and y < 0 then
+				shift = math.max(shift, 44 + y)
+			end
+		end
+	end
+	if shift > 0 then
+		for _, child in ipairs({ frame:GetChildren() }) do
+			if child ~= frame.TitleContainer and child ~= frame.PortraitContainer and child ~= frame.CloseButton and child ~= frame.Header and child ~= frame.NineSlice and Widgets.MayMove(child) then
+				local point, relative, on = child:GetPoint(1)
+				if relative == frame and type(point) == "string" and point:find("TOP", 1, true) and type(on) == "string" and on:find("TOP", 1, true) then
+					child:AdjustPointsOffset(0, -shift)
+				end
+			end
+		end
+		frame:SetHeight(frame:GetHeight() + shift)
+	end
+	local inset = frame.Inset
+	if type(inset) == "table" and Widgets.MayMove(inset) then
+		local contentTop = 44
+		local top = frame:GetTop()
+		for _, key in ipairs({ "FilterDropdown", "Dropdown", "SearchBox" }) do
+			local control = frame[key]
+			if type(control) == "table" and Widgets.MayMove(control) then
+				control:SetHeight(Widgets.Snap(control, 28))
+				local bottom = control:GetBottom()
+				if Plain(top) and Plain(bottom) then
+					contentTop = math.max(contentTop, top - bottom + 12)
+				end
+			end
+		end
+		local header = frame.FriendsTabHeader
+		local broadcast = type(header) == "table" and header.BattlenetFrame
+		local broadcastBottom = broadcast and broadcast:GetBottom()
+		if Plain(top) and Plain(broadcastBottom) then
+			contentTop = math.max(contentTop, top - broadcastBottom + 12)
+		end
+		local _, _, _, _, bottom = inset:GetPoint(inset:GetNumPoints())
+		inset:ClearAllPoints()
+		inset:SetPoint("TOPLEFT", frame, "TOPLEFT", Widgets.Snap(inset, 12), -Widgets.Snap(inset, contentTop))
+		inset:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -Widgets.Snap(inset, 12), Widgets.Snap(inset, type(bottom) == "number" and not IsSecret(bottom) and math.max(12, bottom) or 12))
+	end
+	local parts = Skin.Parts(frame)
+	if parts and parts.backdrop then
+		parts.backdrop.chrome:SetHeader(32)
+	end
+	MetricChildren(frame, 1)
+	if title then
+		ns.Style.MetricText(title, true)
+		title:ClearAllPoints()
+		Widgets.Point(title, "LEFT", frame, "TOPLEFT", 12 + CAP_GEM + CAP_GEM_GAP, -16)
+		Widgets.Point(title, "RIGHT", frame, "TOPRIGHT", -40, -16)
+		Parts.Realign(title)
+	end
+end
+
+function Parts.WindowMetrics(frame)
+	if not ns.Style.MetricsEnabled() or type(frame) ~= "table" then
+		return
+	end
+	if metricWindows[frame] then
+		PlaceMetrics(metricWindows[frame])
+		return metricWindows[frame]
+	end
+	local container = frame.TitleContainer or type(frame.BorderFrame) == "table" and frame.BorderFrame.TitleContainer
+	local title = type(container) == "table" and container.TitleText or type(frame.Header) == "table" and frame.Header.Text or nil
+	local state = { frame = frame, title = title, Restyle = PlaceMetrics }
+	metricWindows[frame] = state
+	frame:HookScript("OnShow", function() PlaceMetrics(state) end)
+	Widgets.Track(state)
+	ns.Style.Track(state)
+	PlaceMetrics(state)
+	return state
 end
 
 local headings = setmetatable({}, WEAK)

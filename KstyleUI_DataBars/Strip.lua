@@ -192,12 +192,14 @@ end
 Strip.Order = Order
 
 local function PaintItem(item)
-	item.label:SetTextColor(Widgets.MixTokens(Widgets.Readability("worldText") and "labelMuted" or "text", 1, "textHover", 1, item.button.hoverT or 0))
+	item.label:SetTextColor(Widgets.MixTokens((item.view.docked or Widgets.Readability("worldText")) and "labelMuted" or "text", 1, "textHover", 1, item.button.hoverT or 0))
 end
 
 local function ValueColor(item, s, grade)
 	local mode = s.valueColor
-	if mode == "accent" then
+	if item.view.docked then
+		Widgets.TextColor(item.value, "labelMuted")
+	elseif mode == "accent" then
 		item.value:SetTextColor(ns.Accent())
 	elseif mode == "threshold" and grade then
 		Widgets.TextColor(item.value, GRADE_TOKEN[grade])
@@ -428,6 +430,13 @@ local function PlaceLine(view, s)
 		end
 	end
 	view.contentWidth = Widgets.Snap(frame, x - edge)
+	if view.docked then
+		if view.dockWidth ~= view.contentWidth then
+			frame:SetWidth(view.contentWidth)
+			view.dockWidth = view.contentWidth
+		end
+		view.docked:ReserveTitle(view.contentWidth + Widgets.Snap(frame, LABEL_GAP))
+	end
 end
 
 local function PlaceItems(view, s)
@@ -865,6 +874,44 @@ function Strip.Tick()
 	Strip.Update(true)
 end
 
+local function DockMeter(view, s)
+	local side = K.Safe.Side(K.Scale.Root())
+	local meter = side.meterCards and side.meterCards["meters.damage"]
+	local layout = K.Layout.Get(KEY)
+	local element = K.Layout.Element(KEY)
+	local default = element and element.default
+	local on = s.dockMeter ~= false and LineMode(s) and not s.menus and meter and meter.holder:IsVisible() and meter.cap.frame:IsShown() and layout and default and layout.anchor == default.anchor and layout.x == default.x and layout.y == default.y and not K.Layout.IsActive()
+	if on then
+		meter:ReserveTitle((view.contentWidth or 0) + Widgets.Snap(view.frame, LABEL_GAP))
+		local width = math.max(1, view.contentWidth or 1)
+		if view.docked == meter and view.dockWidth == width then return false end
+		local changed = view.docked ~= meter
+		view.frame:ClearAllPoints()
+		Widgets.Point(view.frame, "RIGHT", meter.column, "LEFT", -LABEL_GAP, 0)
+		Widgets.Size(view.frame, width, LINE)
+		view.docked, view.dockWidth = meter, width
+		return changed
+	elseif view.docked then
+		view.docked:ReserveTitle(nil)
+		view.docked, view.dockWidth = nil, nil
+		view.frame:ClearAllPoints()
+		view.frame:SetPoint(layout.anchor, K.Scale.Root(), layout.anchor, layout.x, layout.y)
+		view.frame:SetSize(layout.width, layout.height)
+		return true
+	end
+	return false
+end
+
+local function DockInk(view)
+	if view.docked then
+		for _, item in pairs(view.items) do
+			Widgets.TextColor(item.label, "labelMuted")
+			Widgets.TextColor(item.value, "labelMuted")
+			Widgets.TextColor(item.dot, "labelMuted")
+		end
+	end
+end
+
 function Strip.Refresh()
 	local view = Strip.view
 	if not view or not running then
@@ -873,7 +920,16 @@ function Strip.Refresh()
 	local s = ns.Settings().strip
 	view.order = Order(s)
 	Strip.order = view.order
+	DockMeter(view, s)
 	Strip.Paint(view, s, Read(view, s))
+	DockInk(view)
+end
+
+function Strip.Dock()
+	local view = Strip.view
+	if view and running and DockMeter(view, ns.Settings().strip) then
+		Strip.Refresh()
+	end
 end
 
 local function NeedsTicker(s)
@@ -942,6 +998,7 @@ local function Build()
 		minWidth = MIN_WIDTH, minHeight = MIN_HEIGHT, maxWidth = MAX_WIDTH, maxHeight = MAX_HEIGHT,
 	})
 	Strip.view = view
+	K.Safe.Side(K.Scale.Root()).dockDataStrip = Strip.Dock
 	return view
 end
 
@@ -990,6 +1047,7 @@ function Strip.Disable()
 	StopTicker()
 	ns.Click.Detach()
 	if Strip.view then
+		DockMeter(Strip.view, { line = false, orientation = "VERTICAL" })
 		for _, item in pairs(Strip.view.items) do
 			Strip.HideTooltip(item)
 		end
@@ -1020,7 +1078,13 @@ ns.Listen("PLAYER_EQUIPMENT_CHANGED", Strip.Update)
 ns.Listen("PLAYER_ENTERING_WORLD", Strip.Update)
 
 ns.Subscribe("LayoutChanged", function(key)
-	if key == KEY and running then
+	if (key == KEY or key == "meters.damage") and running then
+		Strip.Refresh()
+	end
+end)
+
+ns.Subscribe("ModuleChanged", function(module)
+	if module == "Meters" and running then
 		Strip.Refresh()
 	end
 end)

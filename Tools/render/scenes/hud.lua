@@ -151,6 +151,7 @@ local function saved(opts, module, settings, more)
 		profile[name] = { enabled = true }
 		merge(profile[name], opts.settings and opts.settings[name])
 	end
+	Common.FinishSettings(profile)
 	return {
 		version = 2,
 		profiles = { Default = profile },
@@ -976,6 +977,7 @@ function modules.minimap(opts)
 	-- zone, the clock and the player's map position the module reads.
 	local env, K, ns = M.New({
 		enabled = true,
+		settings = Common.PreviousFinish() and { clearPlaques = false } or nil,
 		zone = opts.zone or "Riverglades",
 		position = opts.position,
 		setup = function(env)
@@ -1585,7 +1587,7 @@ function modules.restedxp(opts)
 		standin:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", card[1], card[2])
 		standin:SetSize(card[3], card[4])
 		standin:SetAlpha(0)
-		R.ns.QuestCard = setmetatable({ Frame = function() return standin end }, { __index = R.ns.QuestCard })
+		R.ns.QuestCard = setmetatable({ Frame = function() return standin end, Resize = function(height) standin:SetHeight(height) end }, { __index = R.ns.QuestCard })
 		R.ns.RestedXP.Rail.Place()
 	end
 	for _, name in ipairs({ "items", "v2", "configurator" }) do

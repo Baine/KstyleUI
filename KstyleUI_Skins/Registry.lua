@@ -160,6 +160,11 @@ local function Run(def)
 	switched[def.key] = true
 	if K.Call(def.Apply, def) then
 		K.Call(Sweep, def)
+		if def.metrics then
+			for _, name in ipairs(type(def.metrics) == "table" and def.metrics or { def.frame }) do
+				K.Call(ns.Parts.WindowMetrics, _G[name])
+			end
+		end
 		Log(def.key .. ": applied")
 	else
 		failed[def.key] = true
@@ -274,6 +279,13 @@ local function OnSetting(_, module, key, value)
 	if module ~= MODULE or type(key) ~= "string" then
 		return
 	end
+	if key == "steelButtons" then
+		K.Skin.SetButtonMaterial(value)
+		return
+	elseif key == "windowMetrics" then
+		K.Widgets.ReloadPrompt(L["Reload to apply the window spacing choice."])
+		return
+	end
 	local group = key:match("^(%w+)%.")
 	if ns.Style.GROUPS[group] then
 		ns.Style.RestyleAll()
@@ -321,6 +333,8 @@ end
 
 function Skins.Start()
 	running = true
+	if ns.Style.metricsChoice == nil then ns.Style.metricsChoice = ns.Style.MetricsEnabled() end
+	K.Skin.SetButtonMaterial(K.Store.Module(MODULE).steelButtons)
 	if not reporting then
 		reporting = true
 		K.DevTest.AddCheck("skin windows", Report)
@@ -330,6 +344,10 @@ function Skins.Start()
 	K.Callbacks.Register("ProfileChanged", MODULE, function()
 		if not running then
 			return
+		end
+		K.Skin.SetButtonMaterial(K.Store.Module(MODULE).steelButtons)
+		if (K.Store.Module(MODULE).windowMetrics ~= false) ~= ns.Style.metricsChoice then
+			K.Widgets.ReloadPrompt(L["Reload to apply the window spacing choice."])
 		end
 		ns.Style.RestyleAll()
 		for _, def in ipairs(order) do

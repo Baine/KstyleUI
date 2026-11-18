@@ -718,6 +718,11 @@ local function TextWidth(text)
 end
 
 local function CapReserve(list)
+	if list.stripReserve then
+		local title = Logic.Plain(select(4, list.title:GetPoint(1)))
+		local gem = Logic.Plain(select(4, list.cap.gem:GetPoint(1)))
+		if title and gem then return title + gem + (list.block and BLOCK_CAP_LEFT - BLOCK_PAD or 0) end
+	end
 	return Widgets.SECTION_CAP_CHROME + CAP_RULE + (list.block and BLOCK_CAP_LEFT - BLOCK_PAD or 0)
 end
 
@@ -726,7 +731,7 @@ local function Fits(list)
 	if not aside then
 		return true
 	end
-	local room = list.barWidth or 0
+	local room = (list.barWidth or 0) - (list.stripReserve or 0)
 	if ns.Get(list.section .. ".title") then
 		local title = TextWidth(list.title)
 		return not title or title + aside <= room - CapReserve(list)
@@ -753,11 +758,18 @@ local function HoldTitle(list)
 		end
 	end
 	local aside = TextWidth(list.column) or 0
-	local room = (list.barWidth or 0) - CapReserve(list) - aside
+	local room = (list.barWidth or 0) - CapReserve(list) - aside - (list.stripReserve or 0)
 	if room > 0 then
 		title:SetWidth(room)
 	else
 		title:SetShown(false)
+	end
+end
+
+function List:ReserveTitle(width)
+	if self.stripReserve ~= width then
+		self.stripReserve = width
+		HoldTitle(self)
 	end
 end
 
@@ -817,11 +829,20 @@ function List:Fit()
 	local _, holderHeight = Size(self.holder, self.width, self.height)
 	local capacity, count = self.capacity or 0, self.count or 0
 	local height = holderHeight
-	if not self.block and (capacity < 1 or count < capacity) then
-		local rows, spacing = max(1, min(count, capacity)), Spacing(self)
+	local fit = ns.Get("fitCards")
+	if (not self.block or fit) and (capacity < 1 or count < capacity) then
+		local rows, spacing = max(self.block and fit and 3 or 1, min(count, capacity)), Spacing(self)
 		height = Widgets.Snap(self.panel, self:Top()) + rows * (self.rowHeight + spacing) - spacing + self.pad
 	end
 	self.panel:SetHeight(max(1, min(height, holderHeight)))
+	if self.key then
+		local side = K.Safe.Side(K.Scale.Root())
+		side.meterCards = side.meterCards or {}
+		side.meterCards[self.key] = self
+		if self.key == "meters.damage" and side.dockDataStrip then
+			K.Call(side.dockDataStrip)
+		end
+	end
 end
 
 function List:Row(i)
@@ -992,6 +1013,7 @@ end
 function List:SetTitleSwitch(first, second, selected)
 	self.switchFirst, self.switchSecond, self.switchPick = first, second, selected
 	self:PaintTitleSwitch()
+	if self.stripReserve then HoldTitle(self) end
 end
 
 function List:ShowRest()

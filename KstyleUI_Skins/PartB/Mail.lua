@@ -81,7 +81,7 @@ local function Body(body)
 		return
 	end
 	if body:GetObjectType() == "SimpleHTML" then
-		ns.Style.Html(body, "body", "textEmphasis")
+		ns.Style.Html(body, "body", "textEmphasis", ns.Style.MetricsEnabled() and 13 or nil)
 		return
 	end
 	Kit.Text(body, "body", "textEmphasis")
@@ -111,6 +111,10 @@ local function Apply()
 		return false
 	end
 	Kit.Window(frame)
+	if ns.Style.MetricsEnabled() and type(MailItem1) == "table" and K.Widgets.MayMove(MailItem1) then
+		MailItem1:ClearAllPoints()
+		K.Widgets.Point(MailItem1, "TOPLEFT", frame, "TOPLEFT", 12, -44)
+	end
 	Inbox(InboxFrame)
 	SendForm(SendMailFrame)
 	Letter(OpenMailFrame)
@@ -127,5 +131,6 @@ ns.Skins.Add({
 	rows = {
 		{ type = "toggle", key = "qualityRims", label = L["Quality rims"], help = L["Rings each item in the item's quality colour."] },
 	},
+	metrics = { "MailFrame", "OpenMailFrame" },
 	Apply = Apply,
 })

@@ -385,6 +385,7 @@ do
 	end)
 	local font = W.LastCall(made.body, "SetFont")
 	assert(font and font[1] == "H3" and font[2] == ns.Style.Font("body"), "the body's SetFont names the text type, then the body face: " .. tostring(font and font[1]))
+	assert(font[3] == K.Widgets.FontSize(made.body, 13), "mail's native HTML body uses the shared thirteen-unit reading size")
 	local calls = {}
 	for _, call in ipairs(made.body._calls) do
 		if call.method == "SetJustifyH" then
@@ -394,7 +395,7 @@ do
 	assert(calls.P == "LEFT" and calls.H1 == "LEFT", "every text type of the body reads LEFT")
 	K.Options.Write("Skins", "text.size", 1.5)
 	font = W.LastCall(made.body, "SetFont")
-	assert(FontSize(K, made.body, font[3], select(2, ns.Style.Font("body"))) and font[3] ~= 12, "a text size change restyles the body too, got " .. tostring(font[3]))
+	assert(FontSize(K, made.body, font[3], 13 * K.Theme.FontScale() * ns.Style.Setting("text", "size")), "a text size change preserves the mail body's reading size, got " .. tostring(font[3]))
 	assert(Skinned(K, made.mail, "Window") and Skinned(K, made.letter, "Window"), "the mailbox and open letters are glass windows")
 	assert(Skinned(K, made.mail, "Tabs"), "the inbox and send tabs are skinned")
 	assert(Hidden(made.inboxBg) and Hidden(made.bar), "the inbox paper and the send form's bars are hidden")
@@ -426,6 +427,10 @@ do
 			slot.ItemButton = P.Item(B, slot)
 			slot.Name = B.text(slot)
 			slot.Name:SetPoint("LEFT", slot.SlotTexture, "RIGHT", -5, 7)
+			local money = B.frame("Frame", slot, "MerchantItem" .. i .. "MoneyFrame")
+			money.GoldButton = B.frame("Button", money)
+			money.GoldButton.Text = B.text(money.GoldButton)
+			money:SetPoint("BOTTOMLEFT", slot, "BOTTOMLEFT", 46, 4)
 			slots[i] = slot
 		end
 		local buyback = B.frame("Frame", merchant, "MerchantBuyBackItem")
@@ -452,6 +457,10 @@ do
 		assert(right, "the name has a right anchor on its tile")
 		assert(right[4] <= -K.Tokens.Size("gapMedium"), "a gap in from the tile's edge, got " .. tostring(right[4]))
 		assert(W.LastCall(slot.Name, "SetWordWrap") == nil or W.LastCall(slot.Name, "SetWordWrap")[1] == true, "a long name may wrap to its second line")
+		local money = env[slot:GetName() .. "MoneyFrame"]
+		assert(select(2, money.GoldButton.Text:GetFont()) == K.Widgets.FontSize(money.GoldButton.Text, 12), "native coin amounts use secondary text without a MoneyFrame parentKey")
+		local point, parent, _, _, y = money:GetPoint(1)
+		assert(point == "BOTTOMLEFT" and parent == slot and math.abs(y) < 0.5, "native prices clear two-line item names")
 	end
 	assert(K.Safe.Side(made.buyback.ItemButton).partBItem, "the buyback item too")
 	assert(Hidden(made.repair.slot) and not Hidden(made.repair.Icon), "the repair button keeps its icon on a tile")
@@ -470,11 +479,11 @@ do
 	for _, set in ipairs({ "Folio", "Lumen" }) do
 		K.Theme.SetTypeSet(set)
 		ns.Style.RestyleAll()
-		local _, size = ns.Style.Font(set == "Folio" and "caps" or "body")
+		local size = 13 * K.Theme.FontScale() * ns.Style.Setting("text", "size")
 		for _, slot in ipairs(made.slots) do
 			local path, actual = slot.Name:GetFont()
 			assert(path == ns.Style.Font("body"), "merchant names retain their body or custom face")
-			assert(math.abs(actual - K.Widgets.FontSize(slot.Name, size, true)) < 0.00001, "merchant names use the floor-safe Folio small size without changing Lumen")
+			assert(math.abs(actual - K.Widgets.FontSize(slot.Name, size, true)) < 0.00001, "merchant names use the shared 13-unit reading size in both type sets")
 		end
 	end
 end

@@ -1,0 +1,49 @@
+-- test-rails-meter-docking.lua: the data strip docks beside the meter title and custom strip positions remain movable.
+local M = dofile("Tools/regression/meters_env.lua")
+local D = dofile("Tools/regression/databars_env.lua")
+local Load = dofile("Tools/regression/load_files.lua")
+local env, K, meters = M.New({ setup = function(e)
+	D.Game(e)
+	D.Blizzard(e)
+	D.Menus(e)
+end })
+Load(D.Files(), env)
+K.Modules.Enable("DataBars")
+M.Enable(env, K)
+env.RunTimers()
+M.W.Settle(env)
+local strip = env._addons.KstyleUI_DataBars.Strip
+strip.Refresh()
+local view, meter = strip.view, meters.Damage.list
+assert(view.docked == meter, "dock the default data strip into the damage meter's cap row")
+local point, relative, on = view.frame:GetPoint(1)
+assert(point == "RIGHT" and relative == meter.column and on == "LEFT", "dock the readouts before the meter rate in its cap row")
+meter:SetRest("123 DPS")
+assert(meter.column:GetAlpha() == 1 and meter.column:IsVisible() and meter.column:GetText() == "123 DPS", "docking must preserve the visible meter rate")
+strip.Tick()
+local r, g, b = view.items.fps.value:GetTextColor()
+local er, eg, eb = K.Tokens.Color("labelMuted")
+assert(r == er and g == eg and b == eb, "the docked data figures keep labelMuted ink after a tick")
+local reads, anchors = 0, 0
+local framerate, setPoint = env.GetFramerate, view.frame.SetPoint
+env.GetFramerate = function(...) reads = reads + 1; return framerate(...) end
+view.frame.SetPoint = function(self, ...) anchors = anchors + 1; return setPoint(self, ...) end
+meter:Fit()
+reads, anchors = 0, 0
+for _ = 1, 10 do meter:Fit() end
+assert(reads == 0 and anchors == 0, "unchanged meter fits must not refresh sources or re-anchor the data strip")
+K.Options.Write("DataBars", "strip.dockMeter", false)
+assert(not view.docked and meter.column:GetAlpha() == 1, "turning meter docking off restores the separate data strip and meter aside")
+r, g, b = view.items.fps.value:GetTextColor()
+er, eg, eb = K.Tokens.Color("text")
+assert(r == er and g == eg and b == eb, "undocking restores the previous readout ink")
+K.Options.Write("DataBars", "strip.dockMeter", true)
+assert(view.docked == meter, "meter docking can be enabled again")
+K.Options.Write("Meters", "damage.title", false)
+assert(not view.docked and meter.column:GetAlpha() == 1, "hiding the meter title releases its data strip")
+K.Options.Write("Meters", "damage.title", true)
+assert(view.docked == meter, "showing the title docks the default strip again")
+K.Layout.Update("databars.strip", { x = -400 })
+assert(not view.docked and meter.column:GetAlpha() == 1, "moving the strip restores the meter's own aside")
+assert(#env._errors == 0 and K.ErrorCount() == 0, tostring(env._errors[1]))
+print("meter cap docking ok")
