@@ -15,6 +15,7 @@ local STEPS_PER_PIXEL = 16
 local MOCKUP_SIZE = 1
 local TEXT_FLOOR = 11
 local CACHE_KEYS = 6
+local RESIZE_DELAY = 0.12
 local DEVELOPMENT_VERSION = "@" .. "project-version@"
 local CANVAS = { ["21:9"] = 12 / 5, ["16:9"] = 16 / 9, full = false }
 local DEFAULT_CANVAS = "21:9"
@@ -66,8 +67,18 @@ local function IsPositive(v)
 	return type(v) == "number" and v == v and v > 0 and v < math.huge
 end
 
+local function Invalidate()
+	state.effective = nil
+	if ns.Widgets and ns.Widgets.InvalidateScale then ns.Widgets.InvalidateScale() end
+end
+
 local root = CreateFrame("Frame", "KstyleUI_Root", UIParent)
 root:SetAllPoints(UIParent)
+for _, method in ipairs({ "SetScale", "SetParent", "SetIgnoreParentScale" }) do
+	hooksecurefunc(root, method, Invalidate)
+end
+
+hooksecurefunc(UIParent, "SetScale", Invalidate)
 
 local function PhysicalSize()
 	local width, height
@@ -271,6 +282,7 @@ local function Apply()
 		effective = REFERENCE_SCALE * effectiveUser
 	end
 	state.pixel = UI_HEIGHT / (height * effective)
+	state.effective = effective
 	state.canvas = width
 	state.aspect = AspectClass(width, height)
 	state.origin = (screen - width) / 2 * state.pixel
@@ -298,6 +310,16 @@ local function ApplyWaiting()
 end
 
 local function Request(reason)
+	if (reason == "DISPLAY_SIZE_CHANGED" or reason == "the window size") and ns.Widgets and ns.Widgets.Setting("resizeDebounce") and not InCombatLockdown() then
+		state.resizeToken = (state.resizeToken or 0) + 1
+		local token = state.resizeToken
+		C_Timer.After(RESIZE_DELAY, function()
+			if token == state.resizeToken then
+				Request("the resize settled")
+			end
+		end)
+		return
+	end
 	if not InCombatLockdown() then
 		Apply()
 		return
@@ -316,7 +338,13 @@ local function Request(reason)
 end
 
 local function Recheck()
+	Invalidate()
 	Request("a late display change")
+end
+
+local function RecheckDisplay()
+	Invalidate()
+	Request("DISPLAY_SIZE_CHANGED")
 end
 
 local UI_SCALE_CVARS = { uiscale = true, useuiscale = true }
@@ -327,21 +355,28 @@ events:RegisterEvent("DISPLAY_SIZE_CHANGED")
 events:RegisterEvent("CVAR_UPDATE")
 events:SetScript("OnEvent", function(_, event, name)
 	if event == "PLAYER_LOGIN" then
+		Invalidate()
 		state.dirty = true
 		Apply()
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		ApplyWaiting()
 	elseif event ~= "CVAR_UPDATE" or type(name) == "string" and UI_SCALE_CVARS[name:lower()] then
+		Invalidate()
 		Request(event)
-		C_Timer.After(0, Recheck)
+		C_Timer.After(0, event == "DISPLAY_SIZE_CHANGED" and RecheckDisplay or Recheck)
 	end
 end)
 root:SetScript("OnSizeChanged", function()
+	Invalidate()
 	Request("the window size")
 end)
 
 function Scale.Root()
 	return root
+end
+
+function Scale.Effective()
+	return state.effective or root:GetEffectiveScale()
 end
 
 function Scale.Origin()

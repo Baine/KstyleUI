@@ -107,6 +107,7 @@ do
 	frame:SetFrameLevel(10)
 	local snap = B.snapshot()
 	local panel = K.Skin.Backdrop(frame, { inset = 4 })
+	env.RunTimers()
 	assert(panel and panel:GetParent() == frame and panel:GetFrameLevel() == 9, "behind the frame")
 	assert(panel.chrome and #panel.chrome.fill == 9 and panel.chrome.shadowOn and not panel.chrome.shadow[1]:IsShown(), "panel chrome whose shadow waits for the Panel shadows setting, off by default as the owner's picture casts none")
 	local p = panel._points[1]
@@ -118,6 +119,7 @@ do
 		return env._physical[1], env._physical[2]
 	end
 	env.FireEvent("DISPLAY_SIZE_CHANGED")
+	env.RunTimers()
 	local moved = panel._points[1]
 	assert(W.Near(moved[4], K.Widgets.Snap(panel, 4)) and not W.Near(moved[4], inset), "a display change re-snaps the inset, got " .. moved[4])
 	assert(K.Skin.IsSkinned(frame, "Backdrop"))
@@ -145,6 +147,7 @@ do
 	assert(Anchors(), "placed around the target")
 	assert(W.Near(panel._points[1][4], K.Widgets.Snap(panel, -8)), "with the inset, in whole pixels")
 	env.FireEvent("DISPLAY_SIZE_CHANGED")
+	env.RunTimers()
 	assert(Anchors(), "a restyle keeps the target")
 	B.check(snap)
 end

@@ -22,6 +22,7 @@ end
 
 -- Pieces(frame, name) -> how many of the frame's textures draw the named kit texture, and how many of those show.
 local function pieces(frame, name)
+	env.RunTimers()
 	local path = (Tokens.Texture(name))
 	local total, shown = 0, 0
 	for _, region in ipairs(W.Regions(frame, "Texture")) do
@@ -155,6 +156,10 @@ noErrors("round portrait")
 
 -- Compact frames wear the tile, the kit's shape for small parts: no card fill.
 local pet = Frames.Get("pet").views[1]
+U.SetUnit(env, "pet", { exists = true, name = "Wolf", level = 12, health = 100, healthMax = 100 })
+env.FireEvent("UNIT_PET", "player")
+U.SetUnit(env, "target", { exists = true, name = "Wolf", level = 12, health = 100, healthMax = 100 })
+env.SetTarget(true)
 assert(select(2, pieces(pet.panel, "lumenShape")) == 9 and select(1, pieces(pet.panel, "cardShape")) == 0, "the pet frame's glass is a rounded tile")
 assert(select(2, pieces(Frames.Get("target").views[1].panel, "cardShape")) == 9, "the target's glass is a card panel")
 

@@ -108,6 +108,7 @@ Widgets.defaults = {
 	shadows = false,
 	sounds = true,
 	tooltipScale = 1,
+	resizeDebounce = true,
 }
 
 local VALID = {
@@ -122,6 +123,7 @@ local VALID = {
 	end,
 	shadows = IsBoolean,
 	sounds = IsBoolean,
+	resizeDebounce = IsBoolean,
 	tooltipScale = function(v)
 		return IsNumberIn(v, TOOLTIP_SCALE_MIN, TOOLTIP_SCALE_MAX)
 	end,
@@ -179,6 +181,11 @@ Widgets.schema = {
 		type = "slider", key = "tooltipScale", label = L["Tooltip size"],
 		help = L["Makes the tooltips on KstyleUI's own controls larger or smaller."],
 		min = TOOLTIP_SCALE_MIN, max = TOOLTIP_SCALE_MAX, step = TOOLTIP_SCALE_STEP,
+	},
+	{ type = "header", label = L["Window resizing"] },
+	{
+		type = "toggle", key = "resizeDebounce", label = L["Wait for window resizing to stop"],
+		help = L["Keeps the HUD at its previous size until 120 ms after the last window resize."],
 	},
 }
 
@@ -743,13 +750,85 @@ function Widgets.WrappedHeight(text, width)
 	return lines * line
 end
 
+local scaleGeneration, ancestryGeneration = 0, 0
+local factors = setmetatable({}, { __mode = "k" })
+local scaleWatched = setmetatable({}, { __mode = "k" })
+
+local function InvalidateScale()
+	scaleGeneration = scaleGeneration + 1
+end
+
+Widgets.InvalidateScale = InvalidateScale
+
+local function OnScale(frame, value)
+	local watched = scaleWatched[frame]
+	if IsSecret(value) then
+		watched.scale = nil
+	elseif watched.scale == value then
+		return
+	else
+		watched.scale = value
+	end
+	InvalidateScale()
+end
+
+local function OnParent(frame, parent)
+	local watched = scaleWatched[frame]
+	if watched.parent == parent then return end
+	watched.parent = parent
+	ancestryGeneration = ancestryGeneration + 1
+	InvalidateScale()
+end
+
+local function ManagedScale(frame)
+	if not frame or Widgets.Restricted(frame) then
+		return false
+	end
+	local watched = scaleWatched[frame]
+	if watched and watched.ancestry == ancestryGeneration then
+		return true
+	end
+	if frame:GetObjectType() == "AuraButton" then
+		return false
+	end
+	if frame ~= Scale.Root() and not ManagedScale(frame:GetParent()) then
+		return false
+	end
+	if not watched then
+		watched = { scale = frame:GetScale(), parent = frame:GetParent() }
+		scaleWatched[frame] = watched
+		hooksecurefunc(frame, "SetScale", OnScale)
+		hooksecurefunc(frame, "SetParent", OnParent)
+		if type(frame.SetIgnoreParentScale) == "function" then
+			hooksecurefunc(frame, "SetIgnoreParentScale", InvalidateScale)
+		end
+	end
+	watched.ancestry = ancestryGeneration
+	return true
+end
+
 function Widgets.ScaleFactor(frame)
+	local cached = factors[frame]
+	if cached and cached.managed and cached.generation == scaleGeneration then
+		return cached.factor
+	end
+	local managed
+	if cached and cached.ancestry == ancestryGeneration then
+		managed = cached.managed
+	else
+		managed = ManagedScale(frame)
+	end
 	local own = frame:GetEffectiveScale()
-	local root = Scale.Root():GetEffectiveScale()
+	local root = managed and Scale.Effective() or Scale.Root():GetEffectiveScale()
 	if IsSecret(own) or IsSecret(root) or type(own) ~= "number" or type(root) ~= "number" or own <= 0 or root <= 0 then
 		return 1
 	end
-	return own / root
+	local factor = own / root
+	cached = cached or {}
+	cached.factor, cached.generation = factor, scaleGeneration
+	cached.managed, cached.ancestry = managed, ancestryGeneration
+	factors[frame] = cached
+	return factor
 end
 
 local function SnapIn(units, f)
@@ -1188,11 +1267,16 @@ local function NewTexture(owner, layer, sublevel, path)
 	return texture
 end
 
+local MaterializeSlice
+
 local function PaintSlice(p, name)
 	local path, texels = Tokens.Texture(name)
 	local f = texels / TEXELS[name]
 	p.texture = name
 	p.runs = RUNS[name] == true
+	if p.pending then
+		return
+	end
 	for piece = 1, 9 do
 		if p.runs and piece % 2 == 0 then
 			Widgets.Crisp(p[piece])
@@ -1238,8 +1322,21 @@ local function AnchorRuns(p, thickness)
 	run[8]:SetPoint("BOTTOMRIGHT", p[9], "BOTTOMLEFT")
 end
 
-local function NewSlice(owner, name, layer, sublevel)
-	local p = {}
+local SliceMeta = {
+	__index = function(slice, key)
+		if type(key) == "number" then
+			MaterializeSlice(slice)
+			return rawget(slice, key)
+		end
+	end,
+}
+
+local function NewSlice(owner, name, layer, sublevel, deferred, cacheColor)
+	cacheColor = cacheColor ~= false
+	if deferred then
+		return setmetatable({ owner = owner, texture = name, runs = RUNS[name] == true, layer = layer, sublevel = sublevel, pending = true, preparing = true, cacheColor = cacheColor }, SliceMeta)
+	end
+	local p = { cacheColor = cacheColor }
 	local soft = SOFT[name]
 	for piece = 1, 9 do
 		local texture = CreateTexture(owner, layer, sublevel)
@@ -1279,7 +1376,7 @@ function Widgets.NineSlice(owner, name, layer, sublevel)
 	if not TEXELS[name] then
 		error("KstyleUI.Widgets.NineSlice: " .. tostring(name) .. " is not a sliced texture", 2)
 	end
-	return NewSlice(owner, name, layer or "BACKGROUND", sublevel or 0)
+	return NewSlice(owner, name, layer or "BACKGROUND", sublevel or 0, nil, false)
 end
 
 function Widgets.LayoutSlice(slice, owner, corner, outset, drop, scaleFrame, outsetX)
@@ -1287,21 +1384,83 @@ function Widgets.LayoutSlice(slice, owner, corner, outset, drop, scaleFrame, out
 	local across = outsetX and SnapIn(outsetX, f)
 	local farX, farY = Widgets.Remainder(owner)
 	local px = Scale.Pixel(1) / f
-	slice.remainder = farX .. ":" .. farY
+	if slice.layoutOwner == owner and slice.layoutFactor == f and slice.layoutPixel == px and slice.layoutCorner == corner and slice.layoutOutset == outset and slice.layoutDrop == drop and slice.layoutAcross == outsetX and slice.remainderX == farX and slice.remainderY == farY and slice.layoutRuns == slice.runs then
+		return
+	end
+	slice.layoutOwner, slice.layoutFactor, slice.layoutCorner = owner, f, corner
+	slice.layoutPixel = px
+	slice.layoutOutset, slice.layoutDrop, slice.layoutAcross = outset, drop, outsetX
+	slice.remainderX, slice.remainderY, slice.layoutRuns = farX, farY, slice.runs
+	slice.scaleFrame = scaleFrame
+	if slice.pending then
+		return
+	end
 	PlaceCorners(owner, slice[1], slice[3], slice[7], slice[9], SnapIn(corner, f), SnapIn(outset or 0, f), SnapIn(drop or 0, f), across, farX * px, farY * px)
 	AnchorRuns(slice, slice.runs and Scale.Border() / f or nil)
 end
 
 function Widgets.ColorSlice(slice, r, g, b, a)
+	local plain = not (IsSecret(r) or IsSecret(g) or IsSecret(b) or IsSecret(a))
+	if slice.pending and not plain then
+		MaterializeSlice(slice)
+	end
+	if slice.cacheColor and plain then
+		if slice.colorValid and slice.red == r and slice.green == g and slice.blue == b and slice.alpha == a then
+			return
+		end
+		slice.red, slice.green, slice.blue, slice.alpha = r, g, b, a
+	end
+	slice.colorValid = plain
+	if slice.pending then
+		if not slice.preparing and slice.shown ~= false and (not plain or a == nil or a ~= 0) then
+			MaterializeSlice(slice)
+		end
+		return
+	end
 	for i = 1, #slice do
 		slice[i]:SetVertexColor(r, g, b, a)
 	end
 end
 
 function Widgets.ShowSlice(slice, shown)
+	if slice.pending then
+		slice.shown = shown and true or false
+		if slice.shown and not slice.preparing then
+			MaterializeSlice(slice)
+		end
+		return
+	end
 	for i = 1, #slice do
 		slice[i]:SetShown(shown)
 	end
+end
+
+function MaterializeSlice(slice)
+	if not slice.pending then
+		return
+	end
+	slice.pending = false
+	local soft = SOFT[slice.texture]
+	for piece = 1, 9 do
+		local texture = CreateTexture(slice.owner, slice.layer, slice.sublevel)
+		slice[piece] = soft and texture or Unbiased(texture)
+	end
+	PaintSlice(slice, slice.texture)
+	if not slice.runs then
+		AnchorRuns(slice, nil)
+	end
+	slice[5]:SetPoint("TOPLEFT", slice[1], "BOTTOMRIGHT")
+	slice[5]:SetPoint("BOTTOMRIGHT", slice[9], "TOPLEFT")
+	local owner = slice.layoutOwner
+	if owner then
+		slice.layoutOwner = nil
+		Widgets.LayoutSlice(slice, owner, slice.layoutCorner, slice.layoutOutset, slice.layoutDrop, slice.scaleFrame, slice.layoutAcross)
+	end
+	if slice.colorValid then
+		slice.colorValid = false
+		Widgets.ColorSlice(slice, slice.red, slice.green, slice.blue, slice.alpha)
+	end
+	Widgets.ShowSlice(slice, slice.shown ~= false)
 end
 
 local PILL_CAP = 0.25
@@ -1340,6 +1499,7 @@ end
 
 local Chrome = {}
 Chrome.__index = Chrome
+local CHROME_SLICES = { "shadow", "fill", "rim", "line" }
 
 local function NewTicks(owner)
 	local ticks = {}
@@ -1352,6 +1512,15 @@ local function NewTicks(owner)
 	return ticks
 end
 
+local function PrebuildChrome(owner)
+	local node = owner
+	while node do
+		if previews[node] or node:GetObjectType() == "AuraButton" then return true end
+		node = node:GetParent()
+	end
+	return false
+end
+
 function Widgets.Chrome(owner, opts)
 	opts = opts or {}
 	local shapeName = opts.shape or "panel"
@@ -1361,6 +1530,7 @@ function Widgets.Chrome(owner, opts)
 	end
 	local c = setmetatable({
 		owner = owner,
+		prebuild = PrebuildChrome(owner),
 		shape = shape,
 		shapeName = shapeName,
 		radius = opts.radius or opts.chamfer,
@@ -1398,8 +1568,9 @@ function Widgets.Chrome(owner, opts)
 	c:Restyle()
 	if type(owner.HookScript) == "function" then
 		owner:HookScript("OnShow", function()
-			if not c.fill then
-				c:Restyle()
+			if not c.drawReady then
+				local ready = c:Restyle()
+				if ready then c:DrawSlices() end
 			end
 		end)
 		owner:HookScript("OnSizeChanged", function()
@@ -1417,19 +1588,44 @@ function Chrome:Build()
 		return
 	end
 	local owner, shape = self.owner, self.shape
+	local deferred = not self.prebuild and type(owner.AttachTexture) ~= "function"
 	if shape.pill then
-		self.fill = NewSlice(owner, "lumenShape", "BACKGROUND", SUBLEVEL_FILL)
-		self.rim = NewSlice(owner, "lumenOutline", "BORDER", SUBLEVEL_RIM)
+		self.fill = NewSlice(owner, "lumenShape", "BACKGROUND", SUBLEVEL_FILL, deferred)
+		self.rim = NewSlice(owner, "lumenOutline", "BORDER", SUBLEVEL_RIM, deferred)
 	else
-		self.shadow = NewSlice(owner, "lumenShadow", "BACKGROUND", SUBLEVEL_SHADOW)
+		self.shadow = NewSlice(owner, "lumenShadow", "BACKGROUND", SUBLEVEL_SHADOW, deferred)
 		Widgets.ColorSlice(self.shadow, Tokens.Color("shadow"))
-		self.fill = NewSlice(owner, shape.card and "cardShape" or "lumenShape", "BACKGROUND", SUBLEVEL_FILL)
-		self.rim = NewSlice(owner, "ringLine" .. shape.lines, "BORDER", SUBLEVEL_RIM)
-		self.line = NewSlice(owner, "ringLine" .. shape.lines, "BORDER", SUBLEVEL_LINE)
+		self.fill = NewSlice(owner, shape.card and "cardShape" or "lumenShape", "BACKGROUND", SUBLEVEL_FILL, deferred)
+		self.rim = NewSlice(owner, "ringLine" .. shape.lines, "BORDER", SUBLEVEL_RIM, deferred)
+		self.line = NewSlice(owner, "ringLine" .. shape.lines, "BORDER", SUBLEVEL_LINE, deferred)
 		if shape.card and self.giltOn then
 			self.gilt = NewTicks(owner)
 			Widgets.ColorSlice(self.gilt, Tokens.Color("gilt"))
 		end
+	end
+	if not deferred then self.drawReady = true end
+end
+
+function Chrome:DrawSlices()
+	if self.released then return end
+	local protected = type(self.owner.IsProtected) == "function" and self.owner:IsProtected()
+	protected = IsSecret(protected) or protected == true
+	local visible = self.visible and not self.released
+	if visible and not protected and type(self.owner.IsVisible) == "function" then
+		local shown = self.owner:IsVisible()
+		visible = IsSecret(shown) or shown ~= false
+	end
+	for _, key in ipairs(CHROME_SLICES) do
+		local slice = self[key]
+		if slice then
+			slice.preparing = false
+			if slice.pending and (protected or visible and slice.shown ~= false) then
+				MaterializeSlice(slice)
+			end
+		end
+	end
+	if self.fill and not self.fill.pending then
+		self.drawReady = true
 	end
 end
 
@@ -1513,7 +1709,7 @@ function Chrome:OnSizeChanged()
 	if self:Radius() ~= self.laidRadius or self:TicksWanted() ~= self.ticksShown then
 		self:Restyle()
 	else
-		if self.fill.remainder ~= farX .. ":" .. farY then
+		if self.fill.remainderX ~= farX or self.fill.remainderY ~= farY then
 			self:Layout()
 		end
 		self:PaintMaterial()
@@ -1694,6 +1890,7 @@ function Chrome:LayoutBevel(corner, line, f)
 		return
 	end
 	if not bevel then
+		MaterializeSlice(self.rim)
 		bevel = {}
 		for i = 1, 5 do
 			bevel[i] = Widgets.Crisp(NewTexture(owner, "BORDER", SUBLEVEL_RIM))
@@ -2090,6 +2287,7 @@ function Chrome:PaintEdge()
 		local lr, lg, lb, la = Widgets.Rgba("medRimLit")
 		local dr, dg, db, da = Widgets.Rgba("medRimLow")
 		local rim = self.rim
+		rim.colorValid = false
 		for i = 1, 3 do
 			rim[i]:SetVertexColor(lr, lg, lb, la)
 			rim[i + 6]:SetVertexColor(dr, dg, db, da)
@@ -2139,7 +2337,9 @@ function Chrome:Restyle()
 	if self.fill then
 		self:Paint()
 		self:RestyleOrnament()
+		if self.fill.preparing then self:DrawSlices() end
 	end
+	return self.fill ~= nil
 end
 
 function Chrome:RestyleOrnament()
@@ -2394,6 +2594,7 @@ ns.Callbacks.Register("ThemeChanged", SECTION, function()
 	Widgets.RestyleAll()
 end)
 ns.Callbacks.Register("ScaleChanged", SECTION, function()
+	InvalidateScale()
 	RestyleTexts()
 	Widgets.RestyleAll()
 end)
