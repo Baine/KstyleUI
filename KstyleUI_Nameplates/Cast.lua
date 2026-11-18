@@ -14,6 +14,8 @@ local GAP = Tokens.Size("gapTiny")
 local TEXT_INSET = Tokens.Size("gapSmall")
 local TIME_STEP = 0.1
 local INTERRUPT_FADE = 0.8
+local function InQuad(t) return t * t end
+local function HideCast(cast) cast:Hide() end
 local SHIELD_ALPHA = 0.6
 local ICON_CROP = 0.07
 local MS = 1000
@@ -107,6 +109,7 @@ local function OnUpdate(bar, elapsed)
 end
 
 local function StopFade(plate)
+	plate.castToken = (plate.castToken or 0) + 1
 	if plate.castFade then
 		Motion.Stop(plate.castFade)
 		plate.castFade = nil
@@ -226,7 +229,7 @@ local function Shows(plate)
 	return Settings.Get("cast.enabled") and not plate.nameOnly and plate.unit ~= nil
 end
 
-function Cast.Start(plate, channel)
+function Cast.Start(plate, channel, update)
 	if not Shows(plate) then
 		return
 	end
@@ -251,10 +254,10 @@ function Cast.Start(plate, channel)
 	cast:Show()
 	plate.castBar:SetScript("OnUpdate", (showTime or plate.castFallback) and OnUpdate or nil)
 	Paint(plate)
-	plate.castBar:PlaySheen(false)
+	if not (update and Settings.Get("cast.outcomes")) then plate.castBar:PlaySheen(false) end
 end
 
-function Cast.Stop(plate, interrupted)
+function Cast.Stop(plate, interrupted, failed)
 	if not plate.casting then
 		return
 	end
@@ -265,12 +268,26 @@ function Cast.Stop(plate, interrupted)
 		plate.castInterrupted = true
 		bar:SetMinMaxValues(0, 1)
 		bar:SetValue(1)
-		plate.castName:SetText(L["Interrupted"])
+		plate.castName:SetText(failed and L["Failed"] or L["Interrupted"])
 		plate.castTime:SetText("")
 		Paint(plate)
-		plate.castFade = Motion.FadeOut(cast, INTERRUPT_FADE)
+		if Settings.Get("cast.outcomes") then
+			local token = (plate.castToken or 0) + 1
+			plate.castToken = token
+			C_Timer.After(Tokens.Duration("castErrorHold"), function()
+				if plate.castToken == token then
+					plate.castFade = Motion.Tween(cast, "SetAlpha", cast:GetAlpha(), 0, 0.25, "inOutSine", HideCast)
+				end
+			end)
+		else
+			plate.castFade = Motion.FadeOut(cast, INTERRUPT_FADE)
+		end
 	else
-		plate.castFade = Motion.FadeOut(cast, Tokens.Duration("fade"))
+		if Settings.Get("cast.outcomes") then
+			plate.castFade = Motion.Tween(cast, "SetAlpha", cast:GetAlpha(), 0, Tokens.Duration("fade"), InQuad, HideCast)
+		else
+			plate.castFade = Motion.FadeOut(cast, Tokens.Duration("fade"))
+		end
 	end
 end
 
@@ -509,7 +526,7 @@ Component.events.UNIT_SPELLCAST_CHANNEL_START = function(plate)
 end
 Component.events.UNIT_SPELLCAST_DELAYED = function(plate)
 	if plate.casting and not plate.castChannel then
-		Cast.Start(plate, false)
+		Cast.Start(plate, false, true)
 	end
 end
 Component.events.UNIT_SPELLCAST_CHANNEL_UPDATE = function(plate)
@@ -530,7 +547,11 @@ Component.events.UNIT_SPELLCAST_STOP = function(plate, _, castGUID)
 		Cast.Stop(plate, false)
 	end
 end
-Component.events.UNIT_SPELLCAST_FAILED = Component.events.UNIT_SPELLCAST_STOP
+Component.events.UNIT_SPELLCAST_FAILED = function(plate, _, castGUID)
+	if not OtherCast(plate, castGUID) then
+		Cast.Stop(plate, Settings.Get("cast.outcomes"), true)
+	end
+end
 Component.events.UNIT_SPELLCAST_CHANNEL_STOP = function(plate, _, _, _, interruptedBy)
 	if plate.castChannel then
 		Cast.Stop(plate, type(interruptedBy) ~= "nil")

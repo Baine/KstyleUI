@@ -172,6 +172,10 @@ local function Rgb(color)
 	return color.r, color.g, color.b
 end
 
+local function ThreatColor(state)
+	return K.ColorVision.Color(state == "danger" and 2 or state == "warning" and 3 or 1, Rgb(Settings.Get(THREAT_KEYS[state])))
+end
+
 local function TargetColor()
 	if Settings.Get("target.colorSource") == "custom" then
 		return Rgb(Settings.Get("target.color"))
@@ -222,6 +226,9 @@ function ns.NewPlate(parent, sample)
 	plate.health = health
 	plate.threatShape = plate:CreateTexture(nil, "OVERLAY")
 	plate.threatShape:Hide()
+	function health:SetRimColor(r, g, b, a)
+		self.under.edgeHard:SetColorTexture(r, g, b, a or 1)
+	end
 	plate.healthText = NewText(health, "RIGHT")
 
 	plate.name = NewText(plate, "CENTER")
@@ -520,6 +527,9 @@ end
 function Plate:ClearUnit()
 	self.unit = nil
 	self.threatState = nil
+	if self.alphaTween then Motion.Stop(self.alphaTween); self.alphaTween = nil end
+	self.alphaGoal = nil
+	self:SetAlpha(1)
 	Each("Clear", self)
 	self:Hide()
 end
@@ -806,11 +816,19 @@ function Plate:UpdateThreat()
 		Widgets.Size(shape, state == "safe" and 2 or 8, 8)
 		shape:ClearAllPoints()
 		Widgets.Point(shape, "TOPLEFT", self.health, "TOPRIGHT", 6, 0)
-		shape:SetVertexColor(K.ColorVision.Color(state == "danger" and 2 or state == "warning" and 3 or 1, Rgb(Settings.Get(THREAT_KEYS[state]))))
+		shape:SetVertexColor(ThreatColor(state))
 	end
 	local glow = self.threatGlow
-	if state and display == "glow" then
-		local r, g, b = K.ColorVision.Color(state == "danger" and 2 or state == "warning" and 3 or 1, Rgb(Settings.Get(THREAT_KEYS[state])))
+	local keyline = Settings.Get("threat.keyline") and display == "glow"
+	if not self.focusRim then
+		if keyline and state then
+			self.health:SetRimColor(ThreatColor(state))
+		else
+			self.health:SetRimColor(Tokens.Color("black"))
+		end
+	end
+	if state and display == "glow" and not keyline then
+		local r, g, b = ThreatColor(state)
 		Widgets.ColorSlice(glow, r, g, b, THREAT_GLOW_ALPHA)
 		Widgets.ShowSlice(glow, true)
 	else
@@ -835,15 +853,21 @@ function Plate:UpdateHighlight(sigilCasts)
 	local framed = isTarget and Settings.Get("target.highlight") and not self.nameOnly or false
 	self:ShowBrackets(framed)
 	local health = self.health
-	if isFocus and Settings.Get("focus.highlight") and not framed then
+	self.focusRim = isFocus and Settings.Get("focus.highlight") and not framed
+	if self.focusRim then
 		local r, g, b = Rgb(Settings.Get("focus.color"))
-		health.under.edgeHard:SetColorTexture(r, g, b, 1)
+		health:SetRimColor(r, g, b, 1)
+	elseif Settings.Get("threat.keyline") and Settings.Get("threat.display") == "glow" and self.threatState then
+		health:SetRimColor(ThreatColor(self.threatState))
 	else
-		health.under.edgeHard:SetColorTexture(Tokens.Color("black"))
+		health:SetRimColor(Tokens.Color("black"))
 	end
 	local alpha = 1
 	if not self.sample and state.hasTarget and not isTarget then
 		alpha = Settings.Get("target.dimOthers")
 	end
-	self:SetAlpha(alpha)
+	if self.alphaGoal ~= alpha or not Settings.Get("target.smoothOpacity") then
+		self.alphaGoal = alpha
+		self.alphaTween = Motion.Tween(self, "SetAlpha", self:GetAlpha(), alpha, Settings.Get("target.smoothOpacity") and 0.2 or 0, "outQuad")
+	end
 end

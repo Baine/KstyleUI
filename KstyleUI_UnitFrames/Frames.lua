@@ -242,11 +242,44 @@ local function StopPolling(uf)
 	end
 end
 
+local function TargetTransitions(view)
+	return view.kind == "target" and view.form == "slab" and Settings.Value("target", "transitions")
+end
+
+local function HideBody(body)
+	body:Hide()
+	body:SetAlpha(1)
+end
+
+local function TargetLoss(view)
+	if not view.body or view.kind ~= "target" then return end
+	view.targetSeen = false
+	local body = view.body
+	view.targetLoss = (view.targetLoss or 0) + 1
+	local token = view.targetLoss
+	if TargetTransitions(view) then
+		K.Motion.Tween(body, "SetAlpha", body:GetAlpha(), body:GetAlpha(), 0)
+		local function Fade()
+			if view.targetLoss == token and not view.targetSeen then
+				K.Motion.Tween(body, "SetAlpha", body:GetAlpha(), 0, 0.15, function(t) return t * t end, HideBody)
+			end
+		end
+		if view.deathTween and K.Motion.IsPlaying(view.deathTween) then
+			C_Timer.After(math.max(0, 0.2 - (GetTime() - view.deathAt)), Fade)
+		else
+			Fade()
+		end
+	else
+		K.Motion.Tween(body, "SetAlpha", 1, 0, 0, nil, HideBody)
+	end
+end
+
 local function OnButtonShow(button)
 	local view = button.view
 	if Active(view) then
 		StartPolling(view.uf)
-		Unit.All(view, view.unit, true)
+		if view.kind == "target" and view.body then view.body:Show() end
+		if not TargetTransitions(view) then Unit.All(view, view.unit, true) end
 		Frames.Range(view)
 	end
 	ns.Auras.Sync(view)
@@ -254,6 +287,7 @@ end
 
 local function OnButtonHide(button)
 	StopPolling(button.view.uf)
+	TargetLoss(button.view)
 	ns.Auras.Sync(button.view)
 end
 
@@ -468,8 +502,9 @@ local function NewView(uf, unit)
 	button:HookScript("OnEnter", OnEnter)
 	button:HookScript("OnLeave", OnLeave)
 	local body
-	if uf.kind == "boss" then
-		body = CreateFrame("Frame", nil, button)
+	if uf.kind == "boss" or uf.kind == "target" then
+		body = CreateFrame("Frame", nil, uf.kind == "target" and uf.holder or button)
+		if uf.kind == "target" then body:SetFrameLevel(button:GetFrameLevel()) end
 		body:SetAllPoints(button)
 	end
 	local view = Style.New(body or button, uf.kind)
@@ -477,7 +512,7 @@ local function NewView(uf, unit)
 	button.view = view
 	button:HookScript("OnShow", OnButtonShow)
 	button:HookScript("OnHide", OnButtonHide)
-	if body then
+	if uf.kind == "boss" then
 		view.chip = NewChip(button, view.chrome.shapeName)
 	end
 	if Settings.CASTBAR[uf.kind] then
@@ -667,6 +702,42 @@ function Frames.Relayout(uf)
 	Keep(uf)
 end
 
+local function PrepareTarget(view)
+	if view.kind ~= "target" then return end
+	if view.deathTween then
+		K.Motion.Stop(view.deathTween)
+		view.deathTween = nil
+		view.medallion:SetDead(view.slabDead == true)
+	end
+	K.Motion.Tween(view.body, "SetAlpha", view.body:GetAlpha(), 1, 0)
+	view.body:SetShown(view.button:IsShown())
+	view.targetSeen = UnitExists("target") and true or false
+end
+
+local function TargetChange(view)
+	local exists = view and view.body and UnitExists("target")
+	if exists then
+		local on, seen = TargetTransitions(view), view.targetSeen
+		view.targetSeen = true
+		if view.deathTween then K.Motion.Stop(view.deathTween); view.deathTween = nil end
+		if on and seen then
+			K.Motion.Tween(view.body, "SetAlpha", view.body:GetAlpha(), 0, 0.06, "inOutSine", function()
+				RefreshKind("target", true)
+				ns.Slab.FlipIn(view)
+				K.Motion.FadeIn(view.body, 0.06)
+			end)
+			return
+		elseif on then
+			K.Motion.FadeIn(view.body, 0.12)
+		else
+			K.Motion.Tween(view.body, "SetAlpha", view.body:GetAlpha(), 1, 0)
+			view.body:Show()
+		end
+	end
+	RefreshKind("target", true)
+	if exists then ns.Slab.FlipIn(view) end
+end
+
 function Frames.Restyle(uf)
 	uf.s = Settings.Snapshot(uf.kind)
 	for _, view in ipairs(uf.views) do
@@ -675,6 +746,7 @@ function Frames.Restyle(uf)
 	end
 	Frames.Relayout(uf)
 	for _, view in ipairs(uf.views) do
+		PrepareTarget(view)
 		Refresh(view, true)
 		ns.Auras.Apply(view)
 	end
@@ -723,6 +795,7 @@ function Frames.Apply(uf)
 		else
 			UnregisterUnitWatch(button)
 			button:Hide()
+			TargetLoss(view)
 			K.Events.UnregisterAll(Owner(view.unit))
 		end
 	end
@@ -862,10 +935,7 @@ end
 local function RegisterEvents()
 	local Events = K.Events
 	Events.Register(MODULE, "PLAYER_TARGET_CHANGED", function()
-		RefreshKind("target", true)
-		if frames.target and UnitExists("target") then
-			ns.Slab.FlipIn(frames.target.views[1])
-		end
+		TargetChange(frames.target and frames.target.views[1])
 		RefreshKind("targettarget", true)
 		Frames.MarkTargets()
 	end)
