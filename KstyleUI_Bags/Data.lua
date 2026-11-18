@@ -13,6 +13,7 @@ local FALLBACK_REAGENT_SLOTS = 1
 local KEYRING_FALLBACK = -1
 local QUALITY_POOR = 0
 local CLASS_WEAPON, CLASS_ARMOR = 2, 4
+local CLASS_KEY, REAGENT_BAG_FALLBACK = 13, 5
 local GROWTH = {
 	RIGHT_DOWN = { false, false },
 	LEFT_DOWN = { true, false },
@@ -537,6 +538,69 @@ function Data.BagFamily(bag)
 		return Plain(family, "number") or 0
 	end
 	return 0
+end
+
+function Data.CursorItem()
+	if type(CursorHasItem) ~= "function" or Plain(CursorHasItem(), "boolean") ~= true or type(GetCursorInfo) ~= "function" then
+		return nil
+	end
+	local kind, id = GetCursorInfo()
+	if Plain(kind, "string") == "item" then
+		return Plain(id, "number")
+	end
+end
+
+function Data.CanHold(bag, itemID)
+	local item = C_Item
+	if Data.IsKeyring(bag) then
+		return ItemClass({ itemID = itemID }) == ((Enum and Enum.ItemClass and Enum.ItemClass.Key) or CLASS_KEY)
+	end
+	local index = Enum and Enum.BagIndex
+	if bag == (Plain(index and index.ReagentBag, "number") or REAGENT_BAG_FALLBACK) then
+		return item and type(item.GetItemInfo) == "function" and Plain(select(17, item.GetItemInfo(itemID)), "boolean") == true
+	end
+	local family = Data.BagFamily(bag)
+	if family == 0 then
+		return true
+	end
+	local mask = item and type(item.GetItemFamily) == "function" and Plain(item.GetItemFamily(itemID), "number") or 0
+	while family > 0 and mask > 0 do
+		if family % 2 == 1 and mask % 2 == 1 then
+			return true
+		end
+		family, mask = floor(family / 2), floor(mask / 2)
+	end
+	return false
+end
+
+function Data.Drop(bags, itemID, preferredBag)
+	local container = C_Container
+	if not container or type(container.PickupContainerItem) ~= "function" then
+		return false
+	end
+	local probe = {}
+	local order = {}
+	for _, bag in ipairs(bags) do
+		if bag == preferredBag then
+			order[1] = bag
+		end
+	end
+	for _, bag in ipairs(bags) do
+		if bag ~= preferredBag then
+			order[#order + 1] = bag
+		end
+	end
+	for _, bag in ipairs(order) do
+		if Data.CanHold(bag, itemID) then
+			for slot = 1, Data.NumSlots(bag) do
+				if Data.Read(bag, slot, probe).empty then
+					container.PickupContainerItem(bag, slot)
+					return true
+				end
+			end
+		end
+	end
+	return false
 end
 
 function Data.FreeSlots(bags)

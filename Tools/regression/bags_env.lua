@@ -114,6 +114,34 @@ function B.Game(env, opts)
 	env._bagsAllowed = true
 	env._rtl = false
 	env._merchant = false
+	env.CursorHasItem = function()
+		return env._heldItem ~= nil or env._cursorKind == "merchant"
+	end
+	env.GetCursorInfo = function()
+		local held = env._heldItem
+		if held then
+			return "item", held.itemID, held.link
+		end
+		return env._cursorKind
+	end
+	env.HoldItem = function(held)
+		env._heldItem = held
+		env._cursorKind = nil
+		if held then
+			env._index(held)
+		end
+		env.FireEvent("CURSOR_CHANGED")
+	end
+	env.HoldCursor = function(kind)
+		env._heldItem, env._cursorKind = nil, kind
+		env.FireEvent("CURSOR_CHANGED")
+	end
+	env.ERR_INV_FULL = "Inventory is full."
+	env.UIErrorsFrame = {
+		AddExternalErrorMessage = function(_, message)
+			record(env, "UIError", message)
+		end,
+	}
 
 	env.Enum = {
 		BagIndex = bagIndex(),
@@ -211,8 +239,27 @@ function B.Game(env, opts)
 			end
 		end,
 		PickupContainerItem = function(bag, slot)
-			assert(not env.InCombatLockdown(), "PickupContainerItem ran in combat")
 			record(env, "PickupContainerItem", bag, slot)
+			local c, held = container(bag), env._heldItem
+			if held and c then
+				local compatible = c.family == nil or c.family == 0
+				local bagMask, itemMask = c.family or 0, held.family or 0
+				while bagMask > 0 and itemMask > 0 do
+					compatible = compatible or (bagMask % 2 == 1 and itemMask % 2 == 1)
+					bagMask, itemMask = math.floor(bagMask / 2), math.floor(itemMask / 2)
+				end
+				if not compatible or (bag == 5 and not held.reagent) or (bag == -1 and held.classID ~= B.CLASS.Key) then
+					return
+				end
+				c.items = c.items or {}
+				c.items[slot], env._heldItem = held, c.items[slot]
+				env.FireEvent("CURSOR_CHANGED")
+				env.FireEvent("BAG_UPDATE_DELAYED")
+			elseif c and c.items and c.items[slot] then
+				env._heldItem, c.items[slot] = c.items[slot], nil
+				env.FireEvent("CURSOR_CHANGED")
+				env.FireEvent("BAG_UPDATE_DELAYED")
+			end
 		end,
 	}
 
@@ -255,6 +302,10 @@ function B.Game(env, opts)
 	env._index = index
 
 	env.C_Item = {
+		GetItemFamily = function(itemID)
+			local it = byID[itemID] or byLink(itemID)
+			return it and (it.family or 0)
+		end,
 		GetItemInfoInstant = function(itemID)
 			local it = byID[itemID] or byLink(itemID)
 			if not it then
@@ -267,7 +318,7 @@ function B.Game(env, opts)
 			if not it then
 				return nil
 			end
-			return it.name, it.link, it.quality, it.ilvl or 1, 1, it.type, it.subtype, 20, "", it.icon, it.noValue and 0 or 5, it.classID, 0
+			return it.name, it.link, it.quality, it.ilvl or 1, 1, it.type, it.subtype, 20, "", it.icon, it.noValue and 0 or 5, it.classID, 0, 0, 0, nil, it.reagent == true
 		end,
 		GetDetailedItemLevelInfo = function(link)
 			record(env, "GetDetailedItemLevelInfo", link)
@@ -434,6 +485,19 @@ function B.Game(env, opts)
 			frame.NewItemTexture = frame:CreateTexture(nil, "OVERLAY")
 			frame.NewItemTexture:SetAlpha(0)
 			frame.icon = frame:CreateTexture(nil, "BORDER")
+			local function click(self, mouse)
+				local kind = env.GetCursorInfo()
+				record(env, "StockContainerClick", mouse or "LeftButton", kind)
+				if kind == "merchant" then
+					record(env, "StockMerchantCursor")
+				elseif kind == "money" or kind == "guildbankmoney" then
+					record(env, "StockMoneyCursor")
+				elseif kind == "item" then
+					env.C_Container.PickupContainerItem(self:GetParent():GetID(), self:GetID())
+				end
+			end
+			frame:SetScript("OnClick", click)
+			frame:SetScript("OnReceiveDrag", click)
 		end
 		return frame
 	end
