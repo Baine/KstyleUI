@@ -192,7 +192,54 @@ local function Pulse(owner, low, high, duration)
 	alpha:SetToAlpha(high)
 	alpha:SetDuration(duration)
 	alpha:SetSmoothing(Tokens.Smoothing.loop)
-	return group
+	return group, alpha
+end
+
+function Widgets.ProcMotion(frame, body)
+	local function Fade(from, to, duration, smoothing)
+		local group = frame:CreateAnimationGroup()
+		group:SetToFinalAlpha(true)
+		local a = group:CreateAnimation("Alpha")
+		a:SetFromAlpha(from)
+		a:SetToAlpha(to)
+		a:SetDuration(duration)
+		a:SetSmoothing(smoothing)
+		return group
+	end
+	frame.enter = Fade(0, 1, Tokens.Duration("procIn"), "OUT")
+	frame.leave = Fade(1, 0, Tokens.Duration("procOut"), "IN")
+	frame.leave:SetScript("OnFinished", function()
+		if not frame.procShown then
+			frame:Hide()
+			frame.breath:Stop()
+			if frame.onProcHidden then frame.onProcHidden() end
+		end
+	end)
+	frame.breath, frame.breathAlpha = Pulse(body, 1, 0.55, Tokens.Duration("glowBreath"))
+end
+
+function Widgets.ShowProc(frame, on, polished, loops)
+	local changed = frame.procShown ~= on or frame.procPolished ~= polished
+	frame.procShown, frame.procPolished = on, polished
+	if changed then
+		frame.enter:Stop()
+		frame.leave:Stop()
+		if polished and Motion.Level() ~= "off" then
+			frame:SetAlpha(on and 0 or 1)
+			frame:Show()
+			if on then frame.enter:Play() else frame.leave:Play() end
+		else
+			frame:SetAlpha(1)
+			frame:SetShown(on)
+		end
+	end
+	local visible = on and polished and loops and frame:IsVisible()
+	if Widgets.IsSecret(visible) then visible = false end
+	if visible then
+		if not frame.breath:IsPlaying() then frame.breath:Play() end
+	else
+		frame.breath:Stop()
+	end
 end
 
 function Widgets.Glow(frame, opts)
