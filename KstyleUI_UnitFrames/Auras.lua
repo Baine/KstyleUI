@@ -98,13 +98,19 @@ local function TextSize(kind, size)
 	return math.max(size, math.min(TEXT_FLOOR, room))
 end
 
-local function StyleText(text, view)
+local function TextStyle(view)
 	local path, size, flags = Settings.Font(view.kind, "aura")
-	size = TextSize(view.kind, size)
-	if not Widgets.ApplyFont(text, path, size, flags) then
-		Widgets.ApplyFont(text, (Tokens.Font("number")), size, flags)
+	return { path, TextSize(view.kind, size), flags }
+end
+
+local function StyleTexts(view, count, timer, style)
+	local path, size, flags = unpack(style or TextStyle(view))
+	for _, text in ipairs({ count, timer }) do
+		if not Widgets.ApplyFont(text, path, size, flags) then
+			Widgets.ApplyFont(text, (Tokens.Font("number")), size, flags)
+		end
+		pcall(text.SetTextColor, text, Tokens.Color("textEmphasis"))
 	end
-	pcall(text.SetTextColor, text, Tokens.Color("textEmphasis"))
 end
 
 local function Snap(view, units)
@@ -130,14 +136,13 @@ function Auras.StyleSample(tile, kind)
 	local inset = Widgets.Snap(tile.skin, COUNT_INSET)
 	tile.count:ClearAllPoints()
 	tile.count:SetPoint("TOPRIGHT", tile.skin, "TOPRIGHT", inset, inset)
-	StyleText(tile.count, view)
-	StyleText(tile.timer, view)
+	StyleTexts(view, tile.count, tile.timer)
 	Auras.PlaceTimer(tile.timer, tile.skin, kind, tile.badge)
 end
 
-function Auras.NewTile(parent)
+function Auras.NewTile(parent, chrome)
 	local skin = CreateFrame("Frame", nil, parent)
-	local chrome = Widgets.IconChrome(skin)
+	chrome = chrome or Widgets.IconChrome(skin)
 	local icon = skin:CreateTexture(nil, "ARTWORK")
 	icon:SetTexCoord(ICON_CROP, 1 - ICON_CROP, ICON_CROP, 1 - ICON_CROP)
 	local mask = skin:CreateMaskTexture()
@@ -147,7 +152,7 @@ function Auras.NewTile(parent)
 	return { skin = skin, chrome = chrome, restyleChrome = chrome.Restyle, icon = icon, mask = mask }
 end
 
-function Auras.LayoutTile(tile)
+function Auras.LayoutTile(tile, skipChrome, sharedInset)
 	local skin = tile.skin
 	if tile.slab then
 		Widgets.LayoutSlice(tile.slab, skin, select(3, Tokens.Texture("medAuraBorder")))
@@ -158,9 +163,11 @@ function Auras.LayoutTile(tile)
 		tile.underline:SetHeight(math.max(Widgets.Border(skin), Widgets.Snap(skin, SLAB_UNDERLINE)))
 		return
 	end
-	tile.restyleChrome(tile.chrome)
-	tile.chrome:SetRimAccent(Settings.Accent())
-	local inset = Widgets.Border(skin) * ICON_INSET_LINES
+	if not skipChrome then
+		tile.restyleChrome(tile.chrome)
+		tile.chrome:SetRimAccent(Settings.Accent())
+	end
+	local inset = sharedInset or Widgets.Border(skin) * ICON_INSET_LINES
 	tile.icon:ClearAllPoints()
 	tile.icon:SetPoint("TOPLEFT", skin, "TOPLEFT", inset, -inset)
 	tile.icon:SetPoint("BOTTOMRIGHT", skin, "BOTTOMRIGHT", -inset, inset)
@@ -227,15 +234,14 @@ function Auras.Badge(parent, text)
 	return badge
 end
 
-local function StyleButton(view, entry)
+local function StyleButton(view, entry, style)
 	local size = Snap(view, Value(view, "auraSize"))
 	entry.button:SetSize(size, size)
 	Auras.LayoutTile(entry)
 	local inset = Widgets.Snap(entry.skin, COUNT_INSET)
 	entry.count:ClearAllPoints()
 	entry.count:SetPoint("TOPRIGHT", entry.skin, "TOPRIGHT", inset, inset)
-	StyleText(entry.count, view)
-	StyleText(entry.timer, view)
+	StyleTexts(view, entry.count, entry.timer, style)
 	Auras.PlaceTimer(entry.timer, entry.skin, view.kind, entry.badge)
 	entry.timer:SetShown(Value(view, "auraTimer"))
 	entry.badge:SetShown(not TimerBelow(view.kind) and Value(view, "auraTimer") == true)
@@ -245,14 +251,17 @@ local function Flush()
 	if not Auras.Open() then
 		return false
 	end
-	for view in pairs(pending) do
-		pending[view] = nil
-		if view.auras.style ~= K.HudStyle.Current() then
+	local work = pending
+	pending = {}
+	for view in pairs(work) do
+		if not view.auras or view.auras.style ~= K.HudStyle.Current() or ns.Fan.Wanted(view) and not view.auras.fan then
 			K.Call(Auras.Apply, view)
 		else
+			local style = TextStyle(view)
 			for _, entry in ipairs(view.auras.buttons) do
-				K.Call(StyleButton, view, entry)
+				K.Call(StyleButton, view, entry, style)
 			end
+			ns.Fan.Restyle(view)
 		end
 	end
 	return true
@@ -494,8 +503,12 @@ local function Build(view)
 	return a
 end
 
+local function Active(view)
+	return running and view.uf.active and Settings.AURAS[view.kind]
+end
+
 local function Wanted(view)
-	return running and view.uf.active and Settings.AURAS[view.kind] and Value(view, "auras")
+	return Active(view) and Value(view, "auras")
 end
 
 local function Visible(frame)
@@ -509,6 +522,7 @@ function Auras.Sync(view)
 		return
 	end
 	a.host:SetShown(Wanted(view) and Visible(view.button))
+	ns.Fan.Sync(view, Active(view) and Visible(view.button))
 end
 
 function Auras.LastCell(kind, frame, first, after)
@@ -551,10 +565,13 @@ local function ApplyOverflow(view, filter, want)
 	end
 end
 
-local function ApplyContainer(view)
+local function ApplyContainer(view, fan)
 	local a = view.auras
 	local container = a.container
 	local filter = FILTERS[Value(view, "auraFilter")] or FILTERS.mine
+	if fan then
+		filter = { debuffs = filter.debuffs == "HARMFUL" and "HARMFUL|!PLAYER" or nil, buffs = filter.buffs }
+	end
 	local method, direction = Sort()
 	for _, key in ipairs(GROUPS) do
 		local on = filter[key] ~= nil
@@ -669,7 +686,11 @@ function Auras.Apply(view)
 	end
 	local want = Wanted(view)
 	if not view.auras then
-		if not want then
+		if not want and not (Active(view) and ns.Fan.Wanted(view)) then
+			return
+		end
+		if not Auras.Open() then
+			Wait(view)
 			return
 		end
 		Build(view)
@@ -686,8 +707,11 @@ function Auras.Apply(view)
 		return
 	end
 	a.container:SetEnabled(want and true or false)
+	local fan = ns.Fan.Apply(view, Active(view))
 	if want then
-		K.Call(ApplyContainer, view)
+		K.Call(ApplyContainer, view, fan)
+	end
+	if want or Active(view) and ns.Fan.Wanted(view) then
 		Restyle(view)
 	end
 	EnableOverflow(view, want)
@@ -703,6 +727,7 @@ function Auras.Disable()
 	for _, view in ipairs(views) do
 		local a = view.auras
 		if a.container then
+			ns.Fan.Apply(view, false)
 			a.container:SetEnabled(false)
 			EnableOverflow(view, false)
 			a.host:Hide()
