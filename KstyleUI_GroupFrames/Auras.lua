@@ -314,6 +314,7 @@ local function StyleIcon(button)
 		return
 	end
 	local k = Settings.current[f.kind]
+	if p.dispelLetter then p.dispelLetter:SetAlpha(Settings.current.auras.typeLetters and 1 or 0) end
 	local size = p.size and p.size() or (p.buff and BuffSizes(f, k) or Sizes(f, k))
 	local border = Widgets.Border(p.skin)
 	local text, a = Settings.current.text, Settings.current.auras
@@ -331,6 +332,7 @@ local function StyleIcon(button)
 		p.restyleChrome(p.chrome)
 		local inset = PlaceIcon(p)
 		Widgets.LayoutSlice(p.dispel, p.skin, p.chrome:Chamfer(), 0)
+		if p.dispelLetter then Widgets.Size(p.dispelLetter, math.min(14, size), math.min(14, size)) end
 		p.count:ClearAllPoints()
 		p.count:SetPoint("BOTTOMRIGHT", p.skin, "BOTTOMRIGHT", -inset, inset)
 		p.styledSize, p.styledBorder = size, border
@@ -391,12 +393,12 @@ local function StyleGroup(container, key)
 	local row = f.parts and f.parts.healRow
 	local ar, ag, ab = Style.Accent()
 	local count = container:GetAuraGroupFrameCount(key)
-	local inputs = { styleGeneration, size, spacing, block.columns, block.rows, k.auraGrowth, k.auraWrap, k.buffCount, cfg.text.healthFont, cfg.auras.swipe, Widgets.Border(f), ar, ag, ab, MarkLift(key), f.debuffChip ~= nil, k.buffSize, row and row.width, row and row.height, row and row.side }
+	local inputs = { styleGeneration, size, spacing, block.columns, block.rows, k.auraGrowth, k.auraWrap, k.buffCount, cfg.text.healthFont, cfg.auras.swipe, Widgets.Border(f), ar, ag, ab, MarkLift(key), f.debuffChip ~= nil, k.buffSize, row and row.width, row and row.height, row and row.side, cfg.auras.typeLetters }
 	local groups = styledGroups[container]
 	local old = groups and groups[key]
 	local changed = f.auraInputsDirty or not old or old.count ~= count
 	if not changed then
-		for i = 1, 20 do
+		for i = 1, 21 do
 			if old[i] ~= inputs[i] then changed = true; break end
 		end
 	end
@@ -543,6 +545,15 @@ local function BuildIcon(button, key)
 		for _, piece in ipairs(p.dispel) do
 			button:AddDispelTypeTexture(piece, options)
 		end
+	end
+	local types = Enum and Enum.CustomAuraButtonDispelTypeTextureStyle
+	if not p.buff and types and types.CustomAsset ~= nil and K.ColorVision and type(button.AddDispelTypeTexture) == "function" then
+		p.dispelLetter = textFrame:CreateTexture(nil, "OVERLAY")
+		p.dispelLetter:SetPoint("TOPRIGHT", p.skin, "TOPRIGHT")
+		Widgets.Size(p.dispelLetter, 14, 14)
+		p.dispelLetter:Hide()
+		p.dispelLetter:SetAlpha(Settings.current.auras.typeLetters and 1 or 0)
+		button:AddDispelTypeTexture(p.dispelLetter, { style = types.CustomAsset, showWhenHarmful = true, customDispelAssetMap = K.ColorVision.DispelAssets() })
 	end
 end
 

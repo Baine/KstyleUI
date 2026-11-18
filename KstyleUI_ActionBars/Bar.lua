@@ -96,6 +96,7 @@ function ns.NewBar(def)
 			scalable = true,
 		})
 		bar.registered = true
+		if def.key == "bar3" then bar.finished = Layouts.ThirdBarFinished() end
 		if Widgets.ScaleFactor(header) ~= bar.factor then
 			bar:Layout()
 		end
@@ -201,7 +202,7 @@ local function SplitGap(cfg)
 	return 0
 end
 
-local CUMULATIVE = { bar1 = true, bar2 = true, bar4 = true, bar5 = true, bar6 = true }
+local CUMULATIVE = { bar1 = true, bar2 = true, bar3 = true, bar4 = true, bar5 = true, bar6 = true }
 
 function Bar:Layout()
 	local def, cfg = self.def, self:Config()
@@ -218,7 +219,7 @@ function Bar:Layout()
 	local size, gap = Widgets.Snap(header, cell), Widgets.Snap(header, spacing)
 	local width, height = ns.GridSize(count, rows, size, gap)
 	local pitch, drop = size + gap, 0
-	if CUMULATIVE[def.key] then
+	if CUMULATIVE[def.key] and (def.key ~= "bar3" or cfg.finished) then
 		local _, _, columns, used = ns.GridSize(count, rows, cell, spacing)
 		pitch = cell + spacing
 		width = Widgets.Snap(header, (columns - 1) * pitch) + size
@@ -290,6 +291,11 @@ function Bar:Apply()
 	if InCombatLockdown() and not ns.enabling then
 		ns.QueueApply()
 		return
+	end
+	if self.def.key == "bar3" and self.registered and self.finished ~= K.Setup.Layouts.ThirdBarFinished() then
+		self.finished = K.Setup.Layouts.ThirdBarFinished()
+		self.holder:SetScale(1)
+		K.Layout.Register(self.holder, self.def.element, K.Setup.Layouts.Default(self.def.element), { label = ns.Label(self.def), module = "ActionBars", scalable = true })
 	end
 	self:Layout()
 	self:UpdateLive()

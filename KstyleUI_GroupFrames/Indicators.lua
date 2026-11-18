@@ -70,6 +70,15 @@ local function Build(f)
 	f.readyLayer:SetFrameLevel(f:GetFrameLevel() + READY_LEVEL)
 	f.ready = f.readyLayer:CreateTexture(nil, "OVERLAY")
 	f.ready:Hide()
+	f.statusIcons = {}
+	for _, name in ipairs({ "afk", "summon", "resurrection" }) do
+		local icon = f.readyLayer:CreateTexture(nil, "ARTWORK")
+		icon:SetAlpha(0)
+		f.statusIcons[name] = icon
+	end
+	f.statusIcons.afk:SetTexture("Interface\\FriendsFrame\\StatusIcon-Away")
+	f.statusIcons.summon:SetAtlas("RaidFrame-Icon-SummonPending")
+	f.statusIcons.resurrection:SetAtlas("RaidFrame-Icon-Rez")
 	f.threat = CreateFrame("Frame", nil, f)
 	f.threat:SetAllPoints(f)
 	f.threat:SetFrameLevel(f:GetFrameLevel())
@@ -77,6 +86,9 @@ local function Build(f)
 	f.threatGlow.slice[CENTRE_PIECE]:Hide()
 	f.threatGlow:SetIntensity(1)
 	f.threat:Hide()
+	f.threatShape = layer:CreateTexture(nil, "OVERLAY")
+	Widgets.Point(f.threatShape, "BOTTOMLEFT", f, "BOTTOMLEFT", 2, 2)
+	f.threatShape:Hide()
 	f.roleElements = { roleIcon = f.role, unit = nil, optionTable = ROLE_OPTIONS }
 end
 Button.built[#Button.built + 1] = Build
@@ -116,11 +128,13 @@ local function Layout(f, parts, k)
 	f.ready:ClearAllPoints()
 	f.ready:SetSize(ready, ready)
 	f.ready:SetPoint("CENTER", f, "TOPLEFT", Widgets.Snap(f, health.left + health.width / 2), -Widgets.Snap(f, health.top + health.height / 2))
+	local statusLeft, statusTop = health.left + health.width / 2 - 7, health.top + health.height / 2 - 7
 	if parts.tidyLanes then
 		local laneSize = f.kind == "party" and 14 or 10
 		local portrait = parts.portrait
 		local left = portrait and portrait.left or health.left
 		local top = portrait and portrait.top + portrait.height - laneSize or health.top + health.height - laneSize
+		statusLeft, statusTop = left + (laneSize - 14) / 2, top + (laneSize - 14) / 2
 		local rect = { left = left, top = top }
 		PlaceIcon(f, f.ready, rect, Widgets.Snap(f, laneSize))
 		rect.left = left + laneSize + 4
@@ -129,6 +143,11 @@ local function Layout(f, parts, k)
 			rect.left = left + 2 * (laneSize + 4)
 			PlaceIcon(f, f.leader, rect, Widgets.Snap(f, laneSize))
 		end
+	end
+	for _, icon in pairs(f.statusIcons) do
+		Widgets.Size(icon, 14, 14)
+		icon:ClearAllPoints()
+		Widgets.Point(icon, "TOPLEFT", f, "TOPLEFT", statusLeft, -statusTop)
 	end
 end
 Style.appliers[#Style.appliers + 1] = Layout
@@ -144,13 +163,22 @@ local function UnitRole(f)
 end
 
 local function ShowPip(f, role)
-	local token = PIP_COLORS[role]
-	f.pipEdge:SetShown(token ~= nil)
-	f.pipFill:SetShown(token ~= nil)
-	if token then
-		if f.parts and f.parts.tidyLanes then token = "steelLit" end
-		f.pipFill:SetVertexColor(Tokens.Color(token))
+	if not Settings.current.icons.roleShapes then
+		f.role:SetVertexColor(Tokens.Color("white"))
+		local token = PIP_COLORS[role]
+		f.pipEdge:SetShown(token ~= nil)
+		f.pipFill:SetShown(token ~= nil)
+		if token then
+			if f.parts and f.parts.tidyLanes then token = "steelLit" end
+			f.pipFill:SetVertexColor(Tokens.Color(token))
+		end
+		return
 	end
+	f.pipEdge:Hide()
+	f.pipFill:Hide()
+	local atlas = PIP_COLORS[role] and GetMicroIconForRole and GetMicroIconForRole(role)
+	f.role:SetShown(atlas ~= nil)
+	if atlas then f.role:SetAtlas(atlas); f.role:SetVertexColor(Tokens.Color("steelLit")) end
 end
 
 local function Role(f)
@@ -234,7 +262,32 @@ local READY_ATLAS = {
 	end,
 }
 
+local function Status(f)
+	local icons, unit = f.statusIcons, f.unit
+	if not icons then return end
+	if readyActive or not Settings.current.icons.statuses then
+		for _, icon in pairs(icons) do icon:SetAlpha(0) end
+		return
+	end
+	local function Read(fn)
+		if type(fn) == "function" then return fn(unit) end
+		return false
+	end
+	local api = C_IncomingSummon
+	local afk, resurrection, summon = Read(UnitIsAFK), Read(UnitHasIncomingResurrection), Read(api and api.HasIncomingSummon)
+	FromBoolean(icons.afk, afk)
+	FromBoolean(icons.resurrection, resurrection)
+	FromBoolean(icons.summon, summon)
+	if icons.afk.SetAlphaFromBoolean then
+		icons.afk:SetAlphaFromBoolean(summon, 0, icons.afk:GetAlpha())
+		icons.afk:SetAlphaFromBoolean(resurrection, 0, icons.afk:GetAlpha())
+		icons.summon:SetAlphaFromBoolean(resurrection, 0, icons.summon:GetAlpha())
+	end
+end
+Indicators.Status = Status
+
 local function Ready(f)
+	Status(f)
 	if not readyActive or not Settings.current.icons.readyCheck or not GetReadyCheckStatus then
 		f.ready:Hide()
 		return
@@ -253,6 +306,7 @@ local function Ready(f)
 end
 
 local function Threat(f)
+	f.threatShape:Hide()
 	if not Settings.current.threat.enabled or not UnitThreatSituation then
 		f.threat:Hide()
 		return
@@ -268,6 +322,18 @@ local function Threat(f)
 		return
 	end
 	f.threatGlow:SetColorRGB(r, g, b)
+	if Settings.current.threat.shapes then
+		if status == 2 then
+			f.threatShape:SetTexture((Tokens.Texture("diamond")))
+			f.threatShape:SetTexCoord(0, 1, 0, 0.5)
+		else
+			f.threatShape:SetColorTexture(Tokens.Color("white"))
+			f.threatShape:SetTexCoord(0, 1, 0, 1)
+		end
+		Widgets.Size(f.threatShape, status == 1 and 2 or 8, 8)
+		f.threatShape:SetVertexColor(r, g, b)
+		f.threatShape:Show()
+	end
 	f.threat:Show()
 end
 
@@ -321,6 +387,7 @@ local function PaintSample(f, sample)
 	ShowPip(f, f.pipped and icons.role and sample.role or nil)
 	if f.pipped then
 		f.role:Hide()
+		ShowPip(f, icons.role and sample.role or nil)
 	elseif type(atlas) == "string" then
 		f.role:SetAtlas(atlas)
 		f.role:Show()
@@ -360,3 +427,6 @@ events[#events + 1] = { event = "PLAYER_ROLES_ASSIGNED", fn = Each(Role) }
 events[#events + 1] = { event = "READY_CHECK", fn = ReadyStart }
 events[#events + 1] = { event = "READY_CHECK_CONFIRM", fn = EachReady }
 events[#events + 1] = { event = "READY_CHECK_FINISHED", fn = ReadyFinished }
+for _, event in ipairs({ "INCOMING_RESURRECT_CHANGED", "INCOMING_SUMMON_CHANGED", "PLAYER_FLAGS_CHANGED" }) do
+	events[#events + 1] = { event = event, fn = Each(Status) }
+end

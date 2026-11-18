@@ -38,6 +38,7 @@ local UNIT_EVENTS = {
 	UNIT_FLAGS = "Colors",
 	UNIT_CONNECTION = "Colors",
 	PLAYER_FLAGS_CHANGED = "Flags",
+	UNIT_IN_RANGE_UPDATE = "Range",
 }
 
 local frames, order = {}, {}
@@ -51,7 +52,43 @@ local function Owner(unit)
 	return MODULE .. ":" .. unit
 end
 
+local function Settle(region)
+	if region.rangeTween then K.Motion.Stop(region.rangeTween); region.rangeTween = nil end
+end
+
+function Frames.Range(view)
+	if view.kind ~= "target" or type(UnitInRange) ~= "function" then return end
+	if not Settings.Value("target", "rangeFade") then
+		for _, region in ipairs({ view.name, view.portrait }) do
+			Settle(region)
+			region:SetAlpha(1)
+		end
+		view.rangeAlpha = 1
+		return
+	end
+	local inRange, checked = UnitInRange(view.unit)
+	local alpha
+	if not issecretvalue(inRange) and not issecretvalue(checked) then
+		alpha = 1
+		if checked == true and inRange == false then alpha = 0.55 end
+	end
+	for _, region in ipairs({ view.name, view.portrait }) do
+		if region.SetAlphaFromBoolean then
+			if issecretvalue(inRange) or issecretvalue(checked) then
+				Settle(region)
+				region:SetAlphaFromBoolean(inRange, 1, 0.55)
+				region:SetAlphaFromBoolean(checked, region:GetAlpha(), 1)
+			elseif view.rangeAlpha ~= alpha then
+				region:SetAlphaFromBoolean(inRange == true or checked ~= true, 1, 0.55)
+				region.rangeTween = K.Motion.Tween(region, "SetAlpha", view.rangeAlpha or 1, alpha, 0.15)
+			end
+		end
+	end
+	view.rangeAlpha = alpha
+end
+
 local HANDLERS = {
+	Range = Frames.Range,
 	Health = function(view, unit)
 		Unit.Health(view, unit)
 	end,
@@ -99,6 +136,7 @@ end
 local function Refresh(view, instant)
 	if Active(view) then
 		Unit.All(view, view.unit, instant)
+		Frames.Range(view)
 	end
 end
 
@@ -209,6 +247,7 @@ local function OnButtonShow(button)
 	if Active(view) then
 		StartPolling(view.uf)
 		Unit.All(view, view.unit, true)
+		Frames.Range(view)
 	end
 	ns.Auras.Sync(view)
 end
@@ -719,6 +758,7 @@ local function OnSettingChanged(_, module, key)
 			ns.Blizzard.Apply(running)
 		elseif uf.active then
 			Frames.Restyle(uf)
+			if rest == "rangeFade" then for _, view in ipairs(uf.views) do Frames.Range(view) end end
 		end
 		if kind == "target" then
 			Frames.MarkTargets()

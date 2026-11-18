@@ -715,7 +715,8 @@ local function MaxLayouts()
 	return type(value) == "number" and value or nil
 end
 
-local function Target(all, presets, layoutName, active)
+local function Target(all, presets, layoutName, active, replace)
+	if not ns.Store.Module("Setup").replaceLayout then replace = nil end
 	local types = Enum.EditModeLayoutType
 	local lastAccount, accounts = nil, 0
 	for i = presets + 1, #all do
@@ -729,7 +730,13 @@ local function Target(all, presets, layoutName, active)
 	end
 	local limit = MaxLayouts()
 	if limit and accounts >= limit then
-		return nil, "every one of the " .. limit .. " account layouts is taken", L["All %d account layouts are in use. Delete one in Edit Mode, then try again."]:format(limit)
+		for i = presets + 1, #all do
+			if all[i].layoutType == types.Account and all[i].layoutName == replace then
+				all[i].layoutName = layoutName
+				return i
+			end
+		end
+		return nil, "every one of the " .. limit .. " account layouts is taken", ns.Store.Module("Setup").replaceLayout and L["All account layouts are in use. Choose Replace this one, then Apply."] or L["All %d account layouts are in use. Delete one in Edit Mode, then try again."]:format(limit)
 	end
 	if Fn(C_EditMode, "IsValidLayoutName") then
 		local ok, valid = pcall(C_EditMode.IsValidLayoutName, layoutName)
@@ -811,13 +818,16 @@ local function Read()
 	return all, #presetList, type(info.activeLayout) == "number" and info.activeLayout or 1
 end
 
-function EditMode.Write(name, story)
+function EditMode.Write(name, story, replace)
 	local all, presets, active = Read()
 	if not all then
 		return Fail(name, presets, active)
 	end
 	local layoutName = PREFIX .. name
-	local index, reason, why = Target(all, presets, layoutName, active)
+	if ns.Store.Module("ProfileTools").backups then
+		ns.Store.Account().editModeBackup = { name = L["Before setup"], profile = ns.Store.Account().restoreProfile, layouts = Copy(all), activeLayout = active }
+	end
+	local index, reason, why = Target(all, presets, layoutName, active, replace)
 	if not index then
 		return Fail(name, reason, why)
 	end
@@ -863,6 +873,21 @@ local function Own(all, active)
 	if name and Layouts.Get(name) and IsTable(layout.systems) then
 		return name, layout, layoutName
 	end
+end
+
+function EditMode.Replacements()
+	local all, presets = Read()
+	local choices, count = { { value = "", label = L["Replace this one"] } }, 0
+	if all then
+		for i = presets + 1, #all do
+			local layout = all[i]
+			if layout.layoutType == Enum.EditModeLayoutType.Account then
+				count = count + 1
+				choices[#choices + 1] = { value = layout.layoutName, label = layout.layoutName }
+			end
+		end
+	end
+	return choices, count >= (MaxLayouts() or math.huge)
 end
 
 function EditMode.ActiveName()

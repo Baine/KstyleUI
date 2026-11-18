@@ -40,7 +40,7 @@ local function LayOutToolbar(env, K, panel)
 	local content = panel.content
 	local gap = Tokens.Size("gapMedium")
 	local x, tallest = 0, 0
-	for i, item in ipairs({ panel.gridToggle, panel.snapToggle, panel.undo, panel.redo, panel.reset, panel.done }) do
+	for i, item in ipairs({ panel.gridToggle, panel.snapToggle, panel.undo, panel.redo, panel.reset, panel.bind, panel.search, panel.elements, panel.done }) do
 		local width = item:GetWidth() or 0
 		if item.trackBox and item.label then
 			local path, size = Scene.Font(env, item.label)
@@ -71,8 +71,8 @@ return Common.Run(function()
 	local env, K = NewEnv(W)
 	local Layout, Mode = K.Layout, K.Layout.Mode
 	StandIn(env, K, "gallery.chat", "Chat", PLATES_X, 170, 360, 180, { resizable = true })
-	StandIn(env, K, "gallery.player", "Player", PLATES_X, 380, 220, 60, { resizable = true, minWidth = 120, minHeight = 30 })
-	StandIn(env, K, "gallery.target", "Target", PLATES_X + 260, 380, 220, 60, { resizable = true })
+	StandIn(env, K, "gallery.player", "Player", PLATES_X, 400, 220, 60, { resizable = true, minWidth = 120, minHeight = 30 })
+	StandIn(env, K, "gallery.target", "Target", PLATES_X + 260, 400, 220, 60, { resizable = true })
 	StandIn(env, K, "gallery.buffs", "Buffs", PLATES_X, 460, 300, 36, { scalable = true })
 	assert(Layout.Enter(), "Layout Mode opens")
 	local toolbar = Mode.Toolbar()

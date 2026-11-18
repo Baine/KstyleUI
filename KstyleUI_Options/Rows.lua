@@ -121,6 +121,26 @@ function MAKERS.slider(row)
 	end)
 	slider:HookScript("OnHide", function()
 		Flush(row)
+		slider.edit:Hide()
+	end)
+	slider.edit = Widgets.EditBox(slider, { width = 56, onEnter = function(text, box)
+		local value = tonumber(text)
+		if value then slider:SetValue(value) end
+		box:Hide()
+	end, onEscape = function(box) box:Hide() end })
+	Widgets.Point(slider.edit, "CENTER", slider.readout, "CENTER")
+	slider.edit:Hide()
+	slider.edit:HookScript("OnHide", function() slider.readout:Show() end)
+	slider.valueButton = CreateFrame("Button", nil, slider)
+	slider.valueButton:SetAllPoints(slider.readout)
+	slider.valueButton:SetScript("OnClick", function()
+		if slider:IsEnabled() then
+			slider.edit:SetText(tostring(slider:GetValue()))
+			slider.readout:Hide()
+			slider.edit:Show()
+			slider.edit:SetFocus()
+			slider.edit:HighlightText()
+		end
 	end)
 	return slider
 end
@@ -516,9 +536,9 @@ local function PlaceText(row, item, control, width)
 	row.label:ClearAllPoints()
 	row.help:ClearAllPoints()
 	Widgets.Point(row.label, "TOPLEFT", row, "TOPLEFT", gap, -labelTop)
-	Widgets.Point(row.label, "RIGHT", row, "RIGHT", -(gap + (stacked and 0 or reserve)), 0)
+	if item.module ~= "ProfileTools" then Widgets.Point(row.label, "RIGHT", row, "RIGHT", -(gap + (stacked and 0 or reserve)), 0) end
 	Widgets.Point(row.help, "TOPLEFT", row, "TOPLEFT", gap, -helpTop)
-	Widgets.Point(row.help, "RIGHT", row, "RIGHT", -(gap + ((stacked or banded) and 0 or reserve)), 0)
+	if item.module ~= "ProfileTools" then Widgets.Point(row.help, "RIGHT", row, "RIGHT", -(gap + ((stacked or banded) and 0 or reserve)), 0) end
 	if control then
 		control:ClearAllPoints()
 		if stacked and control.Fit then
@@ -531,7 +551,7 @@ local function PlaceText(row, item, control, width)
 			Widgets.Point(control, "TOPRIGHT", row, "TOPRIGHT", -gap, -Snap(row, (height - controlHeight) / 2))
 		end
 	end
-	row:EnableMouse(Truncated(row.label))
+	row:EnableMouse(K.Store.Module("OptionControls").changedSettings or Truncated(row.label))
 	return height
 end
 
@@ -640,12 +660,17 @@ function Rows.Update(row, item, _, list)
 	local kind = item.kind
 	local keep = SameSetting(row.item, item)
 	row.updating = true
-	if not keep then
-		row.pending = nil
-	end
+	if not keep then row.pending = nil end
 	row.item = item
 	row.list = list or row.list
 	local _, control = Layout(row, item, RowWidth(row.list))
+	local slider = row.controls.slider
+	if slider then
+		local numeric = K.Store.Module("OptionControls").numericInput
+		slider.valueButton:SetShown(numeric)
+		if not keep or not numeric then slider.edit:Hide() end
+	end
+	row.changed:SetShown(K.Store.Module("OptionControls").changedSettings and item.key ~= nil and item.module ~= nil and K.Options.IsChanged(item.module, item.key))
 	if kind ~= "header" and kind ~= "note" then
 		local disabled = Model.IsDisabled(item)
 		Widgets.TextColor(row.label, disabled and "textDisabled" or "textEmphasis")
@@ -664,6 +689,7 @@ end
 
 function Rows.Restyle(row)
 	Widgets.Tint(row.mark, "accent")
+	Widgets.Tint(row.changed, "accent")
 	if row.item then
 		Rows.Update(row, row.item, nil, row.list)
 	end
@@ -721,6 +747,17 @@ function Rows.Create(list)
 	row.note:SetWordWrap(true)
 	row.mark = row:CreateTexture(nil, "ARTWORK")
 	row.mark:SetColorTexture(Tokens.Color("white"))
+	row.changed = row:CreateTexture(nil, "OVERLAY")
+	row.changed:SetTexture((Tokens.Texture("diamond")))
+	Widgets.Size(row.changed, 4, 4)
+	Widgets.Point(row.changed, "RIGHT", row.label, "LEFT", -2, 0)
+	row.changed:Hide()
+	row:SetScript("OnMouseUp", function(self, button)
+		local item = self.item
+		if K.Store.Module("OptionControls").changedSettings and button == "RightButton" and item and item.module and item.key and not Model.IsDisabled(item) then
+			Apply(self, K.Options.Default(item.module, item.key))
+		end
+	end)
 	row.Restyle = Rows.Restyle
 	Rows.Restyle(row)
 	Widgets.Track(row)

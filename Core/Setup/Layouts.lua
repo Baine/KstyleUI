@@ -177,7 +177,7 @@ local DPS = {
 	["databars.honor"] = { anchor = "BOTTOM", x = STRIP_ENDS, y = TRAY_BOTTOM - TRAY_STRIP_GAP - 15 },
 	["actionbars.bar1"] = { anchor = "BOTTOM", x = 0, y = TRAY_BAR1_Y },
 	["actionbars.bar2"] = { anchor = "BOTTOM", x = 0, y = TRAY_BAR2_Y },
-	["actionbars.bar3"] = { anchor = "BOTTOMLEFT", x = MARGIN, y = math.max(MARGIN + CHAT_H + select(2, ElementSize("qol.lootfeed")) + 2 * GAP, PLAYER_CAST_Y + select(2, ElementSize("unitframes.castbar.player")) + GAP) },
+	["actionbars.bar3"] = { anchor = "TOP", x = 0, y = -20 },
 	["actionbars.pet"] = { anchor = "BOTTOM", x = -ENDS, y = TRAY_BOTTOM },
 	["actionbars.stance"] = { anchor = "BOTTOM", x = ENDS, y = TRAY_BOTTOM },
 	["unitframes.player"] = { anchor = "BOTTOM", x = 0, y = 138 + LIFT },
@@ -418,7 +418,7 @@ local ORBS = {
 	["cooldowns.bars"] = { anchor = "BOTTOM", x = ORBS_X, y = ORBS_TRACKED_Y },
 	["actionbars.pet"] = { anchor = "BOTTOMLEFT", x = EDGE, y = ORBS_FIT.cornerY },
 	["actionbars.stance"] = { anchor = "BOTTOMLEFT", x = EDGE + ORBS_PET_W + NEAR, y = ORBS_FIT.cornerY },
-	["actionbars.bar3"] = { anchor = "BOTTOMLEFT", x = EDGE, y = ORBS_FIT.cornerY + select(2, GridSize("actionbars.pet")) + NEAR },
+	["actionbars.bar3"] = { anchor = "TOP", x = 0, y = -230 },
 	["databars.rep"] = { anchor = "BOTTOM", x = -ORBS_FIT.tieX, y = 52 },
 	["databars.honor"] = { anchor = "BOTTOM", x = ORBS_FIT.tieX, y = 52 },
 	["unitframes.pet"] = { anchor = "BOTTOMLEFT", x = EDGE + ORBS_PET_W + NEAR + ORBS_STANCE_W + NEAR + ORBS_GLOW, y = ORBS_FIT.cornerY },
@@ -811,7 +811,18 @@ function Layouts.TrayMoves(name)
 	return out
 end
 
+function Layouts.ThirdBarFinished()
+	if not ns.Store or not ns.Store.IsLoaded() then return true end
+	local cfg = ns.Store.Module("ActionBars").bar3
+	return type(cfg) ~= "table" or cfg.finished ~= false
+end
+
+function Layouts.LegacyThirdBar(style)
+	return { anchor = "BOTTOMLEFT", x = 17, y = style == "orbs" and 475 or 462.5 }
+end
+
 function Layouts.Default(key)
+	if key == "actionbars.bar3" and not Layouts.ThirdBarFinished() then return Layouts.LegacyThirdBar("frames") end
 	local position = layouts.DPS[key]
 	if not position then
 		error("KstyleUI.Setup.Layouts.Default: unknown element key " .. tostring(key), 2)
@@ -856,6 +867,7 @@ function Layouts.Style(style, name, key)
 		and ns.Store.Module("CombatText").clearLanes == false then
 		return
 	end
+	if key == "actionbars.bar3" and not Layouts.ThirdBarFinished() then return Layouts.LegacyThirdBar(style) end
 	if not STYLES[style] then return nil end
 	local attached = Layouts.Attached(style, name, key, ns.Scale.Aspect())
 	if attached then
@@ -944,6 +956,7 @@ function Layouts.BuildMedallions()
 			return { anchor = anchor, x = x, y = y, width = size[1], height = size[2] }
 		end
 		sets[class] = {
+			["actionbars.bar3"] = { anchor = "BOTTOM", x = -660, y = 370 },
 			["actionbars.bar1"] = { anchor = "BOTTOM", x = -(hub / 2 + width / 2), y = baseline },
 			["actionbars.bar2"] = { anchor = "BOTTOM", x = hub / 2 + width / 2, y = baseline },
 			["actionbars.pet"] = petBar,
@@ -978,6 +991,7 @@ end
 Layouts.BuildMedallions()
 
 function Layouts.Aspect(class, style, name, key)
+	if key == "actionbars.bar3" and not Layouts.ThirdBarFinished() then return Layouts.LegacyThirdBar(style) end
 	local attached = Layouts.Attached(style, name, key, class)
 	if attached then
 		return attached
@@ -1489,7 +1503,7 @@ function Layouts.ScaleLimit(physicalWidth, physicalHeight, preset, enabled, styl
 		flags[i] = enabled[element.key] ~= false and "1" or "0"
 	end
 	style = STYLES[style] and style or "frames"
-	local signature = style .. table.concat(flags)
+	local signature = style .. (Layouts.ThirdBarFinished() and "finished" or "legacy") .. table.concat(flags)
 	local cached = limits[preset]
 	if cached and cached.width == physicalWidth and cached.height == physicalHeight and cached.signature == signature then
 		return cached.scale, cached.fits

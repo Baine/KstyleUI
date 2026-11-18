@@ -4,6 +4,15 @@ local _, ns = ...
 local Setup = ns.Setup
 local Layouts = Setup.Layouts
 local L = ns.L
+ns.Store.RegisterDefaults("Setup", { closeBehaviour = "apply", replaceLayout = true })
+ns.Options.Register("Setup", {
+	{ type = "header", label = L["Setup"] },
+	{ type = "dropdown", key = "closeBehaviour", label = L["Closing the setup window"], help = L["Choose whether first-run Close or Escape leaves your UI alone or applies the setup."], options = {
+		{ value = "apply", label = L["Apply the default setup"] },
+		{ value = "later", label = L["Do nothing, ask again later"] },
+	} },
+	{ type = "toggle", key = "replaceLayout", label = L["Choose an Edit Mode replacement"], help = L["When all layouts are full, choose one to replace. Off keeps the previous full-list message."] },
+})
 
 local OWNER = "Setup"
 local OPEN_DELAY = 2
@@ -217,10 +226,10 @@ local function EditModeChanged()
 	end
 end
 
-local function WriteEditMode(name)
+local function WriteEditMode(name, replace)
 	Setup.EditMode.Waiting(name)
 	ns.Combat.Queue(function()
-		Setup.EditMode.Write(name, Setup.Story(name, GuideLoaded()))
+		Setup.EditMode.Write(name, Setup.Story(name, GuideLoaded()), replace)
 		EditModeChanged()
 	end)
 end
@@ -230,7 +239,7 @@ function Setup.RetryEditMode()
 	if not Layouts.Get(name) then
 		return false
 	end
-	WriteEditMode(name)
+	WriteEditMode(name, Setup.Choice().replaceLayout)
 	EditModeChanged()
 	return true
 end
@@ -268,6 +277,11 @@ function Setup.Apply(picked)
 		log("Apply refused an unknown layout " .. tostring(picked and picked.layout))
 		return false
 	end
+	local backed, why = ns.Profiles.Backup(L["Before setup"])
+	if not backed then
+		ns.Print(tostring(why))
+		return false
+	end
 	local on, off = {}, {}
 	local modules = type(picked.modules) == "table" and picked.modules or {}
 	for _, entry in ipairs(PICKER) do
@@ -291,7 +305,7 @@ function Setup.Apply(picked)
 		ns.Call(ns.Options.Write, "HudStyle", "style", hudStyle)
 		applying = false
 	end
-	WriteEditMode(picked.layout)
+	WriteEditMode(picked.layout, picked.replaceLayout)
 	local nameplates = Store.Defaults("Nameplates")
 	if nameplates and type(nameplates.personalResource) == "boolean" then
 		ns.Options.Write("Nameplates", "personalResource", false)
@@ -332,17 +346,15 @@ function Setup.Keep()
 end
 
 function Setup.Closed(applied)
-	local defaults = firstRun and not applied and not kept
+	local first, keep = firstRun, kept
 	firstRun, kept = false, false
-	Setup.MarkSeen()
-	if defaults then
-		local picked = Setup.Choice()
-		if Setup.Apply(picked) then
-			log("the first-run setup closed without Apply: applied " .. picked.layout .. " with the modules it had on and " .. tostring(picked.ornaments) .. " ornaments")
-			ns.Print(string.format(L["KstyleUI applied the %s layout. Type /reload to finish, or /kstyle setup to change it."], Layouts.Label(picked.layout)))
+	if first and not applied and not keep and ns.Store.Module("Setup").closeBehaviour == "apply" then
+		if Setup.Apply(Setup.Choice()) then
+			ns.Print(string.format(L["KstyleUI applied the %s layout. Type /reload to finish, or /kstyle setup to change it."], Layouts.Label(Setup.Choice().layout)))
 			return
 		end
 	end
+	if applied or keep or not first then Setup.MarkSeen() end
 	if not applied then
 		ns.Print(L["You can run the setup again at any time with /kstyle setup."])
 	end

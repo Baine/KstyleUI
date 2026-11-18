@@ -9,6 +9,12 @@ local floor, max, min, format = math.floor, math.max, math.min, string.format
 
 local Mode = {}
 Layout.Mode = Mode
+ns.Store.RegisterDefaults("LayoutControls", { clearMovers = true, search = true })
+ns.Options.Register("LayoutControls", {
+	{ type = "header", label = L["Mover controls"] },
+	{ type = "toggle", key = "clearMovers", label = L["See-through movers"], help = L["Uses 35 percent opacity and label tags on movers. Off restores the old solid plates."] },
+	{ type = "toggle", key = "search", label = L["Find Layout Mode elements"], help = L["Adds a searchable element list to the toolbar. Off keeps the previous drag-only toolbar."] },
+})
 
 local TOOLBAR_KEY = "Layout.Toolbar"
 local TOOLBAR_POSITION = { anchor = "TOP", x = 0, y = -96 }
@@ -80,9 +86,10 @@ end
 local function PaintPlate(plate)
 	local active = selected == plate.key
 	local fill = active and FILL_SELECTED or (plate.hover and FILL_HOVER or FILL_REST)
-	local r, g, b = Tokens.Color("buttonFill")
-	plate.chrome:SetFillRGBA(r, g, b, fill)
-	plate.chrome:SetEdgeRGBA(Widgets.Rgba("accent", (active or plate.hover) and EDGE_ACTIVE or EDGE_REST))
+	local clear = ns.Store.Module("LayoutControls").clearMovers
+	local r, g, b = Tokens.Color(clear and "deep" or "buttonFill")
+	plate.chrome:SetFillRGBA(r, g, b, clear and 0.35 or fill)
+	plate.chrome:SetEdgeRGBA(Widgets.Rgba("accent", clear and 1 or (active or plate.hover) and EDGE_ACTIVE or EDGE_REST))
 	Widgets.SetText(plate.info, active and Describe(plate.key) or "")
 end
 
@@ -122,8 +129,17 @@ local function PlacePlate(plate, frame, w, h)
 	Widgets.Size(plate, max(PLATE_MIN, w), max(PLATE_MIN, h))
 	plate:ClearAllPoints()
 	Widgets.Point(plate, "CENTER", frame, "CENTER")
-	Widgets.Point(plate.label, "CENTER", plate, "CENTER")
-	Widgets.Point(plate.info, "TOP", plate.label, "BOTTOM", 0, -Widgets.Snap(plate, Tokens.Size("gapTiny")))
+	local clear = ns.Store.Module("LayoutControls").clearMovers
+	plate.label:ClearAllPoints()
+	plate.info:ClearAllPoints()
+	if clear then
+		Widgets.Point(plate.label, "TOPLEFT", plate, "TOPLEFT", 4, -2)
+		Widgets.Point(plate.info, "BOTTOMLEFT", plate, "BOTTOMLEFT", 4, 2)
+	else
+		Widgets.Point(plate.label, "CENTER", plate, "CENTER")
+		Widgets.Point(plate.info, "TOP", plate.label, "BOTTOM", 0, -Widgets.Snap(plate, Tokens.Size("gapTiny")))
+	end
+	plate.tag:SetShown(clear)
 end
 
 local function RefreshPlate(key)
@@ -415,6 +431,10 @@ function Mode.NewPlate(key)
 	plate.key = key
 	plate.chrome = Widgets.Chrome(plate, { shape = "tile", fill = "buttonFill", shadow = false })
 	plate.label = Widgets.Text(plate, "caption", "textEmphasis")
+	plate.tag = plate:CreateTexture(nil, "BACKGROUND")
+	plate.tag:SetPoint("TOPLEFT", plate.label, "TOPLEFT", -2, 2)
+	plate.tag:SetPoint("BOTTOMRIGHT", plate.label, "BOTTOMRIGHT", 2, -2)
+	plate.tag:SetColorTexture(Widgets.Rgba("deep", 0.85))
 	plate.info = Widgets.Text(plate, "caption", "text")
 	plate:EnableMouse(true)
 	plate:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -670,19 +690,47 @@ local function BuildToolbar()
 			Layout.Exit(true)
 		end,
 	})
-	local gap = Tokens.Size("gapMedium")
-	local x, tallest = 0, 0
-	for i, item in ipairs({ panel.gridToggle, panel.snapToggle, panel.undo, panel.redo, panel.reset, panel.done }) do
-		item:ClearAllPoints()
-		item:SetPoint("LEFT", content, "LEFT", Widgets.Snap(panel, x), 0)
-		x = x + (item:GetWidth() or 0) + (i == 2 and gap * 2 or gap)
-		tallest = max(tallest, item:GetHeight() or 0)
+	panel.bind = Widgets.Button(content, { text = L["Bind keys"], onClick = function()
+		Layout.Exit(true)
+		ns.Options.BindKeys()
+	end })
+	local function Elements()
+		local out, query = {}, panel.search and panel.search:GetText():lower() or ""
+		for _, el in ipairs(Layout.Elements()) do
+			if Layout.Live(el.key) and el.opts.plate ~= false and (el.label .. " " .. el.key):lower():find(query, 1, true) then
+				out[#out + 1] = { value = el.key, label = el.label }
+			end
+		end
+		return #out > 0 and out or { { value = "", label = L["No matches"] } }
 	end
-	local pad = Widgets.WindowInset(panel)
-	local top = pad + Tokens.Size("heading") + gap * 2
-	panel.opts.width = x - gap + pad * 2
-	panel.opts.height = top + tallest + pad
-	panel:Restyle()
+	panel.elements = Widgets.Dropdown(content, { width = 200, options = Elements, placeholder = L["Choose an element"], onChange = function(key)
+		if key ~= "" then Mode.Select(key) end
+	end })
+	panel.search = Widgets.EditBox(content, { width = 160, placeholder = L["Find an element"], onChange = function()
+		panel.elements:SetOptions(Elements)
+	end })
+	function panel:Arrange()
+		local search = ns.Store.Module("LayoutControls").search
+		panel.search:SetShown(search)
+		panel.elements:SetShown(search)
+		panel.bind:SetShown(ns.Store.Module("ActionBars").bindingHints ~= false)
+		local gap = Tokens.Size("gapMedium")
+		local x, tallest = 0, 0
+		for i, item in ipairs({ panel.gridToggle, panel.snapToggle, panel.undo, panel.redo, panel.reset, panel.bind, panel.search, panel.elements, panel.done }) do
+			if item:IsShown() then
+				item:ClearAllPoints()
+				item:SetPoint("LEFT", content, "LEFT", Widgets.Snap(panel, x), 0)
+				x = x + (item:GetWidth() or 0) + (i == 2 and gap * 2 or gap)
+				tallest = max(tallest, item:GetHeight() or 0)
+			end
+		end
+		local pad = Widgets.WindowInset(panel)
+		local top = pad + Tokens.Size("heading") + gap * 2
+		panel.opts.width = x - gap + pad * 2
+		panel.opts.height = top + tallest + pad
+		panel:Restyle()
+	end
+	panel:Arrange()
 	local bar = panel.titleBar
 	bar:EnableMouse(true)
 	bar:RegisterForDrag("LeftButton")
@@ -731,6 +779,7 @@ end
 
 function Mode.Show()
 	Build()
+	toolbar:Arrange()
 	overlay:Show()
 	overlay:EnableKeyboard(true)
 	overlay:SetPropagateKeyboardInput(true)
@@ -837,3 +886,12 @@ end
 function Mode.Selected()
 	return selected
 end
+
+local function RefreshControls()
+	if toolbar then toolbar:Arrange() end
+	Mode.Refresh()
+end
+ns.Callbacks.Register("SettingChanged", "LayoutControls", function(_, module, key)
+	if module == "LayoutControls" or module == "ActionBars" and key == "bindingHints" then RefreshControls() end
+end)
+ns.Callbacks.Register("ProfileChanged", "LayoutControls", RefreshControls)

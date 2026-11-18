@@ -1,4 +1,4 @@
--- test-setup.lua: the first-run setup opens once per account, walks six steps (welcome, HUD style, layout, modules, ornaments, summary), and Apply switches modules on, writes the layout and offers a reload.
+-- test-setup.lua: the first-run setup asks again until applied or explicitly kept, walks six steps (welcome, HUD style, layout, modules, ornaments, summary), and Apply switches modules on, writes the layout and offers a reload.
 local W = dofile("Tools/regression/widget_env.lua")
 local CoreEnv = W.CoreEnv
 local Geometry = dofile("Tools/regression/geometry.lua")
@@ -58,7 +58,7 @@ do
 	assert(not Seen(K), "opening does not mark it seen")
 	panel:Close()
 	W.Settle(env)
-	assert(not panel:IsShown() and Seen(K), "closing marks the setup seen for the account")
+	assert(not panel:IsShown() and Seen(K), "default Close applies and marks setup seen")
 	assert(CoreEnv.Printed(env, "/kstyle setup"), "closing tells the player how to reopen it")
 	env.SlashCmdList.KSTYLE("setup")
 	W.Settle(env)
@@ -66,8 +66,7 @@ do
 	assert(#env._errors == 0, tostring(env._errors[1]))
 end
 
--- First run: closing the setup without Apply applies the picked layout (DPS) with every loaded module, so a skipped
--- wizard never leaves an empty screen; Keep my UI is the opt-out; a later /kstyle setup closes with no change.
+-- First-run Close and Escape mean Later by default; Apply or Keep my UI completes the first-run choice.
 
 local function Login(opts)
 	local env, K = Boot(opts)
@@ -78,60 +77,33 @@ end
 
 do
 	local env, K, panel = Login()
-	assert(panel and panel:IsShown(), "the first-run setup opens")
-	assert(panel.welcomeNote and panel.welcomeNote:IsShown() and panel.welcomeNote:GetText():find("DPS", 1, true), "the welcome step says closing uses the DPS layout")
-	assert(panel.welcomeNote:GetText():find("Full ornaments", 1, true), "and Full ornaments")
-	assert(panel.skip.label:GetText() == "Keep my UI", "the welcome step's left button is the opt-out")
-	panel:Close()
+	K.Options.Write("Setup", "closeBehaviour", "later")
+	K.Setup.Open(true)
 	W.Settle(env)
-	for _, name in ipairs(MODULES) do
-		assert(K.Modules.IsEnabled(name), "closing the first-run setup switches " .. name .. " on")
-	end
-	assert(K.Layout.Setting("preset") == "DPS", "and applies the DPS layout")
-	assert(K.Widgets.Setting("ornaments") == "Full", "and Full ornaments, the level the ornaments step starts on")
-	local chat = K.Store.Layout()["chat.main"]
-	assert((chat == nil or chat.x == nil) and K.Setup.Layouts.Default("chat.main").x == K.Setup.Layouts.Get("DPS")["chat.main"].x, "with its positions: chat registers at the DPS place, its default, so no place is saved")
-	assert(Seen(K), "and marks the setup seen")
-	assert(CoreEnv.Printed(env, "DPS") and CoreEnv.Printed(env, "/kstyle setup"), "the player is told what was applied and how to change it")
-	assert(#env._errors == 0, tostring(env._errors[1]))
-end
-
-do
-	local env, K, panel = Login()
-	local written = {}
-	K.Callbacks.Register("SettingChanged", "test", function(_, module, key)
-		written[#written + 1] = module .. "." .. key
-	end)
-	W.Click(panel.skip)
-	W.Settle(env)
-	assert(not panel:IsShown() and Seen(K), "Keep my UI closes the setup and marks it seen")
-	assert(#written == 0, "Keep my UI writes no setting: " .. table.concat(written, ", "))
-	assert(K.Widgets.Setting("ornaments") == "Full", "and leaves the ornaments at the default, Full")
-	for _, name in ipairs(MODULES) do
-		assert(not K.Modules.IsEnabled(name), "Keep my UI leaves " .. name .. " off")
-	end
-	assert(next(K.Store.Layout()) == nil, "and moves nothing")
-	assert(#env._errors == 0, tostring(env._errors[1]))
-end
-
-do
-	local env, K, panel = Login()
+	assert(panel.welcomeNote:GetText():find("Only Apply", 1, true), "the Later choice explains that closing changes nothing")
+	local before = K.Store.Export()
 	K.Setup.Go(3)
 	W.Click(panel.cards.Healer)
 	W.Key(panel, "ESCAPE")
 	W.Settle(env)
-	assert(K.Layout.Setting("preset") == "Healer", "Escape on the first run applies the layout the player had picked")
-	assert(K.Widgets.Setting("ornaments") == "Full", "with the ornament level as it stood")
-	env.SlashCmdList.KSTYLE("setup")
+	assert(K.Store.Export() == before and not Seen(K), "Escape keeps the interface and asks again later")
+	for _, name in ipairs(MODULES) do assert(not K.Modules.IsEnabled(name), "Later leaves " .. name .. " off") end
+	assert(next(K.Store.Layout()) == nil, "Later moves nothing")
+	assert(#env._errors == 0, tostring(env._errors[1]))
+end
+
+do
+	local env, K, panel = Login()
+	local before = K.Store.Export()
+	K.Setup.Go(6)
+	W.Click(panel.apply)
 	W.Settle(env)
-	K.Setup.Go(3)
-	W.Click(panel.cards.Tank)
-	K.Setup.Go(5)
-	W.Click(panel.ornamentCards.Off)
-	panel:Close()
-	W.Settle(env)
-	assert(K.Layout.Setting("preset") == "Healer" and K.Widgets.Setting("ornaments") == "Full", "closing a later setup changes nothing")
-	assert(not panel.welcomeNote:IsShown(), "and a later setup does not promise a layout on close")
+	local backup = assert(K.Store.Account().restoreProfile)
+	assert(backup:find("Before setup", 1, true), "Apply saves a named backup first")
+	assert(K.Store.Export(backup) ~= nil and before ~= K.Store.Export(), "Apply changes the UI after saving the backup")
+	for _, name in ipairs(MODULES) do assert(K.Modules.IsEnabled(name), "Apply enables " .. name) end
+	assert(K.Profiles.Restore(), "the setup backup can be restored")
+	for _, name in ipairs(MODULES) do assert(not K.Modules.IsEnabled(name), "restoring the backup restores " .. name) end
 	assert(#env._errors == 0, tostring(env._errors[1]))
 end
 

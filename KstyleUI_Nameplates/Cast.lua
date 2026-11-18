@@ -41,7 +41,7 @@ end
 local function ShieldColor()
 	if not Settings.Get("cast.combatCues") then return Tokens.Color("textDisabled") end
 	local c = Settings.Get("cast.shieldColor")
-	return c.r, c.g, c.b
+	return K.ColorVision.Color(2, c.r, c.g, c.b)
 end
 
 local function OpenColor()
@@ -49,9 +49,9 @@ local function OpenColor()
 	local interrupt = ns.Interrupt
 	if interrupt and interrupt.spell and interrupt.ready ~= true then
 		local c = Settings.Get("cast.waitColor")
-		return c.r, c.g, c.b
+		return K.ColorVision.Color(3, c.r, c.g, c.b)
 	end
-	return CastColor()
+	return K.ColorVision.Color(1, CastColor())
 end
 
 local colors = { open = {}, wait = {}, shield = {} }
@@ -71,9 +71,9 @@ local function ColorObjects()
 	local open
 	if Settings.Get("cast.combatCues") and interrupt and interrupt.spell and interrupt.ready ~= true then
 		local c = Settings.Get("cast.waitColor")
-		open = ColorObject(colors.wait, c.r, c.g, c.b)
+		open = ColorObject(colors.wait, K.ColorVision.Color(3, c.r, c.g, c.b))
 	else
-		open = ColorObject(colors.open, CastColor())
+		open = ColorObject(colors.open, K.ColorVision.Color(1, CastColor()))
 	end
 	return open, ColorObject(colors.shield, ShieldColor())
 end
@@ -132,6 +132,11 @@ end
 
 local function Paint(plate, openR, openG, openB)
 	local flag = plate.castFlag
+	if Settings.Get("cast.shieldBadge") and plate.castBadge.SetAlphaFromBoolean and (IsSecret(flag) or type(flag) == "boolean") then
+		plate.castBadge:SetAlphaFromBoolean(flag, 1, 0)
+	else
+		plate.castBadge:SetAlpha(0)
+	end
 	if plate.castInterrupted then
 		Fill(plate, Tokens.Color("hostile"))
 		Shade(plate, 0)
@@ -387,6 +392,9 @@ function Component.Build(plate)
 	glyph:SetVertexColor(Tokens.Color("steelLit"))
 	glyph:SetAlpha(0)
 	plate.castGlyph = glyph
+	plate.castBadge = cast:CreateTexture(nil, "OVERLAY")
+	plate.castBadge:SetTexture((Tokens.Texture("medCastShield")))
+	plate.castBadge:SetAlpha(0)
 	local name = Widgets.FontString(bar, "OVERLAY")
 	name:SetJustifyH("LEFT")
 	name:SetWordWrap(false)
@@ -420,6 +428,7 @@ function Component.Restyle(plate)
 	local state = ns.state
 	local h = Settings.Get("cast.height")
 	local showIcon = Settings.Get("cast.showIcon")
+	local badge = math.max(11, h)
 	local iconRoom = showIcon and h + GAP or 0
 	local cast, bar, icon = plate.cast, plate.castBar, plate.castIcon
 	Widgets.Size(cast, state.width, h)
@@ -429,6 +438,9 @@ function Component.Restyle(plate)
 	icon:SetPoint("TOPLEFT", cast, "TOPLEFT")
 	icon:SetShown(showIcon)
 	plate.castShield:SetShown(showIcon)
+	Widgets.Size(plate.castBadge, badge, badge)
+	plate.castBadge:ClearAllPoints()
+	Widgets.Point(plate.castBadge, "TOPLEFT", cast, "TOPLEFT", -badge - GAP, (badge - h) / 2)
 	local opts = plate.castBarOpts
 	opts.width, opts.height = math.max(1, state.width - iconRoom), h
 	bar:ClearAllPoints()

@@ -204,6 +204,8 @@ local function applyPreset(env, opts)
 	assert(K.Setup.Apply({ layout = opts.layout, modules = enabled }), "the scene could not Apply " .. tostring(opts.layout))
 	if (rawget(_G, "RENDER_BAR3") or os.getenv("RENDER_BAR3")) == "1" and K.Modules.IsEnabled("ActionBars") then
 		K.Options.Write("ActionBars", "bar3.enabled", true)
+		local buttons = tonumber(os.getenv("RENDER_BAR3_BUTTONS") or "")
+		if buttons then K.Options.Write("ActionBars", "bar3.buttons", buttons) end
 		local defaults = K.Store.Defaults("ActionBars")
 		for _, bar in ipairs({ "bar3", "pet", "stance" }) do
 			if type(defaults[bar]) == "table" and defaults[bar].showEmpty ~= nil then
@@ -222,6 +224,7 @@ end
 local function build(env, opts, extra, beforeDraw)
 	applyPreset(env, opts)
 	local K = env.KstyleUI
+	dofile("Tools/render/scenes/_audit.lua").Apply(K)
 	local previewed = {}
 	for key, size in pairs(opts.sizes or {}) do
 		local el = K and K.Layout and K.Layout.Element and K.Layout.Element(key)
@@ -560,6 +563,13 @@ function modules.actionbars(opts)
 			for i = 1, 12 do
 				env._game.bindings["ACTIONBUTTON" .. i] = { keys[i] }
 				env._game.bindings["MULTIACTIONBAR1BUTTON" .. i] = { keys2[i] }
+			end
+			if os.getenv("RENDER_BOUND_ACTIONS") == "1" then
+				local commands = { [3] = "MULTIACTIONBAR3BUTTON", [4] = "MULTIACTIONBAR4BUTTON", [5] = "MULTIACTIONBAR2BUTTON" }
+				for slot in pairs(opts.slots or {}) do
+					local page, index = math.floor((slot - 1) / 12) + 1, (slot - 1) % 12 + 1
+					if commands[page] then env._game.bindings[commands[page] .. index] = { "SHIFT-" .. index } end
+				end
 			end
 			env.GetBindingText = function(key)
 				return key
@@ -1672,6 +1682,7 @@ function Hud.EditModeLayout(layout, guide, counts, natives)
 	local EditModeFake = dofile("Tools/regression/editmode_fake.lua")
 	local state = { saved = {}, active = 1 }
 	local env, K = CoreEnv.New(Common.ScreenOpts({
+		saved = os.getenv("RENDER_NEEDS_OFF") == "1" and { version = 2, profiles = { Default = Common.FinishSettings({}) }, account = { setupSeen = true } } or nil,
 		setup = function(env)
 			Common.ForceScreen(env, true)
 			EditModeFake.Install(env, state)
