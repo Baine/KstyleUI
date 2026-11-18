@@ -163,7 +163,7 @@ local function Glass(frame, opts)
 			end
 		end
 	end
-	local panel = Skin.Backdrop(frame, { shape = "window", fill = "surface", shadow = true, inset = inset, target = opts.target, gilt = opts.gilt, popup = opts.popup, ornament = ornament or nil, inside = inside })
+	local panel = Skin.Backdrop(frame, { shape = "window", fill = "surface", shadow = true, inset = inset, target = opts.target, gilt = opts.gilt, popup = opts.popup, ornament = ornament or nil, inside = inside, snapEdges = opts.target ~= nil and Skins.Setting(KEY, "rail") == true })
 	if ornament == "crest" and panel and panel.chrome then
 		Hook(frame, "StopMovingOrSizing", "crest drop " .. tostring(frame), function()
 			panel.chrome:RestyleOrnament()
@@ -633,9 +633,14 @@ local function PlaceHead(path)
 	rise = Widgets.Snap(holder, rise)
 	path.capHeight = full - rise
 	holder:ClearAllPoints()
-	holder:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, -rise)
-	holder:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, -rise)
 	holder:SetHeight(full)
+	if Skins.Setting(KEY, "rail") and Widgets.Readability("snapEdges") then
+		Widgets.Point(holder, "BOTTOMLEFT", anchor, "TOPLEFT", 0, -rise, true)
+		Widgets.Point(holder, "BOTTOMRIGHT", anchor, "TOPRIGHT", 0, -rise, true)
+	else
+		holder:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, -rise)
+		holder:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, -rise)
+	end
 	PlaceCard(path)
 	if path.OnHead then
 		path.OnHead(path)
