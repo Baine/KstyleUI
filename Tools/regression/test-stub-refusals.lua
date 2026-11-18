@@ -48,6 +48,17 @@ end
 assert(font:GetObjectType() == "Font", "and is a Font")
 
 local text = env.CreateFrame("Frame", nil, env.UIParent):CreateFontString(nil, "OVERLAY", "GameFontNormal")
+local html = env.CreateFrame("SimpleHTML", nil, env.UIParent)
 assert(type(text.GetParent) == "function" and type(text.SetPoint) == "function", "a FontString is a region and keeps its region methods")
+for _, quiet in ipairs({ false, true }) do
+	env.SetQuiet(quiet)
+	html:SetFont("P", "font.ttf", 11, "")
+	text:SetFont("font.ttf", 11, "")
+	for _, height in ipairs({ 0, -1, 0 / 0, math.huge, -math.huge, env.Secret(11) }) do
+		raises(function() text:SetFont("font.ttf", height, "") end, "Invalid font height")
+		assert(select(2, text:GetFont()) == 11, "a refused height keeps the previous font")
+	end
+end
+env.SetQuiet(false)
 
 print("stub refusals ok")
