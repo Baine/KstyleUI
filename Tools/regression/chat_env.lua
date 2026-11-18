@@ -127,6 +127,9 @@ local function newChatFrame(env, id, parent)
 	frame.ScrollBar:SetPoint("BOTTOMLEFT", frame.ScrollToBottomButton, "TOPLEFT", 0, 2)
 	frame.ScrollBar:SetAlpha(0)
 	frame.buttonFrame = blizzard(env, env.CreateFrame("Frame", name .. "ButtonFrame", frame))
+	frame.buttonFrame:SetWidth(29)
+	frame.buttonFrame:SetPoint("TOPRIGHT", frame.Background, "TOPLEFT", -3, -3)
+	frame.buttonFrame:SetPoint("BOTTOMRIGHT", frame.Background, "BOTTOMLEFT", -3, 6)
 	local tab = blizzard(env, env.CreateFrame("Button", name .. "Tab", env.UIParent))
 	tab:SetID(id)
 	-- ChatTabArtTemplate: a 64 by 32 button, 16-unit side pieces, the text centred 5 units below the middle.
@@ -523,6 +526,7 @@ function C.Install(env, opts)
 	function env.FCF_SetWindowName(frame, name)
 		env[frame:GetName() .. "Tab"]:SetText(name)
 	end
+	function env.FCF_SavePositionAndDimensions() end
 	function env.FCF_DockFrame(frame)
 		frame.isDocked = 1
 	end

@@ -522,14 +522,38 @@ function Layouts.Get(name)
 	return out
 end
 
-function Layouts.Footprint(name, key)
+function Layouts.CooldownGrid(style, key)
+	local group = key == "cooldowns.essential" and "essential" or key == "cooldowns.utility" and "utility"
+	if not group then return end
+	local saved = ns.Store and ns.Store.IsLoaded() and ns.Store.Module("Cooldowns") or {}
+	local cfg = type(saved[group]) == "table" and saved[group] or {}
+	local attached, essential = saved.attached ~= false, group == "essential"
+	local stacked = attached and style ~= "frames"
+	local function Number(value, low, high, step, fallback)
+		if type(value) ~= "number" or issecretvalue and issecretvalue(value) or value ~= value then return fallback end
+		if fallback == 0 and value == 0 then return 0 end
+		return math.floor(math.min(high, math.max(low, value)) / step + 0.5) / (1 / step)
+	end
+	local columns = Number(cfg.columns, 1, 12, 1, 0)
+	local rows = Number(cfg.rows, 1, 4, 1, 0)
+	if columns == 0 then columns = stacked and 6 or (essential and (attached and 12 or 6) or 4) end
+	if rows == 0 then rows = stacked and 2 or (essential and 1 or (attached and 3 or 1)) end
+	return Number(cfg.size, 16, 64, 0.1, essential and CENTRE_BUTTON or BUTTON), Number(cfg.spacing, 0, 12, 0.1, essential and CENTRE_GAP or PITCH), columns, rows
+end
+
+function Layouts.Footprint(name, key, style)
 	local element = byKey[key]
 	if not element or not layouts[name] then
 		return nil
 	end
-	local size = SIZES[name][key] or element.reserve
-	if size then
-		return size[1], size[2], size[3], size[4]
+	style = style or (ns.HudStyle and ns.HudStyle.Current() or "frames")
+	local size, gap, columns, rows = Layouts.CooldownGrid(style, key)
+	if size then return columns * size + (columns - 1) * gap, rows * size + (rows - 1) * gap end
+	local place = Layouts.Attached(style, name, key, ns.Scale.Aspect())
+	if place and place.width then return place.width, place.height end
+	local reserve = SIZES[name][key] or element.reserve
+	if reserve then
+		return reserve[1], reserve[2], reserve[3], reserve[4]
 	end
 	return element.width, element.height
 end
@@ -832,7 +856,12 @@ function Layouts.Style(style, name, key)
 		and ns.Store.Module("CombatText").clearLanes == false then
 		return
 	end
-	local set = STYLES[style] and STYLES[style][name]
+	if not STYLES[style] then return nil end
+	local attached = Layouts.Attached(style, name, key, ns.Scale.Aspect())
+	if attached then
+		return attached
+	end
+	local set = STYLES[style][name]
 	local position = set and (set[key] or STORY_STYLES[style] and STORY_STYLES[style][key])
 	if position then
 		return { anchor = position.anchor, x = position.x, y = position.y, scale = position.scale, width = position.width, height = position.height }
@@ -949,6 +978,10 @@ end
 Layouts.BuildMedallions()
 
 function Layouts.Aspect(class, style, name, key)
+	local attached = Layouts.Attached(style, name, key, class)
+	if attached then
+		return attached
+	end
 	local styled = style ~= "frames" and Layouts.Style(style, name, key) ~= nil
 	local set = PLACES[class] and PLACES[class][styled and style or "frames"]
 	local position = set and set[key]
@@ -958,6 +991,77 @@ function Layouts.Aspect(class, style, name, key)
 		return place
 	end
 end
+
+function Layouts.Attached(style, name, key, class)
+	if not layouts[name] or not byKey[key] or not (style == "frames" or STYLES[style]) then return nil end
+	local cooldown = key:match("^cooldowns%.") ~= nil
+	local swing = key == "meters.swing"
+	if not (cooldown or swing) then return nil end
+	local store = ns.Store
+	local on = not (store and store.IsLoaded()) or store.Module(cooldown and "Cooldowns" or "Meters")[cooldown and "attached" or "swing"]
+	if not cooldown and type(on) == "table" then on = on.attached end
+	if on == false then
+		local old = Layouts.Previous(style, name, key, class)
+		return { anchor = old.anchor, x = old.x, y = old.y, width = swing and 260 or nil, height = swing and 8 or nil }
+	end
+	if (key == "cooldowns.bars" or key == "cooldowns.buffs") and style == "orbs" then
+		return Layouts.Previous(style, name, key, class)
+	end
+	local places = STYLES[style] and STYLES[style][name] or layouts[name]
+	local cast = PLACES[class] and PLACES[class][style] and PLACES[class][style]["unitframes.castbar.player"] or places["unitframes.castbar.player"]
+	local y = cast.y + (cast.height or 30) + 8
+	local x = 0
+	if style == "medallions" then
+		local player = PLACES[class] and PLACES[class][style]["unitframes.player"] or places["unitframes.player"]
+		y = player.y + player.height + Layouts.MEDALLIONS_UNITS.stack + Layouts.MEDALLIONS_UNITS.mini[2] + 24
+		x = (key == "cooldowns.essential" or key == "cooldowns.buffs") and -300 or 300
+		if key == "cooldowns.buffs" or key == "cooldowns.bars" then y = y + 2 * (CENTRE_BUTTON + CENTRE_GAP) + 8 end
+		if swing then
+			y = player.y + (player.height + Layouts.MEDALLIONS_MEDALS["unitframes.player"].d) / 2 + 4
+			x = -((cast.width or 300) / 2 + 220 / 2 + 8)
+		end
+	else
+		if style == "frames" then y = cast.y - CENTRE_BUTTON - 12 end
+		if key == "cooldowns.utility" then x = (12 * CENTRE_BUTTON + 11 * CENTRE_GAP + UTILITY) / 2 + 8 end
+		if key == "cooldowns.buffs" then x = -(12 * CENTRE_BUTTON + 11 * CENTRE_GAP + 182.6) / 2 - 8 end
+		if key == "cooldowns.bars" then x = -(12 * CENTRE_BUTTON + 11 * CENTRE_GAP + TRACKED) / 2 - 182.6 - 64 end
+		if key == "cooldowns.utility" and style == "orbs" then
+			x, y = 0, places["unitframes.resource"].y + 14 + 8 + 14 + 8
+		end
+		if swing then
+			y = layouts[name]["unitframes.resource"].y + 14 + 8
+			if style == "orbs" then y = places["unitframes.resource"].y + 14 + 8 end
+		end
+	end
+	local width, height
+	if swing then
+		width, height = style == "medallions" and 220 or 260, 14
+	end
+	return { anchor = "BOTTOM", x = x, y = y, width = width, height = height }
+end
+
+function Layouts.Previous(style, name, key, class)
+	local specific = PLACES[class] and PLACES[class][style] and PLACES[class][style][key]
+	local themed = STYLES[style] and STYLES[style][name] and STYLES[style][name][key]
+	local place = specific or themed or layouts[name][key]
+	return { anchor = place.anchor, x = place.x, y = place.y, width = place.width, height = place.height }
+end
+
+ns.Callbacks.Register("SettingChanged", "AttachedHUD", function(_, module, key)
+	if not (module == "Cooldowns" and key == "attached" or module == "Meters" and key == "swing.attached") then return end
+	ns.Combat.Queue(function()
+		for _, element in ipairs(ELEMENTS) do
+			if element.key:match("^cooldowns%.") or element.key == "meters.swing" then
+				local el = ns.Layout.Element(element.key)
+				if el then ns.Layout.Register(el.frame, el.key, el.base, el.opts) end
+			end
+		end
+		local name = ns.Layout.Setting("preset")
+		if Setup.EditMode and Setup.EditMode.ActiveName() == name then
+			Setup.EditMode.Restyle(name, Setup.Story(name, Setup.GuideLoaded()))
+		end
+	end)
+end)
 
 do
 local BANDED = { ["groupframes.party"] = true, ["groupframes.raid"] = true, ["unitframes.boss"] = true }
@@ -1199,7 +1303,7 @@ function Layouts.PrepareFits(name, physicalWidth, physicalHeight, enabled, posit
 	local state = { layout = layout, sizes = {}, rects = {}, boxes = { {}, {} }, story = { value = { guide = {}, quests = {} } }, span = HEIGHT }
 	for i, element in ipairs(ELEMENTS) do
 		local key = element.key
-		local width, height, offsetX, offsetY = Layouts.Footprint(name, key)
+		local width, height, offsetX, offsetY = Layouts.Footprint(name, key, style)
 		if search then
 			local position = layout[key]
 			state.span = math.max(state.span, math.abs(position.x) + width, math.abs(position.y) + height)
@@ -1260,16 +1364,17 @@ function Layouts.Fits(name, physicalWidth, physicalHeight, user, enabled, positi
 	local layout = state.layout
 	local pixelScale = physicalHeight / rootHeight
 	local rects, count = state.rects, 0
+	local elements = #ELEMENTS
 	local story = Layouts.FitStory(state, name, physicalWidth, physicalHeight, user, style)
-	for i = 1, #ELEMENTS + 2 do
+	for i = 1, elements + 2 do
 		local key, width, height, position, offsetX, offsetY
-		if i <= #ELEMENTS then
+		if i <= elements then
 			key = ELEMENTS[i].key
 			local size = state.sizes[i]
 			width, height, offsetX, offsetY = size[1], size[2], size[3], size[4]
 			position = layout[key]
 		else
-			position = i == #ELEMENTS + 1 and story.guide or story.quests
+			position = i == elements + 1 and story.guide or story.quests
 			key, width, height = position.key, position.width, position.height
 		end
 		if enabled[key] ~= false and not (REPLACED[style] and REPLACED[style][key]) then
