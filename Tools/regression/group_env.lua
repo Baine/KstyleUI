@@ -722,8 +722,7 @@ local function makeHeader(env, header)
 	env._headers[#env._headers + 1] = header
 end
 
--- Children fire OnAttributeChanged on every SetAttribute and OnShow or OnHide when that changes, as
--- frames do in the game.
+-- OnAttributeChanged fires even when SetAttribute repeats a value; OnShow/OnHide require a visibility change.
 local function makeAttributeScripts(env, button)
 	local base = getmetatable(button).__index
 	local setAttribute, hide = base(button, "SetAttribute"), base(button, "Hide")
@@ -884,8 +883,8 @@ end
 
 -- SetRoster(env, kind, members) sets a party ("party"), raid ("raid") or solo (nil) roster and fires
 -- GROUP_ROSTER_UPDATE. Party members become party1.., raid members raid1... A raid member's group
--- defaults to its place in fives.
-function G.SetRoster(env, kind, members, player)
+-- defaults to its place in fives. deferEvents lets event-order tests deliver the client events themselves.
+function G.SetRoster(env, kind, members, player, deferEvents)
 	local r = env._roster
 	r.kind, r.units, r.order = kind, {}, {}
 	r.player = player or { name = "Tester", class = "HUNTER" }
@@ -897,6 +896,7 @@ function G.SetRoster(env, kind, members, player)
 		r.units[unit] = m
 		r.order[#r.order + 1] = unit
 	end
+	if deferEvents then return end
 	env.FireEvent("GROUP_ROSTER_UPDATE")
 	env.RunStateDrivers()
 	env.UpdateHeaders()

@@ -506,7 +506,7 @@ function Unit.ForEach(fn)
 	end
 end
 
-local function PartyCount()
+local function PartyCount(deferGroups)
 	local Headers = ns.Headers
 	if not (Headers and Headers.SetPartyCount) then
 		return
@@ -517,7 +517,12 @@ local function PartyCount()
 	end
 	Headers.SetPartyCount(count)
 	if Headers.SetRaidCount then
-		Headers.SetRaidCount(count, Unit.HighestGroup(count))
+		local card = Headers.cards and Headers.cards.raid
+		local groups = card and card.groups
+		if not deferGroups then
+			groups = Unit.HighestGroup(count)
+		end
+		Headers.SetRaidCount(count, groups)
 	end
 end
 
@@ -552,20 +557,32 @@ local rosterPending = false
 local function FlushRoster()
 	rosterPending = false
 	if Unit.running then
-		Unit.RefreshAll()
+		PartyCount()
 	end
 end
 
 function Unit.RosterChanged()
-	if rosterPending then
+	if not Unit.running then
 		return
 	end
 	if not (C_Timer and C_Timer.After) then
-		Unit.RefreshAll()
+		PartyCount()
 		return
 	end
-	rosterPending = true
-	C_Timer.After(0, FlushRoster)
+	PartyCount(true)
+	if not rosterPending then
+		rosterPending = true
+		C_Timer.After(0, FlushRoster)
+	end
+end
+
+function Unit.RolesChanged()
+	for i = 1, #frames do
+		local f = frames[i]
+		if f.unit then
+			RoleLetter(f)
+		end
+	end
 end
 
 function Unit.TargetAll()
