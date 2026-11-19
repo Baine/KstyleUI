@@ -337,12 +337,31 @@ local function OnSetting(_, module, key)
 		ns.Ranks.Stop()
 	end
 	local barKey, field = key:match("^(%w+)%.(.+)$")
-	if key == "trayColumn" or key == "safeDragging" then
+	if barKey and field == "size" and (barKey == "bar1" or barKey == "bar2") and ns.Slab.Grouped(ns.BAR[barKey]) then
+		local other = barKey == "bar1" and "bar2" or "bar1"
+		if ns.Config(other).size ~= ns.Config(barKey).size then
+			K.Options.Write(MODULE, other .. ".size", ns.Config(barKey).size)
+			return
+		end
 		ApplyAll()
+		return
+	elseif key == "trayColumn" or key == "useTray" or key == "slab" or key == "safeDragging" then
+		ApplyAll()
+		return
 	elseif barKey and ns.BAR[barKey] then
-		if field ~= "showEmpty" and field ~= "fade" and field ~= "fadeAlpha" and field ~= "hotkey" and field ~= "count" and field ~= "macro" and field ~= "cooldown" then
+		if field == "showEmpty" or field == "fade" or field == "fadeAlpha" or field == "hotkey" or field == "count" or field == "macro" or field == "cooldown" then
+			RefreshVisuals()
+			return
+		end
+		local bar = ns.bars[barKey]
+		if bar then
+			bar:Apply()
+			ns.ApplyBindings()
+			ns.Vehicle.Update()
+		else
 			ApplyAll()
 		end
+		return
 	end
 	RefreshVisuals()
 end
@@ -444,6 +463,7 @@ local function Enable()
 	ns.Vehicle.Update()
 	ns.Flyout.Refresh()
 	ns.HideBlizzard()
+	ns.StylePossess()
 	UpdateAll()
 	ns.Slab.Enable()
 	ns.SlabEffects.Enable()
