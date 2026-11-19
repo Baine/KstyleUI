@@ -13,7 +13,6 @@ local max = math.max
 local MODULE = "Skins"
 local ICON_CROP = 0.07
 local WASH_ALPHA = 0.12
-local HIGHLIGHT_ALPHA = 0.18
 local LEVEL_ABOVE = 1
 local NEUTRAL_SPREAD = 0.05
 local QUALITY_POOR, QUALITY_COMMON, QUALITY_UNCOMMON, QUALITY_RARE, QUALITY_EPIC = 0, 1, 2, 3, 4
@@ -249,10 +248,14 @@ function Kit.TabSystem(system)
 end
 
 local function TintWash(wash)
-	Style.TintAccent(wash, wash.alpha)
+	if wash.color then
+		wash:SetVertexColor(Widgets.Rgba(wash.color, wash.alpha))
+	else
+		Style.TintAccent(wash, wash.alpha)
+	end
 end
 
-function Kit.Wash(texture, alpha)
+function Kit.Wash(texture, alpha, color)
 	if not Parts.IsTexture(texture) then
 		return nil
 	end
@@ -266,6 +269,7 @@ function Kit.Wash(texture, alpha)
 	wash:SetAllPoints(texture)
 	wash:SetColorTexture(Tokens.Color("white"))
 	wash.alpha = alpha or WASH_ALPHA
+	wash.color = color
 	wash.Restyle = TintWash
 	TintWash(wash)
 	Style.Track(wash)
@@ -283,7 +287,7 @@ function Kit.Wash(texture, alpha)
 end
 
 local function TintHighlight(state)
-	Style.TintAccent(state.texture, HIGHLIGHT_ALPHA)
+	state.texture:SetVertexColor(K.Widgets.Rgba("white", K.Tokens.Share("rowHover")))
 end
 
 function Kit.Highlight(button)
