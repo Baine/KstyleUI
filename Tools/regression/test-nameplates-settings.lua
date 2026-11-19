@@ -173,13 +173,29 @@ do
 	assert(#env._errors == 0, "the preview raised no error: " .. tostring(env._errors[1]))
 end
 
--- Nameplate CVars: only when asked, only out of combat, back to the game's defaults when turned off ----
+-- Nameplate CVars: only when asked, only out of combat, back to the player's values when turned off ----
+
+for _, manage in ipairs({ false, true }) do
+	local env, K = N.New()
+	K.Options.Write("Nameplates", "personalResource", false)
+	K.Options.Write("Nameplates", "cvars.enabled", manage)
+	assert(env._cvars.nameplateShowSelf == "0", "the personal-resource choice hides the display")
+	K.Modules.Disable("Nameplates")
+	assert(env._cvars.nameplateShowSelf == "1", "disabling gives the player's personal-resource value back")
+	env.SetCombat(true)
+	K.Modules.Enable("Nameplates")
+	assert(env._cvars.nameplateShowSelf == "1", "re-enabling in combat waits to apply the choice")
+	env.SetCombat(false)
+	assert(K.Store.Module("Nameplates").personalResource == false and env._cvars.nameplateShowSelf == "0",
+		"re-enabling must apply the personal-resource choice again, with management on or off")
+	assert(#env._errors == 0, tostring(env._errors[1]))
+end
 
 do
 	local env, K, ns = N.New()
 	for _, write in ipairs(env._cvarWrites) do
-		assert(write.name == "nameplateMinScale" or write.name == "nameplateMaxScale" or write.name == "nameplateSelectedScale",
-			"by default the module writes only the plate scale CVars it holds at 1, got " .. tostring(write.name))
+		assert(write.name == "nameplateMinScale" or write.name == "nameplateMaxScale" or write.name == "nameplateSelectedScale"
+			or write.name == "nameplateShowSelf", "by default the module writes only personal resource and held scale CVars, got " .. tostring(write.name))
 	end
 	K.Options.Write("Nameplates", "cvars.enabled", true)
 	assert(env._cvars.nameplateMaxDistance == tostring(ns.Settings.Get("cvars.maxDistance")), "turning CVars on applies the distance")
@@ -192,7 +208,7 @@ do
 	assert(env._cvars.nameplateMaxDistance == "30", "and applies when combat ends")
 
 	K.Options.Write("Nameplates", "cvars.enabled", false)
-	assert(env._cvars.nameplateMaxDistance == "60" and env._cvars.nameplateSize == "2", "turning CVars off restores the game's defaults")
+	assert(env._cvars.nameplateMaxDistance == "60" and env._cvars.nameplateSize == "2", "turning CVars off restores the player's values")
 	assert(env._stacking[1] == false and env._stacking[2] == false, "and clears the stacking bits")
 end
 

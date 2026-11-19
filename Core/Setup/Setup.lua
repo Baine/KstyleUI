@@ -322,10 +322,6 @@ function Setup.Apply(picked)
 	local nameplates = Store.Defaults("Nameplates")
 	if nameplates and type(nameplates.personalResource) == "boolean" then
 		ns.Options.Write("Nameplates", "personalResource", false)
-	else
-		ns.Combat.Queue(function()
-			ns.CVars.Set("nameplateShowSelf", "0")
-		end)
 	end
 	Setup.MarkSeen()
 	log("applied layout " .. picked.layout .. ": " .. moved .. " elements moved now, " .. saved .. " saved for the reload, "
