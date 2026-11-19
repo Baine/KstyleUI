@@ -246,8 +246,8 @@ end
 
 function Column:Layout()
 	local holder, face = self.holder, self.face
-	local size = Widgets.Snap(holder, Settings.Get("column.size"))
-	local spacing = Widgets.Snap(holder, Settings.Get("column.size") + Settings.Get("column.spacing")) - size
+	local size = Settings.IconSize(holder, "column.size", 23)
+	local spacing = Widgets.Snap(holder, Settings.Get("column.size") + Settings.Get("column.spacing")) - Widgets.Snap(holder, Settings.Get("column.size"))
 	local side = Settings.Get("column.side")
 	local up = Settings.Get("column.growth") == "up"
 	local shown = {}

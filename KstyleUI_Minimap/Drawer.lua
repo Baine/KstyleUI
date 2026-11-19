@@ -226,24 +226,35 @@ local function Toggle(column)
 	return column.buttons.drawer
 end
 
+function Drawer:Size()
+	local minimum = 31
+	for _, state in pairs(self.adopted) do
+		minimum = math.max(minimum, state.nativeSize or 0)
+	end
+	return Settings.IconSize(self.panel, "drawer.size", minimum)
+end
+
 function Drawer:Place(button)
 	local state = self.adopted[button]
 	if not state or not state.slot then
 		return
 	end
-	local size = Widgets.Snap(self.panel, Settings.Get("drawer.size"))
+	local size = self:Size()
 	local spacing = Widgets.Snap(self.panel, Settings.Get("drawer.spacing"))
 	local direction = Format.Direction(Settings.Get("drawer.direction"), Settings.Get("column.side"))
-	local point, x, y = Format.Grid(state.slot, Settings.Get("drawer.columns"), size, spacing, direction, Widgets.Snap(self.panel, PAD))
+	local point, x, y = Format.Grid(state.slot, self.columns or Settings.Get("drawer.columns"), size, spacing, direction, Widgets.Snap(self.panel, PAD))
+	local compact = Settings.Get("compactIcons")
+	local scale = compact and 1 or button:GetScale()
+	if not Format.IsNumber(scale) or scale <= 0 then return end
 	self.placing = true
 	button:ClearAllPoints()
-	button:SetPoint(point, self.panel, point, x, y)
-	button:SetSize(size, size)
+	button:SetPoint(point, self.panel, point, x / scale, y / scale)
+	button:SetSize(size / scale, size / scale)
 	local icon = state.icon
 	if type(icon) == "table" and type(icon.SetPoint) == "function" then
 		icon:ClearAllPoints()
 		icon:SetPoint("CENTER", button, "CENTER")
-		Widgets.Size(icon, size * ICON_FILL, size * ICON_FILL)
+		Widgets.Size(icon, size * ICON_FILL / scale, size * ICON_FILL / scale)
 	end
 	self.placing = false
 end
@@ -262,14 +273,29 @@ function Drawer:Layout()
 			state.slot = nil
 		end
 	end
-	local size = Widgets.Snap(panel, Settings.Get("drawer.size"))
+	local size = self:Size()
 	local spacing = Widgets.Snap(panel, Settings.Get("drawer.spacing"))
-	local width, height = Format.GridSize(slot, Settings.Get("drawer.columns"), size, spacing, Widgets.Snap(panel, PAD))
+	local pad = Widgets.Snap(panel, PAD)
+	local columns = Settings.Get("drawer.columns")
+	local area = self.column.face.mapArea
+	local reserve = toggle:GetWidth() + Widgets.Snap(panel, Format.EDGE + GAP)
+	if not Settings.Get("compactIcons") then
+		columns = math.max(1, math.min(columns, math.floor((area:GetWidth() - reserve - 2 * pad + spacing) / (size + spacing))))
+	end
+	self.columns = columns
+	local width, height = Format.GridSize(slot, columns, size, spacing, pad)
 	Widgets.Size(panel, math.max(width, Widgets.Border(panel)), math.max(height, Widgets.Border(panel)))
 	local point, relative, xs, ys = Format.DrawerAnchor(direction)
 	local gap = Widgets.Snap(panel, GAP)
 	panel:ClearAllPoints()
-	panel:SetPoint(point, toggle, relative, xs * gap, ys * gap)
+	if Settings.Get("compactIcons") then
+		panel:SetPoint(point, toggle, relative, xs * gap, ys * gap)
+	else
+		local left = Settings.Get("column.side") == "left"
+		local x = point:find("RIGHT") and not left and -reserve or point:find("LEFT") and left and reserve or 0
+		local y = point:find("TOP") and -Widgets.Snap(panel, Format.NORTH) or 0
+		panel:SetPoint(point, area, point, x, y)
+	end
 	for _, button in ipairs(self.order) do
 		self:Place(button)
 	end
@@ -324,13 +350,17 @@ function Drawer:Adopt(name, button, own)
 	end
 	local panel = self.panel
 	local state = { name = name, parent = button:GetParent(), icon = IconOf(button) }
+	state.width, state.height = button:GetSize()
+	if not IsSecret(state.width) and not IsSecret(state.height) and type(state.width) == "number" and type(state.height) == "number" then
+		local reference = math.min(Widgets.ScaleFactor(UIParent), Widgets.ScaleFactor(button:GetParent()))
+		state.nativeSize = math.max(state.width, state.height) * Widgets.ScaleFactor(button) / reference
+	end
+	if state.icon then
+		state.iconPoints = IconPoints(state.icon, button)
+		state.iconWidth, state.iconHeight = state.icon:GetSize()
+	end
 	if own then
 		state.points = Points(button)
-		state.width, state.height = button:GetSize()
-		if state.icon then
-			state.iconPoints = IconPoints(state.icon, button)
-			state.iconWidth, state.iconHeight = state.icon:GetSize()
-		end
 	end
 	self.adopted[button] = state
 	self.order[#self.order + 1] = button
@@ -444,26 +474,26 @@ function Drawer:Stop()
 		if type(button.RegisterForDrag) == "function" then
 			button:RegisterForDrag(DRAG_BUTTON)
 		end
+		local width, height = state.width, state.height
+		if type(width) == "number" and type(height) == "number" and not IsSecret(width) and not IsSecret(height) then
+			button:SetSize(width, height)
+		end
 		if state.points then
-			local width, height = state.width, state.height
-			if type(width) == "number" and type(height) == "number" and not IsSecret(width) and not IsSecret(height) then
-				button:SetSize(width, height)
-			end
 			for _, point in ipairs(state.points) do
 				button:SetPoint(point[1], point[2], point[3], point[4], point[5])
 			end
-			local icon, iconWidth, iconHeight = state.icon, state.iconWidth, state.iconHeight
-			if icon and state.iconPoints and #state.iconPoints > 0 then
-				icon:ClearAllPoints()
-				if type(iconWidth) == "number" and type(iconHeight) == "number" and not IsSecret(iconWidth) and not IsSecret(iconHeight) then
-					icon:SetSize(iconWidth, iconHeight)
-				end
-				for _, point in ipairs(state.iconPoints) do
-					icon:SetPoint(point[1], point[2], point[3], point[4], point[5])
-				end
-			end
 		elseif lib and type(lib.Refresh) == "function" then
 			pcall(lib.Refresh, lib, state.name)
+		end
+		local icon, iconWidth, iconHeight = state.icon, state.iconWidth, state.iconHeight
+		if icon and state.iconPoints then
+			icon:ClearAllPoints()
+			if type(iconWidth) == "number" and type(iconHeight) == "number" and not IsSecret(iconWidth) and not IsSecret(iconHeight) then
+				icon:SetSize(iconWidth, iconHeight)
+			end
+			for _, point in ipairs(state.iconPoints) do
+				icon:SetPoint(point[1], point[2], point[3], point[4], point[5])
+			end
 		end
 	end
 	self.adopted, self.order = {}, {}

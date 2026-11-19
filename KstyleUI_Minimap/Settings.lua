@@ -12,15 +12,16 @@ Settings.MODULE = MODULE
 
 local TEXT_MIN, TEXT_MAX, TEXT_STEP = 6, 24, 1
 local DELAY_MIN, DELAY_MAX, DELAY_STEP = 3, 30, 1
-local BUTTON_MIN, BUTTON_MAX, BUTTON_STEP = 14, 32, 1
+local BUTTON_MIN, BUTTON_MAX, BUTTON_STEP = 14, 96, 1
 local SPACING_MIN, SPACING_MAX, SPACING_STEP = 0, 12, 1
-local ICON_MIN, ICON_MAX, ICON_STEP = 16, 40, 1
+local ICON_MIN, ICON_MAX, ICON_STEP = 16, 128, 1
 local COLUMNS_MIN, COLUMNS_MAX, COLUMNS_STEP = 1, 12, 1
 
 local accentR, accentG, accentB = Tokens.Color("accentDefault")
 
 Settings.defaults = {
 	enabled = false,
+	compactIcons = false,
 	clearPlaques = true,
 	accent = { source = "class", color = { r = accentR, g = accentG, b = accentB } },
 	column = { side = "right", size = 19.5, spacing = 5.5, growth = "down", hover = true, tracking = true, mail = true, calendar = true, queue = true, drawer = true },
@@ -115,6 +116,7 @@ end
 
 local schema = {
 	{ type = "header", label = L["Frame"] },
+	{ type = "toggle", key = "compactIcons", label = L["Compact map icons"], help = L["Shrink map pins, tracking and drawer icons. Off by default keeps at least their native size."] },
 	{ type = "toggle", key = "clearPlaques", label = L["Keep map plaques clear"], help = L["Keep round-map labels below the screen edge and clear of the ring. Off uses the old positions."] },
 	{
 		type = "dropdown", key = "accent.source", label = L["Accent colour"], options = ACCENT_OPTIONS,
@@ -265,6 +267,16 @@ for _, row in ipairs(TextRows("coords", { L["Coordinate font"], L["Coordinate te
 	schema[#schema + 1] = row
 end
 Settings.schema = schema
+
+function Settings.IconSize(frame, key, minimum)
+	local size = Settings.Get(key)
+	if not Settings.Get("compactIcons") then
+		local pixel = K.Scale.Pixel(1) / K.Widgets.ScaleFactor(frame)
+		size = math.max(size, minimum * K.Widgets.ScaleFactor(UIParent) / K.Widgets.ScaleFactor(frame))
+		return math.ceil(size / pixel - 0.000001) * pixel
+	end
+	return K.Widgets.Snap(frame, size)
+end
 
 local rows = {}
 for _, row in ipairs(schema) do
