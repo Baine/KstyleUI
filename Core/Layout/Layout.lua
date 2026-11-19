@@ -485,9 +485,22 @@ end
 
 function Layout.Clamp(key, left, bottom, w, h)
 	local el = elements[key]
+	local rw, rh = Layout.RootSize()
 	if el and el.opts.clamp then
-		local rw, rh = Layout.RootSize()
-		return el.opts.clamp(left, bottom, w, h, rw, rh)
+		local cl, cb = el.opts.clamp(left, bottom, w, h, rw, rh)
+		if cl then return cl, cb end
+	end
+	local layouts = ns.Setup and ns.Setup.Layouts
+	local element = layouts and layouts.Element(key)
+	if el and element then
+		local f, margin, origin = Factor(el.frame), Tokens.Size("screenMargin"), Scale.Origin()
+		local l, r, b, t = layouts.DisplayInsets(key, h / f, el.default.anchor)
+		l, r, b, t = l * f, r * f, b * f, t * f
+		local cl, cb = Clamp(left, margin + l - origin, max(margin + l - origin, rw + origin - margin - r - w)), Clamp(bottom, margin + b, max(margin + b, rh - margin - t - h))
+		local pixel = Scale.Pixel(1)
+		if cl > left then cl = math.ceil(cl / pixel) * pixel elseif cl < left then cl = math.floor(cl / pixel) * pixel end
+		if cb > bottom then cb = math.ceil(cb / pixel) * pixel elseif cb < bottom then cb = math.floor(cb / pixel) * pixel end
+		return cl, cb
 	end
 	return left, bottom
 end
@@ -495,7 +508,7 @@ end
 local function Place(el, anchor, x, y, w, h, f, pixel)
 	local rw, rh = Layout.RootSize()
 	local left, bottom = G.Rect(anchor, x, y, w, h, rw, rh)
-	if el.opts.clamp then left, bottom = Layout.Clamp(el.key, left, bottom, w, h) end
+	left, bottom = Layout.Clamp(el.key, left, bottom, w, h)
 	left, bottom = G.Align(left, pixel), G.Align(bottom, pixel)
 	local _, ax, ay = G.Position(left, bottom, w, h, rw, rh, anchor)
 	local frame = el.frame
@@ -1344,7 +1357,7 @@ function Layout.Rect(key)
 	local pixel = Scale.Pixel(1)
 	local s = el.settings
 	local left, bottom = G.Rect(s.anchor, s.x, s.y, w, h, rw, rh)
-	if el.opts.clamp then left, bottom = Layout.Clamp(key, left, bottom, w, h) end
+	left, bottom = Layout.Clamp(key, left, bottom, w, h)
 	return G.Align(left, pixel), G.Align(bottom, pixel), w, h
 end
 
@@ -1362,7 +1375,7 @@ function Layout.Preview(key, left, bottom, w, h, scale)
 		frame:SetSize(w / f, h / f)
 	end
 	local rw, rh = Layout.RootSize()
-	if el.opts.clamp then left, bottom = Layout.Clamp(key, left, bottom, w, h) end
+	left, bottom = Layout.Clamp(key, left, bottom, w, h)
 	local anchor, x, y = G.Position(left, bottom, w, h, rw, rh, el.settings.anchor)
 	frame:ClearAllPoints()
 	frame:SetPoint(anchor, Scale.Root(), anchor, x / f, y / f)

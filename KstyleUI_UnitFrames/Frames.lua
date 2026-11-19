@@ -531,6 +531,27 @@ local function Limits(kind)
 	return K.Setup.Layouts.Element(Settings.ELEMENTS[kind]).height < Geometry.FULL_MIN_HEIGHT and SMALL_LIMITS or FULL_LIMITS
 end
 
+local function ClampColumn(uf, left, bottom, width, height, rootWidth, rootHeight)
+	if not (uf.s and uf.s.form == "column") then return end
+	local view, Snap = uf.views[1], K.Widgets.Snap
+	local g = view.geometry
+	if not g then return end
+	local p, trim = g.portrait, K.Tokens.Size("gapSmall")
+	local reachLeft, reachRight = trim, trim
+	if p then reachLeft, reachRight = math.max(trim, -Snap(view.button, p.x) + trim), math.max(trim, Snap(view.button, p.x) + Snap(view.button, p.w) - width + trim) end
+	if g.aura and uf.s.auras and uf.s.auraPosition == "SIDE" then
+		local host = view.auras and view.auras.host or view.button
+		reachRight = math.max(reachRight, Snap(host, g.aura.x) + ns.Auras.Footprint(uf.kind, host) - width)
+	end
+	local margin, origin, pixel = K.Tokens.Size("screenMargin"), K.Scale.Origin(), K.Scale.Pixel(1)
+	if left - reachLeft < -origin then left = math.ceil((margin + reachLeft - origin) / pixel) * pixel
+	elseif left + width + reachRight > rootWidth + origin then left = math.floor((rootWidth + origin - margin - width - reachRight) / pixel) * pixel end
+	local inset = K.Tokens.Size("gapTiny")
+	if bottom < margin + inset then bottom = math.ceil((margin + inset) / pixel) * pixel
+	elseif bottom > rootHeight - margin - inset - height then bottom = math.floor((rootHeight - margin - inset - height) / pixel) * pixel end
+	return left, bottom
+end
+
 local function Register(uf)
 	local key = Settings.ELEMENTS[uf.kind]
 	local element = K.Setup.Layouts.Element(key)
@@ -547,6 +568,7 @@ local function Register(uf)
 	local limits = Limits(uf.kind)
 	Layout.Register(holder, key, position, {
 		label = element.label,
+		clamp = function(...) return ClampColumn(uf, ...) end,
 		module = MODULE,
 		resizable = true,
 		minWidth = limits.minWidth,
@@ -594,54 +616,6 @@ local function Slots(uf, w, h)
 		return Geometry.Slots(BOSS_COUNT, BOSS_GAP, w, h, uf.s and uf.s.growth == "UP")
 	end
 	return { { x = 0, y = 0, w = w, h = h } }
-end
-
-local function Extent(uf)
-	local view = uf.views[1]
-	local g, button = view.geometry, view.button
-	local Snap = K.Widgets.Snap
-	local p = g.portrait or g.medal
-	local width = Snap(button, g.panel.w)
-	local left, right = 0, 0
-	if p then
-		left = math.max(0, -Snap(button, p.x))
-		right = math.max(0, Snap(button, p.x) + Snap(button, p.w) - width)
-	end
-	if g.aura and uf.s.auras and uf.s.auraPosition == "SIDE" then
-		local host = view.auras and view.auras.host or button
-		local row = ns.Auras.Footprint(uf.kind, host)
-		right = math.max(right, Snap(host, g.aura.x) + row - width)
-	end
-	return left, right
-end
-
-local function Keep(uf)
-	local Layout = K.Layout
-	if uf.s.form ~= "column" or uf.keeping or not (Layout and Layout.Rect and Layout.Get and Layout.Set and Layout.RootSize) then
-		return
-	end
-	local key = Settings.ELEMENTS[uf.kind]
-	local left, _, w = Layout.Rect(key)
-	local saved = Layout.Get(key)
-	if not (left and saved and type(saved.x) == "number") then
-		return
-	end
-	local reachLeft, reachRight = Extent(uf)
-	local rootW = Layout.RootSize()
-	local shift = 0
-	if left - reachLeft < 0 then
-		shift = reachLeft - left
-	elseif left + w + reachRight > rootW then
-		shift = rootW - (left + w + reachRight)
-	end
-	if shift == 0 then
-		return
-	end
-	uf.keeping = true
-	K.Combat.Queue(function()
-		Layout.Set(key, "x", saved.x + shift)
-		uf.keeping = false
-	end)
 end
 
 function Frames.Relayout(uf)
@@ -699,7 +673,6 @@ function Frames.Relayout(uf)
 			MarkTarget(view)
 		end
 	end
-	Keep(uf)
 end
 
 local function PrepareTarget(view)
