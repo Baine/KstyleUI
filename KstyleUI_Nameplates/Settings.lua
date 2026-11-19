@@ -30,9 +30,9 @@ Settings.defaults = {
 		quest = false, questColor = Color("quest"), rare = false, rareColor = Color("rare"),
 		elite = false, eliteColor = Color("neutral"), caster = false, casterColor = Color("epic"),
 	},
-	name = { show = true, size = 16, outline = "NONE", upper = true, classColor = false },
-	level = { show = true, size = 13, outline = "NONE" },
-	healthText = { show = false, size = 13, outline = "OUTLINE", format = "percent" },
+	name = { show = true, size = 16, outline = "NONE", upper = true, classColor = false, font = "", colorMode = "", color = Color("textEmphasis"), textFormat = "" },
+	level = { show = true, size = 13, outline = "NONE", font = "" },
+	healthText = { show = false, size = 13, outline = "OUTLINE", format = "percent", font = "", colorMode = "", color = Color("textEmphasis"), textFormat = "" },
 	cast = {
 		enabled = true, outcomes = true, combatCues = true, shieldBadge = true, height = 6, texture = BAR_TEXTURE, orientation = "HORIZONTAL", reverse = false,
 		colorSource = "custom", color = Color("gilt"), shieldColor = Color("steelDim"),
@@ -140,22 +140,11 @@ local function HasCVar(name)
 	end
 end
 
-local function TextRows(schema, key, label)
+local function SharedTextRows(schema, key, label)
 	schema[#schema + 1] = { type = "header", label = label }
-	schema[#schema + 1] = {
-		type = "toggle", key = key .. ".show", label = L["Show"],
-		help = L["Shows this text on every plate."],
-	}
-	schema[#schema + 1] = {
-		type = "slider", key = key .. ".size", label = L["Text size"],
-		help = L["The size of this text, in interface units."],
-		min = TEXT_MIN, max = TEXT_MAX, step = 1, disableWhen = Off(key .. ".show"),
-	}
-	schema[#schema + 1] = {
-		type = "dropdown", key = key .. ".outline", label = L["Outline"],
-		help = L["An outline keeps text readable over the game world."],
-		options = OUTLINES, disableWhen = Off(key .. ".show"),
-	}
+	schema[#schema + 1] = { type = "toggle", key = key .. ".show", label = L["Show"], help = L["Shows this text on every plate."] }
+	K.Widgets.TextRows(schema, key, { max = TEXT_MAX, outlines = OUTLINES, tags = key ~= "level",
+		disableWhen = Off(key .. ".show"), custom = Is(key .. ".colorMode", "custom") })
 end
 
 local schema = {
@@ -274,7 +263,7 @@ local schema = {
 	},
 }
 
-TextRows(schema, "name", L["Name"])
+SharedTextRows(schema, "name", L["Name"])
 schema[#schema + 1] = {
 	type = "toggle", key = "name.upper", label = L["Upper case"],
 	help = L["Writes names in capitals. Names hidden by the game in combat stay as they are."],
@@ -285,8 +274,8 @@ schema[#schema + 1] = {
 	help = L["Colours players' names with their class colour."],
 	disableWhen = Off("name.show"),
 }
-TextRows(schema, "level", L["Level"])
-TextRows(schema, "healthText", L["Health text"])
+SharedTextRows(schema, "level", L["Level"])
+SharedTextRows(schema, "healthText", L["Health text"])
 schema[#schema + 1] = {
 	type = "dropdown", key = "healthText.format", label = L["Format"],
 	help = L["Shows health as a percent, a value, or both."],
@@ -674,8 +663,8 @@ local function Read(key)
 		if value ~= nil then
 			return value
 		end
-	elseif type(stored) == type(default) then
-		return stored
+	elseif not ns.Logic.IsSecret(stored) and type(stored) == type(default) then
+		if type(default) ~= "table" or Allowed({ type = "color" }, stored) then return stored end
 	end
 	if stored ~= nil and not logged[key] then
 		logged[key] = true
