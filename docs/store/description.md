@@ -211,19 +211,31 @@ Yes. The guide gets its own tall card beside your quest card, RestedXP's Active 
 **How do I switch HUD style?**
 In **Options, General, HUD style**, or by running the setup again with `/kstyle setup`. Out of combat the change applies at once; picked in combat, it waits for the fight to end.
 
+**My HUD sits in the middle of my ultrawide. How do I spread it out?**
+On 21:9 and 32:9 screens KstyleUI keeps everything in a centred band by default. In **Options, Elements**, set **Ultrawide arrangement** to **Spread**: the chat, minimap, quest tracker and the other side columns move out to the screen edges, and your group frames stay close to your character. **HUD width**, just above it, sets how wide the centred band is.
+
+**How do I get an action bar into the slab?**
+In Medallions the slab holds Action bars 1 and 2, twelve buttons each side of the crest. Action bar 3, the pet bar and the stance bar get their own small slabs beside it: turn on Action bar 3 in **Options, Action Bars** and set its buttons, and it sits beside the left slab. In Frames and Orbs the first two bars sit in the main tray. You can move any bar with Layout Mode (below).
+
+**What is the bar of items like Healthstones that shows up?**
+That is RestedXP's **Active Items** box: RestedXP shows the items your current guide step uses, such as Healthstones, quest items or your hearthstone. KstyleUI docks it under the RestedXP guide card. If you drag it away it stays where you put it; to change what it shows, use RestedXP's own settings.
+
+**How do I move a bar or any other piece?**
+Type `/kstyle layout` (or click **Layout Mode** in Options). Every piece of the interface shows a plate with its name: drag a plate to move it, scroll over an action bar's plate to make it bigger or smaller, right-click a plate to put it back, and click **Done**. Layout Mode closes if you enter combat. A bar or box from another addon, like RestedXP's, moves with that addon's own drag or unlock.
+
 **Can I keep parts of the default UI?**
 Yes. Every feature is a module you can switch off, and **Keep my UI** in the setup leaves the game's interface as it is.
 
 **Which languages are included?**
-English, German, French, Spanish and Simplified Chinese, using the game's own terms for each language. The translations are machine-made and not yet checked by a native speaker, so please report a wrong or awkward string as an issue.
+English, German, French, Spanish and Simplified Chinese, using the game's own terms for each language. The translations are machine-made and not yet checked by a native speaker, so please report a wrong or awkward string in #bug-reports on Discord.
 
 **How do I report a bug?**
-Open an issue at the link below. Say what you were doing, what you expected and what happened instead, and add a screenshot and your KstyleUI version if you can.
+Post in #bug-reports on the [KstyleUI Discord](https://discord.gg/A5qqGZEXyN). Say what you were doing, what you expected and what happened instead, and add your KstyleUI version and a screenshot.
 
 ## Links
 
 - Source code: https://github.com/korallis/KstyleUI
-- Issues: https://github.com/korallis/KstyleUI/issues
+- Bug reports and help: https://discord.gg/A5qqGZEXyN
 
 ## Credits
 
