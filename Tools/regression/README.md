@@ -16,7 +16,7 @@ To see a failing test's full output, run that test alone, for example `lua5.1 To
 
 ## Modes
 
-CI runs the whole suite once per pull request head and once per push to `staging`, as two `--shard I/2` jobs. A developer's pre-push run is `--affected`. The full run with no argument is for reproducing a CI failure.
+CI runs the whole suite on hosted `ubuntu-latest` for pull requests as eight `--shard I/8` jobs, and on self-hosted Macs for staging pushes and manual runs as two `--shard I/2` jobs. Staging always runs Lua, even with green PR markers, to check Mac CPU limits and cumulative instruction budgets. Hosted per-file CPU overruns and per-path CPU headroom warn; functional tests, instruction budgets, memory limits and hang guards still fail. A developer's pre-push run is `--affected`. The full run with no argument is for reproducing a CI failure.
 
 | Option | What it runs | Last line |
 | --- | --- | --- |
@@ -26,7 +26,7 @@ CI runs the whole suite once per pull request head and once per push to `staging
 | `--margins` | The files one at a time, then the files within 20% of a budget | `passed N, failed M` |
 | `--write-weights` | Every file, then writes `weights.json` | `passed N, failed M` |
 
-`--shard`, `--affected` and `--margins` can be combined with each other, but none of them with `--write-weights`. A shard exits 0 only when its own files pass; CI requires both Lua shard jobs and the parallel `lint, python and package` job to pass.
+`--shard`, `--affected` and `--margins` can be combined with each other, but none of them with `--write-weights`. A shard exits 0 only when its own files pass; CI requires every Lua shard job and the parallel `lint, python and package` job to pass.
 
 ### Shards and weights
 
@@ -475,7 +475,7 @@ The lint follows locals within a file. It does not follow values through functio
 
 The paths run as four test files to bound each file's work; their CPU limits, including `test-perf.lua`'s measured allowance, are recorded in `cpu_allowances.tsv`: `test-perf.lua` measures the core, action bar, combat text, cooldown, group frame and meter files, `test-perf-frames.lua` the nameplate and unit frame files, `test-perf-skins.lua` the quest card's, and `test-perf-hud.lua` the data bars' and the minimap's. `perf_runner.lua` holds the lists (`GROUPS`) and fails every file when a `perf/` file sits in no group, or in two. A slow path can lower `calls` (the quest card's use 100) so its allocation trace, about fifty times a plain call, stays inside the file's time.
 
-A path that fails on time alone (over budget, or under the headroom rule below) is measured again, up to 3 attempts in all, and its fastest attempt counts; the printed line then says `(fastest of N attempts)`. An allocation never clears on another attempt. When a failure stands, the report ends with the machine's load average (`KSTYLEUI_LOAD`, which the runner sets; without it the load is unknown and not printed), so a run that failed under five parallel test runs can be told from a real regression (round 3 to 5 of the ranking loop saw `test-perf` fail a different untouched path on each loaded run).
+A path that fails on time alone (over budget, or under the headroom rule below) is measured again, up to 3 attempts in all, and its fastest attempt counts; the printed line then says `(fastest of N attempts)`. Hosted CI does not retry solely for advisory headroom; actual per-call timing failures still get all three attempts. An allocation never clears on another attempt. When a failure stands, the report ends with the machine's load average (`KSTYLEUI_LOAD`, which the runner sets; without it the load is unknown and not printed), so a run that failed under five parallel test runs can be told from a real regression (round 3 to 5 of the ranking loop saw `test-perf` fail a different untouched path on each loaded run).
 
 Before it measures, the test enters combat with `env.SetCombat(true)` and switches the stubs to quiet mode with `env.SetQuiet(true)`. In quiet mode:
 
@@ -527,7 +527,7 @@ Fix the line: reuse a table that the object owns, or pass values as arguments. A
 
 ### Calibrate a budget
 
-A per-call budget must be **at least five times the measured PUC Lua 5.1 CPU time on a Mac**, including CI. The test reports the minimum when a budget is too tight:
+A per-call budget must be **at least five times the measured PUC Lua 5.1 CPU time on a Mac**, including CI. Hosted CI prints a warning for this machine-dependent headroom check; per-call budget overruns, allocations and errors still fail there. The test reports the minimum when a budget is too tight:
 
 ```text
 Nameplates interrupt readiness flipping under three casts: budget 40 us is 2.8 times the 14.2 us Lua 5.1 CPU time; set it to at least 71 us (5 times)
