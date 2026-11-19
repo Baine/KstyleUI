@@ -83,7 +83,10 @@ local function OwnKey()
 end
 
 local function Refreshed(win)
-	win.junkButton:SetShown(win:Browsing() == nil and Junk.AtMerchant() and Junk.Count() > 0)
+	local atMerchant = Junk.AtMerchant()
+	local hasJunk = atMerchant and Junk.Count() > 0
+	win.junkButton:SetShown(win:Browsing() == nil and atMerchant and (not Settings.Get("compactBags") or hasJunk))
+	win.junkButton:SetEnabled(hasJunk)
 	local picker = win.picker
 	if picker then
 		local characters = Characters()
