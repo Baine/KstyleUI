@@ -63,18 +63,23 @@ end
 
 local function PlacePill(pill)
 	local bar, holder = pill.bar, pill.holder
-	bar.opts.height = math.max(1, Widgets.Snap(bar, Logic.Plain(holder:GetHeight()) or ns.BarList.PILL_HEIGHT))
+	local styled = ns.Get("nameplateRows")
+	bar.opts.height = styled and Widgets.Snap(bar, Tokens.Size("barHeight")) or math.max(1, Widgets.Snap(bar, Logic.Plain(holder:GetHeight()) or 4))
 	bar:Restyle()
-	bar.keyline:Hide()
-	bar:SetLitShade(ns.BarList.LIT_ALPHA, ns.BarList.SHADE_ALPHA)
 	bar:ClearAllPoints()
-	bar:SetPoint("TOPLEFT", holder, "TOPLEFT")
-	bar:SetPoint("BOTTOMRIGHT", holder, "BOTTOMRIGHT")
+	Widgets.Point(bar, "TOPLEFT", holder, "TOPLEFT", 0, 0)
+	Widgets.Point(bar, styled and "TOPRIGHT" or "BOTTOMRIGHT", holder, styled and "TOPRIGHT" or "BOTTOMRIGHT", 0, 0)
 	bar:SetFrameLevel(holder:GetFrameLevel())
 end
 
 local function StylePill(pill)
 	local bar = pill.bar
+	local styled = ns.Get("nameplateRows")
+	bar.barEdge = bar.barEdge or Widgets.BarEdge(bar)
+	bar.barEdge:SetShown(styled)
+	bar.keyline:Hide()
+	bar.backgroundName = styled and "barTrack" or "buttonFill"
+	bar:SetLitShade(not styled and 0.6 or nil, not styled and 0.45 or nil)
 	bar:SetBarTexture(ns.Get("damage.texture"))
 	bar:SetReverseFill(ns.Get("damage.fill") == "right")
 	PlacePill(pill)
@@ -86,13 +91,13 @@ local function NewPill(entry, source)
 	holder:SetFrameLevel(math.max(entry:GetFrameLevel(), source:GetFrameLevel() - LEVEL_ABOVE))
 	local bar = Widgets.StatusBar(holder, {
 		texture = ns.Get("damage.texture"),
-		background = "buttonFill",
+		background = "barTrack",
 		smooth = true,
 		min = 0,
 		max = 1,
 		value = 0,
 		width = Tokens.Size("buffBarWidth"),
-		height = ns.BarList.PILL_HEIGHT,
+		height = Tokens.Size("barHeight"),
 	})
 	local pill = { entry = entry, source = source, holder = holder, bar = bar, Restyle = PlacePill }
 	local low, high = source:GetMinMaxValues()
@@ -164,7 +169,7 @@ local function StyleEntry(entry)
 			StylePill(pill)
 		end
 		if bar.Name then
-			ns.ApplyFont(bar.Name, "damage")
+			if ns.Get("nameplateRows") then ns.BarList.StyleName(bar.Name, "damage") else ns.ApplyFont(bar.Name, "damage") end
 			Widgets.TextColor(bar.Name, "textEmphasis")
 		end
 		if bar.Value then

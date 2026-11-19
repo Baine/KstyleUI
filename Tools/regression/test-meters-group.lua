@@ -100,6 +100,7 @@ end
 -- A party of five ------------------------------------------------------------------------------------------------
 local env, K, ns = New({ raid = false, size = 5 }, Party)
 M.Enable(env, K)
+K.Layout.Update("meters.damage", { height = 208 })
 env.RunTimers()
 local list = ns.Damage.list
 local order = { "Kragar", "Brannoc", "Tester", "Ilyra", "Sylaen" }
@@ -114,10 +115,8 @@ for i = 1, 5 do
 	assert(Text(row.value) == amounts[i], i .. ": the amount: " .. tostring(Text(row.value)))
 	assert(Text(row.percent) == shares[i] and row.dot:IsShown(), i .. ": the share: " .. tostring(Text(row.percent)))
 	local cr, cg, cb = K.Theme.ClassColor(classes[i])
-	local tone = ns.DAMAGE_CLASS_TONE
 	local fill = M.Last(row.bar, "SetStatusBarColor")
-	assert(tone > 0.5 and tone < 0.8, "the card's class colours are toned down to the school colours' depth")
-	assert(fill[1] == cr * tone and fill[2] == cg * tone and fill[3] == cb * tone, i .. ": the fill is the class colour at the card's tone, so white text reads on a priest or a rogue")
+	assert(fill[1] == cr and fill[2] == cg and fill[3] == cb, i .. ": preserve the full class colour; row shadows keep the text readable")
 	assert(row.icon:IsShown() and M.Last(row.icon, "SetAtlas")[1] == "classicon-" .. classes[i], i .. ": the class icon leads the row")
 	local value = M.Last(row.bar, "SetValue")
 	assert(value[2] == EASE, i .. ": the client eases the bar to its new value")
@@ -219,6 +218,7 @@ do
 		e.CLASS_ICON_TCOORDS = { WARRIOR = { 0, 0.25, 0, 0.25 }, ROGUE = { 0.5, 0.75, 0, 0.25 }, HUNTER = { 0, 0.25, 0.25, 0.5 }, MAGE = { 0.25, 0.5, 0, 0.25 }, PRIEST = { 0.5, 0.75, 0.25, 0.5 } }
 	end)
 	M.Enable(envF, KF)
+	KF.Layout.Update("meters.damage", { height = 208 })
 	envF.RunTimers()
 	local row = nsF.Damage.list.rows[1]
 	assert(row.icon:IsShown() and M.Last(row.icon, "SetTexCoord")[2] == 0.25, "the fallback crops the class texture")
@@ -231,6 +231,7 @@ end
 do
 	local envS, KS, nsS = New({ raid = false, size = 5 }, Party)
 	M.Enable(envS, KS)
+	KS.Layout.Update("meters.damage", { height = 208 })
 	envS.RunTimers()
 	local card = nsS.Damage.list
 	local S = envS.Secret
@@ -264,9 +265,10 @@ end
 do
 	local envR, KR, nsR = New({ raid = true, size = 20 }, Raid)
 	M.Enable(envR, KR)
+	KR.Layout.Update("meters.damage", { height = 208 })
 	envR.RunTimers()
 	local raid = nsR.Damage.list
-	assert(raid.capacity == 5, "the default card holds five rows: " .. tostring(raid.capacity))
+	assert(raid.capacity == 5, "the resized card holds five rows: " .. tostring(raid.capacity))
 	local function Names()
 		local out = {}
 		for i = 1, raid.count do
@@ -314,16 +316,16 @@ do
 	Refresh(envR)
 
 	-- A taller card shows more of the raid.
-	raid.holder:SetHeight(460)
+	raid.holder:SetHeight(700)
 	envR.RunTimers()
 	Refresh(envR)
 	assert(raid.capacity >= 19, "a taller card holds more rows: " .. tostring(raid.capacity))
 	assert(raid.count == raid.capacity, "and fills them")
-	raid.holder:SetHeight(500)
+	raid.holder:SetHeight(740)
 	envR.RunTimers()
 	Refresh(envR)
 	assert(raid.count == 20 and Plain(Text(raid.rows[14].name)) == "Tester", "with room for all twenty nothing is pinned: " .. raid.count)
-	raid.holder:SetHeight(158)
+	raid.holder:SetHeight(208)
 	envR.RunTimers()
 
 	-- A changed meter starts at the top again.
@@ -353,6 +355,7 @@ do
 		e._session = { combatSources = { Source("Tester", "HUNTER", 1300, 130, "Player-3", true) }, maxAmount = 1300, totalAmount = 1300 }
 	end)
 	M.Enable(envA, KA)
+	KA.Layout.Update("meters.damage", { height = 208 })
 	envA.RunTimers()
 	local solo = nsA.Damage.list
 	assert(solo.count == 2 and Text(solo.rows[1].name) == "Spell 1", "alone, the card lists the player's spells")

@@ -22,6 +22,7 @@ local function New(width, height, opts)
 		profile[element.module] = profile[element.module] or {}
 		profile[element.module].enabled = true
 	end
+	profile.Meters.followRole = true
 	K.Callbacks.Fire("ModuleChanged")
 	return env, K
 end

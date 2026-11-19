@@ -232,6 +232,7 @@ local function Within(k, height, maximum, fits)
 	if top * step > maximum then
 		top = top - 1
 	end
+	low = min(low, top)
 	k = max(low, min(k, top))
 	while fits and k > low and not fits(k * step) do
 		k = k - 1
@@ -485,6 +486,10 @@ ns.Callbacks.Register("ReadabilityChanged", "Scale", function()
 		state.textFloor, state.dirty = textFloor, true
 		Request("the text minimum")
 	end
+end)
+ns.Callbacks.Register("PlayerRoleChanged", "Scale", function()
+	state.dirty = true
+	Request("the player role")
 end)
 ns.Callbacks.Register("ModuleChanged", "Scale", function()
 	state.dirty = true

@@ -133,10 +133,21 @@ function Lumen.Elements(built)
 		local b = built[name]
 		local env = b.scene and Hud.envs[b.scene]
 		local K = env and env.KstyleUI
+		local bars = env and env._viewers and env._viewers.BuffBarCooldownViewer
+		if bars and bars._items[1] and bars._items[1]:IsShown() then
+			local x, y, w, h = Scene.Rect(env, bars)
+			local k = K.Scale.Root():GetHeight() / 1080
+			out["native.cooldowns.bars"] = { module = name, left = x * k, bottom = (1080 - y - h) * k, width = w * k, height = h * k }
+		end
 		if K and K.Layout and K.Layout.Elements then
 			for _, e in ipairs(K.Layout.Elements()) do
 				if e.live and not out[e.key] then
 					local left, bottom, width, height = K.Layout.Rect(e.key)
+					if e.key == "meters.threat" then
+						local x, y, w, h = Scene.Rect(env, K.Layout.Element(e.key).frame)
+						local k = K.Scale.Root():GetHeight() / 1080
+						left, bottom, width, height = x * k, (1080 - y - h) * k, w * k, h * k
+					end
 					if left then
 						out[e.key] = { module = name, left = left, bottom = bottom, width = width, height = height }
 					end

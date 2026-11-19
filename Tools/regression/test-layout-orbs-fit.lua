@@ -25,6 +25,9 @@ local function step(height)
 	return 1080 / (Scale.STEPS_PER_PIXEL * height)
 end
 
+assert(Scale.Auto(1024, 0.62117715747328) == 9 * step(1024), "1280x1024 Both: use the step below the fit cap when the normal minimum step would overlap the Orbs")
+assert(Scale.Nearest(0.84210526315789, 1024, 0.62117715747328) <= 0.62117715747328, "manual size also stays below the fit cap")
+
 -- LEE-1461: Scale.Within took the step a hair above a cap that sits just under a whole step. At 2043 x 855 with Tank the
 -- cap was 0.947368421052572 and the applied size 0.947368421052632, where the party frames met action bar 3.
 do
@@ -51,6 +54,7 @@ end
 -- the chat card. At 1685 x 1123 with Tank the automatic size was 14 steps, 0.8415, and the orb ran 4 units into chat.
 do
 	local enabled = Layouts.Enabled("Tank")
+	enabled["meters.damage"], enabled["meters.threat"] = false, false
 	assert(not Layouts.Fits("Tank", 1685, 1123, 14 * step(1123), enabled, nil, "orbs"), "1685x1123 Tank Orbs: 14 steps puts the health orb over the chat card, so it does not fit")
 	assert(Layouts.Fits("Tank", 1685, 1123, 14 * step(1123), enabled, nil, "frames"), "1685x1123 Tank Frames still fits at 14 steps")
 	local barW, barH = Layouts.Footprint("Tank", "actionbars.bar1")
@@ -65,7 +69,9 @@ do
 			local class = Scale.AspectClass(physical, height)
 			for _, name in ipairs(Layouts.Names()) do
 				local on = Layouts.Enabled(name)
-				local size = Scale.Auto(height, Layouts.ScaleLimit(physical, height, name, on, "orbs"))
+				on["meters.damage"], on["meters.threat"] = name ~= "Tank", name == "Tank"
+				local cap, fits = Layouts.ScaleLimit(physical, height, name, on, "orbs")
+				local size = Scale.Auto(height, cap, fits)
 				assert(Layouts.Fits(name, physical, height, size, on, nil, "orbs"), name .. " " .. width .. "x" .. height .. ": the automatic size fits")
 				local what = string.format("%s %dx%d on %d at %.4f", name, width, height, physical, size)
 				local rh = 1080 / size

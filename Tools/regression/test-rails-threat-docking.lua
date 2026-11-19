@@ -6,13 +6,14 @@ local R = Boot({ width = 1920, height = 1080 })
 M.Game(R.env, {})
 Load(M.Files(), R.env)
 R.K.Options.Write("Meters", "followRole", false)
+R.K.Options.Write("Meters", "damage.shown", false)
 M.Enable(R.env, R.K)
 R.K.Options.Write("Meters", "threat.shown", true)
 R.settle()
 local threat = R.env._addons.KstyleUI_Meters.Threat
 local point, relative, on, x, y = threat.holder:GetPoint(1)
 local side = R.K.Safe.Side(R.K.Scale.Root())
-assert(point == "TOPRIGHT" and relative == side.storyGuide and on == "BOTTOMRIGHT" and x == 0 and y < -R.K.Widgets.Snap(threat.holder, 16),
+assert(point == "TOPRIGHT" and relative == side.storyGuide and on == "BOTTOMRIGHT" and math.abs(x) < 1e-6 and y < -R.K.Widgets.Snap(threat.holder, 16),
 	"anchor the default threat card sixteen units below the guide and its docked controls")
 R.rxp.activeItemFrame:Hide()
 R.rxp.targeting.activeTargetFrame:Hide()

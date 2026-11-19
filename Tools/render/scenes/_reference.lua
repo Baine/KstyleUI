@@ -239,7 +239,11 @@ function Reference.SeatTank(built, plates, rect)
 	if not x then
 		return nil
 	end
-	return Reference.SeatAround(plates, x, x + w, y, y + h)
+	local dx, dy, dw, dh = rect("meters", ns.Damage.holder)
+	if ns.Damage.holder:IsShown() and dx then
+		x, y, w, h = math.min(x, dx), math.min(y, dy), math.max(x + w, dx + dw) - math.min(x, dx), math.max(y + h, dy + dh) - math.min(y, dy)
+	end
+	return Reference.SeatAround(plates, x, x + w, y - 16, y + h + 16)
 end
 
 -- Build(opts) -> the merged scene on the owner's screen after Setup.Apply; opts.layout is DPS, Tank or Healer,
@@ -268,8 +272,9 @@ function Reference.Build(opts)
 	local style = os.getenv("RENDER_HUD_STYLE") or "Frames"
 	local layout = opts.layout or "DPS"
 	assert(layout == "DPS" or layout == "Tank" or layout == "Healer", "reference layout must be DPS, Tank or Healer")
-	local previous = rawget(_G, "RENDER_SCREEN")
+	local previous, previousMeter = rawget(_G, "RENDER_SCREEN"), rawget(_G, "RENDER_METER_CHOICE")
 	rawset(_G, "RENDER_SCREEN", Reference.SCREEN)
+	rawset(_G, "RENDER_METER_CHOICE", opts.meterChoice or previousMeter)
 	local ok, scene = pcall(function()
 		local state = {}
 		for k, v in pairs(Reference.STATE) do
@@ -307,22 +312,31 @@ function Reference.Build(opts)
 			state.damage = Reference.GROUP_DAMAGE[opts.meterGroup]
 			state.meterMe = opts.meterGroup == "raid" and 14 or 1
 		end
+		if opts.meterChoice then
+			state.followRole, state.role = true, "DAMAGER"
+			if opts.meterChoice == "both" then
+				state.spec = {}
+				for key, value in pairs(Reference.STATE.spec) do state.spec[key] = value end
+				state.spec.bars = { { "Lightning Shield", 136048, { 600, 420 } }, { "Strength of Earth Totem", 136023, { 120, 80 } } }
+			end
+		end
 		return Lumen.Build("questing", {
 			class = "SHAMAN",
 			settings = os.getenv("RENDER_COMBAT_LEGACY") == "1" and {
 				UnitFrames = { player = { powerText = "legacy", powerSeparate = false }, target = { percentLead = false } },
 				Nameplates = { cast = { showName = false, combatCues = false, nameBelow = false, textSize = 13 }, debuffs = { size = style == "Medallions" and 17 or 29, textSize = style == "Medallions" and 10 or 13, showTime = false, readableText = false, expiring = 0 } },
 				CombatText = { clearLanes = false },
-			} or nil,
+			} or opts.meterChoice and { Meters = { roles = { DAMAGER = opts.meterChoice }, nameplateRows = os.getenv("RENDER_METER_ROWS") ~= "legacy" } } or nil,
 			layout = layout,
 			applyPreset = true,
 			state = state,
 			elements = true,
 			modules = opts.modules or modules,
-			seat = layout == "Tank" and Reference.SeatTank or nil,
+			seat = (layout == "Tank" or opts.meterChoice == "both") and Reference.SeatTank or nil,
 		})
 	end)
 	rawset(_G, "RENDER_SCREEN", previous)
+	rawset(_G, "RENDER_METER_CHOICE", previousMeter)
 	if not ok then
 		error(scene, 0)
 	end

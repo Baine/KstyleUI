@@ -3,6 +3,7 @@ local _, ns = ...
 
 local Tokens = {}
 ns.Tokens = Tokens
+Tokens.MEDALLIONS_PLATE_NAME_FACE = "InterSemiBold"
 
 local MEDIA = "Interface\\AddOns\\KstyleUI\\Media\\"
 local FONTS_DIR = MEDIA .. "Fonts\\"
@@ -144,6 +145,8 @@ local COLORS = {
 }
 
 local SIZES = {
+	plateNameSize = 16,
+	medallionsPlateNameSize = 11,
 	radius = 14,
 	radiusTile = 8,
 	chamferPanel = 14,

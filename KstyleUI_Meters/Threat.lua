@@ -24,6 +24,7 @@ for i = 1, MAX_PARTY do
 	PARTY[i], PARTY_PET[i] = "party" .. i, "partypet" .. i
 end
 
+local DockGuide
 local Threat = { section = "threat", key = KEY, roster = {}, size = 0, rows = {}, order = {}, count = 0 }
 ns.Threat = Threat
 
@@ -195,6 +196,10 @@ local function Update()
 	end
 	local visible = Visible()
 	list.panel:SetShown(visible)
+	if Threat.visible ~= visible then
+		Threat.visible = visible
+		DockGuide()
+	end
 	if not visible then
 		Alarm(false)
 		list:SetWarning(Logic.NO_WARNING)
@@ -224,6 +229,7 @@ local function Update()
 	for i = 1, shown do
 		local row = Threat.rows[Threat.order[i]]
 		list:SetRow(i, row.name, row.class, "friendly", row.scaled, PERCENT_MAX, Logic.ThreatText(row.threat), PercentText(row))
+		if ns.Get("nameplateRows") then ns.SetClassIcon(list, i, row.class) end
 	end
 	list:Finish(shown, count == 0 and L["No threat"] or nil)
 	local watched = Logic.ThreatWatch(Threat.rows, count)
@@ -251,7 +257,7 @@ local function Schedule()
 	C_Timer.After(UPDATE_DELAY, Update)
 end
 
-local function DockGuide()
+function DockGuide()
 	local holder = Threat.holder
 	local side = K.Safe.Side(K.Scale.Root())
 	local guide = side.storyGuide
@@ -260,24 +266,44 @@ local function DockGuide()
 	if not holder or not layout or InCombatLockdown() then
 		return
 	end
-	local on = ns.Get("threat.followGuide") and guide and guide:IsVisible() and layout.anchor == default.anchor and layout.x == default.x and layout.y == default.y and not K.Layout.IsActive()
-	if on then
+	local atDefault = layout.anchor == default.anchor and layout.x == default.x and layout.y == default.y and not K.Layout.IsActive()
+	local damage = ns.Damage.holder
+	local both = atDefault and Visible() and ns.MeterShown("damage") and ns.Damage.Mode() == "window" and damage and ns.Damage.list.panel:IsShown()
+	Threat.paired = both == true
+	if Threat.soloWidth and not both then
+		holder:SetSize(Threat.soloWidth, Threat.soloHeight)
+		Threat.soloWidth, Threat.soloHeight = nil, nil
+		ns.Damage.list:Fit()
+	end
+	if both then
+		Threat.soloWidth = Threat.soloWidth or holder:GetWidth()
+		Threat.soloHeight = Threat.soloHeight or holder:GetHeight()
+		if holder:GetHeight() ~= damage:GetHeight() then holder:SetHeight(damage:GetHeight()) end
+		if holder:GetWidth() ~= damage:GetWidth() then holder:SetWidth(damage:GetWidth()) end
+		holder:ClearAllPoints()
+		K.Widgets.Point(holder, "TOPRIGHT", damage, "TOPLEFT", -16 / K.Widgets.ScaleFactor(holder), 0, true)
+		ns.Damage.list:Fit()
+		Threat.docked = true
+	elseif atDefault and ns.Get("threat.followGuide") and guide and guide:IsVisible() then
 		local foot = side.storyGuideBottom or guide
 		local top, bottom = Logic.Plain(guide:GetBottom()), Logic.Plain(foot:GetBottom())
 		local gap = top and bottom and math.max(0, top * K.Widgets.ScaleFactor(guide) - bottom * K.Widgets.ScaleFactor(foot)) or 0
 		holder:ClearAllPoints()
-		K.Widgets.Point(holder, "TOPRIGHT", guide, "BOTTOMRIGHT", 0, -(16 + gap) / K.Widgets.ScaleFactor(holder))
+		K.Widgets.Point(holder, "TOPRIGHT", guide, "BOTTOMRIGHT", 0, -(16 + gap) / K.Widgets.ScaleFactor(holder), true)
+		ns.Damage.list:Fit()
 		Threat.docked = true
 	elseif Threat.docked then
 		holder:ClearAllPoints()
-		holder:SetPoint(layout.anchor, K.Scale.Root(), layout.anchor, layout.x, layout.y)
+		K.Widgets.Point(holder, layout.anchor, K.Scale.Root(), layout.anchor, layout.x, layout.y, true)
 		Threat.docked = false
 	end
 end
 
 function Threat:OnEvent(event, unit)
+	if event == "PLAYER_REGEN_ENABLED" then DockGuide() end
 	if event == "GROUP_ROSTER_UPDATE" or event == "UNIT_PET" or event == "PLAYER_ENTERING_WORLD" then
 		BuildRoster()
+		Threat.visible = nil
 	elseif event == "UNIT_TARGET" and unit ~= "target" then
 		return
 	end
@@ -288,6 +314,7 @@ local function Build()
 	local width, height = ns.Footprint(KEY)
 	Threat.list = ns.BarList.New(K.Scale.Root(), "threat", {
 		key = KEY, width = width or 260, height = height or 130, columns = Columns,
+		icons = function() return ns.Get("damage.icons") end,
 	})
 	Threat.list:SetTitle(L["Threat"])
 	Threat.list:SetColumn("")
@@ -309,6 +336,7 @@ end
 
 function Threat:Resized()
 	if self.list then
+		DockGuide()
 		self.list:Restyle()
 		Schedule()
 	end
@@ -345,6 +373,10 @@ function Threat:Stop()
 		return
 	end
 	ns.UnwatchAll(self)
+	if self.paired then
+		self.paired = false
+		ns.Damage.list:Fit()
+	end
 	Alarm(false)
 	self.list:SetWarning(Logic.NO_WARNING)
 	self.list.panel:Hide()

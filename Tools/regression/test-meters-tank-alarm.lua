@@ -28,6 +28,10 @@ assert(title[1] == want[1] and title[2] == want[2] and title[3] == want[3], "the
 assert(ns.Threat.list.alarmFlash:IsPlaying(), "the alarm starts its flash")
 local alpha = ns.Threat.list.alarmFlash._anims[1]
 assert(alpha:GetDuration() == 0.2, "the alarm flash lasts 200 ms")
+K.Layout.Update("meters.damage", { width = 300 })
+env.RunTimers()
+local resizedTitle = M.Last(ns.Threat.list.title, "SetTextColor")
+assert(resizedTitle[1] == want[1] and resizedTitle[2] == want[2] and resizedTitle[3] == want[3], "resizing keeps the red tank alarm title")
 env.UnitGroupRolesAssigned = function() return "TANK" end
 env._threat.player[1] = false
 env.FireEvent("UNIT_THREAT_LIST_UPDATE", "target")

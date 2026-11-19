@@ -12,24 +12,19 @@ local MAX_SPACING = 12
 local MIN_WARN, MAX_WARN, WARN_STEP = 50, 100, 5
 local NO_OUTLINE = ""
 local CHANNELS = { "r", "g", "b" }
+local SHARED_ROWS = {}
+for _, key in ipairs({ "texture", "fill", "colorSource", "color", "font", "fontSize", "outline", "rowHeight", "spacing", "title", "titleSize" }) do
+	SHARED_ROWS["threat." .. key] = "damage." .. key
+end
 
 local function Rgb(name)
 	local r, g, b = Tokens.Color(name)
 	return { r = r, g = g, b = b }
 end
 
-local function DefaultTexture(key)
-	for _, item in ipairs(Tokens.MediaList("statusbar")) do
-		if item.key == key then
-			return item.path
-		end
-	end
-	return (Tokens.Texture("barGlass"))
-end
-
 local function Bars(fill, texture, colorSource)
 	return {
-		texture = DefaultTexture(texture or "Glass"),
+		texture = texture or Tokens.Texture("barGlass"),
 		colorSource = colorSource or "class",
 		color = Rgb("accentDefault"),
 		fill = fill,
@@ -51,19 +46,18 @@ local function Merge(...)
 end
 
 local CAPTION = Tokens.Size("caption")
-local ROW, SPACING, ROW_TEXT = 18, 2, 12
+local ROW, ROW_TEXT = 18, Tokens.Size("number")
 local DAMAGE_SPACING = 3
-local DAMAGE_CLASS_TONE = 0.62
-ns.DAMAGE_CLASS_TONE = DAMAGE_CLASS_TONE
 
 ns.defaults = {
+	nameplateRows = true,
 	followRole = true,
 	roles = { TANK = "threat", HEALER = "damage", DAMAGER = "damage" },
 	fitCards = true,
 	instrumentNames = true,
 	accent = "class",
 	accentColor = Rgb("accentDefault"),
-	damage = Merge(Bars("left", "Flat", "school"), Text(ROW_TEXT), {
+	damage = Merge(Bars("left", Tokens.Texture("barFlat"), "school"), Text(ROW_TEXT), {
 		shown = true,
 		group = false,
 		mode = "auto",
@@ -76,14 +70,14 @@ ns.defaults = {
 		percent = true,
 		icons = true,
 	}),
-	threat = Merge(Bars("left"), Text(ROW_TEXT), {
+	threat = Merge(Bars("left"), Text(12), {
 		followGuide = true,
 		shown = true,
 		group = true,
 		pets = true,
 		value = "both",
-		rowHeight = ROW,
-		spacing = SPACING,
+		rowHeight = 18,
+		spacing = 2,
 		title = true,
 		titleSize = CAPTION,
 		warnings = true,
@@ -183,6 +177,7 @@ end
 local function Off(section)
 	return function(settings)
 		if section ~= "swing" then
+			if section == "damage" then return not ns.MeterShown("damage") and not ns.MeterShown("threat") end
 			return not ns.MeterShown(section)
 		end
 		return type(settings[section]) == "table" and settings[section].shown == false
@@ -223,6 +218,7 @@ local function BarRows(section, rows)
 end
 
 local function ListRows(section, rows)
+	local first = #rows + 1
 	local off = Off(section)
 	BarRows(section, rows)
 	rows[#rows + 1] = {
@@ -246,9 +242,17 @@ local function ListRows(section, rows)
 		help = L["How large the title and column heading are."], min = MIN_TEXT, max = MAX_TEXT, step = 1,
 	}
 	TextRows(section, rows)
+	if section == "threat" then
+		for i = first, #rows do
+			local previous = rows[i].showWhen
+			rows[i].showWhen = function(settings) return settings.nameplateRows == false and (not previous or previous(settings)) end
+		end
+	end
 end
 
 local schema = {
+	{ type = "toggle", key = "nameplateRows", label = L["Nameplate-style meter rows"],
+		help = L["Match meter rows to nameplates. Off restores the previous rows and separate threat appearance."] },
 	{
 		type = "toggle", key = "followRole", label = L["Show the meter for my role"],
 		help = L["Follows your group role, then spec role, after combat. Off restores the manual show switches."],
@@ -264,8 +268,8 @@ local schema = {
 		options = { { value = "damage", label = L["Damage"] }, { value = "threat", label = L["Threat"] }, { value = "both", label = L["Both"] } },
 	},
 	{
-		type = "dropdown", key = "roles.DAMAGER", label = L["Damage"],
-		help = L["The meter to show while dealing damage. This overrides the manual show switches."], disableWhen = Is("followRole", false),
+		type = "dropdown", key = "roles.DAMAGER", label = L["Meter while dealing damage"],
+		help = L["Both shows a threat card next to the damage meter."], disableWhen = Is("followRole", false),
 		options = { { value = "damage", label = L["Damage"] }, { value = "threat", label = L["Threat"] }, { value = "both", label = L["Both"] } },
 	},
 	{ type = "toggle", key = "fitCards", label = L["Fit meter cards to rows"], help = L["Fit cards to their rows, with a three-row minimum. Off restores the previous card heights."] },
@@ -340,6 +344,7 @@ schema[#schema + 1] = {
 	type = "slider", key = "threat.dangerAt", label = L["Danger at"], disableWhen = Off("threat"), showWhen = Is("threat.warnings", true),
 	help = L["The threat percentage that turns the meter red and makes it pulse."], min = MIN_WARN, max = MAX_WARN, step = WARN_STEP,
 }
+
 ListRows("threat", schema)
 
 schema[#schema + 1] = { type = "header", label = L["Swing timer"] }
@@ -442,6 +447,9 @@ end
 local warned = {}
 
 function ns.Get(key)
+	local settings = K.Store.IsLoaded() and K.Store.Module(ns.MODULE)
+	local styled = not settings or settings.nameplateRows ~= false
+	if styled then key = SHARED_ROWS[key] or key end
 	local default = Lookup(ns.defaults, key)
 	if default == nil then
 		error("KstyleUI_Meters: unknown setting " .. tostring(key), 2)
@@ -449,7 +457,7 @@ function ns.Get(key)
 	if not K.Store.IsLoaded() then
 		return default
 	end
-	local value = Lookup(K.Store.Module(ns.MODULE), key)
+	local value = Lookup(settings, key)
 	local row = rows[key]
 	if value == nil or (row and not Allowed(row, value)) or (not row and type(value) ~= type(default)) then
 		if value ~= nil and not warned[key] then
@@ -502,9 +510,7 @@ function ns.BarColor(section, classFile, reaction, schoolToken, muted)
 	end
 	if source ~= "reaction" and not ns.Logic.IsSecret(classFile) and type(classFile) == "string" and classFile ~= "" then
 		local r, g, b = Theme.ClassColor(classFile)
-		if muted then
-			return r * DAMAGE_CLASS_TONE, g * DAMAGE_CLASS_TONE, b * DAMAGE_CLASS_TONE
-		end
+		if muted and not ns.Get("nameplateRows") then return r * 0.62, g * 0.62, b * 0.62 end
 		return r, g, b
 	end
 	return Tokens.Color(reaction or "friendly")

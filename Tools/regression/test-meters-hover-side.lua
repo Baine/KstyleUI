@@ -21,10 +21,11 @@ for i, name in ipairs({ "Kragar", "Valerin", "Sylaen", "Thargor", "Lunara", "Bra
 end
 env._session = { combatSources = sources, maxAmount = 2900, totalAmount = 15900, durationSeconds = 30 }
 M.Enable(env, K)
+M.Write(env, K, "threat.shown", false)
 local list = ns.Damage.list
 local panel = list.panel
 local root = K.Scale.Root()
-list.holder:SetSize(318, 190)
+list.holder:SetSize(318, 250)
 M.Tick(env)
 env.FireEvent("DAMAGE_METER_CURRENT_SESSION_UPDATED")
 env.RunTimers()
@@ -38,10 +39,10 @@ end
 
 local function Hover(where, i)
 	panel:ClearAllPoints()
-	panel:SetSize(318, 190)
+	panel:SetSize(318, 250)
 	panel:SetPoint(where, root, where, where == "RIGHT" and -28 or 28, 0)
 	list.holder:ClearAllPoints()
-	list.holder:SetSize(318, 190)
+	list.holder:SetSize(318, 250)
 	list.holder:SetPoint(where, root, where, where == "RIGHT" and -28 or 28, 0)
 	local row = list.rows[i].frame
 	row._scripts.OnEnter(row)
@@ -95,7 +96,7 @@ end
 -- leaves the card, and never hides the row the pointer is on.
 for _, i in ipairs({ 3, 4 }) do
 	list.holder:ClearAllPoints()
-	list.holder:SetSize(318, 190)
+	list.holder:SetSize(318, 250)
 	list.holder:SetPoint("LEFT", root, "LEFT", 28, 0)
 	panel:ClearAllPoints()
 	panel:SetPoint("TOPLEFT", list.holder, "TOPLEFT", 0, 0)
@@ -133,7 +134,7 @@ end
 -- the split is open keeps the covered rows hidden.
 do
 	list.holder:ClearAllPoints()
-	list.holder:SetSize(318, 190)
+	list.holder:SetSize(318, 250)
 	list.holder:SetPoint("LEFT", root, "LEFT", 28, 0)
 	panel:ClearAllPoints()
 	panel:SetPoint("TOPLEFT", list.holder, "TOPLEFT", 0, 0)
@@ -163,7 +164,7 @@ end
 
 local tip = K.Widgets.Tooltip()
 panel:ClearAllPoints()
-panel:SetSize(318, 190)
+panel:SetSize(318, 250)
 panel:SetPoint("RIGHT", root, "RIGHT", -28, 0)
 list.panel._scripts.OnEnter(list.panel)
 env.RunTimers()

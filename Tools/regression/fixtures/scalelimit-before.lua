@@ -1177,6 +1177,10 @@ function Layouts.Fits(name, physicalWidth, physicalHeight, user, enabled, positi
 	end
 	local pixelScale = physicalHeight / rootHeight
 	enabled = enabled or Layouts.Enabled(name)
+	if enabled["meters.damage"] ~= false and enabled["meters.threat"] ~= false then
+		local damage = layout["meters.damage"]
+		layout["meters.threat"] = { anchor = damage.anchor, x = damage.x - 248 - GAP, y = damage.y + 158 - 112 }
+	end
 	local rects = {}
 	local story = Layouts.Story(name, rootHeight, true, style, physicalWidth / pixelScale)
 	local cards = { story.guide, story.quests }
