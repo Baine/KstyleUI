@@ -82,7 +82,7 @@ function Slot.Paint(slot)
 		slot.chrome:SetFillRGBA(Tokens.Color("buttonFill"))
 	end
 	slot.icon:SetAlpha(state.match and 1 or DIM_ALPHA)
-	slot.icon:SetDesaturated(state.locked == true)
+	slot.icon:SetDesaturated(state.locked == true or state.junk == true and Settings.Get("desaturateJunk"))
 	local textAlpha = state.match and 1 or DIM_ALPHA
 	slot.count:SetAlpha(textAlpha)
 	slot.level:SetAlpha(textAlpha)
@@ -215,6 +215,7 @@ function Slot.Update(slot, record, level, match, packed)
 	end
 	state.match = match ~= false
 	state.locked = record.locked == true
+	state.junk = record.junk == true
 	state.quality = record.quality
 	local quality = record.quality
 	state.coloured = not empty and Settings.Get("showQuality") and quality ~= nil and quality >= Settings.Get("qualityMin")
