@@ -74,12 +74,34 @@ defaults.strip = {
 	font = Font.DEFAULT, fontSize = STRIP_FONT_SIZE, outline = Font.WORLD,
 	money = "full", latency = "home", timeSource = "local", clock24 = true,
 }
-for i, id in ipairs(Strip.DEFAULT_SLOTS) do
-	defaults.strip["slot" .. i] = id
-end
 defaults.micro = { enabled = true, shown = true, size = MICRO_SIZE, spacing = MENU_SPACING, rows = 1, backdrop = true, tint = "none", shape = "round", set = "compact" }
 defaults.bags = { enabled = true, shown = true, size = BAG_SIZE, spacing = MENU_SPACING, rows = 1, backdrop = true, freeSlots = true, shape = "round" }
 defaults.menus = { always = false }
+
+local MODULES = {
+	{ "micro", L["Micro menu"], "left" },
+	{ "spec", L["Specialization"], "left", L["Switch dual specialization out of combat, or open talents."] },
+	{ "hearth", L["Hearthstone"], "left", L["Shows the bind location and Hearthstone cooldown."] },
+	{ "time", L["Clock"], "centre" },
+	{ "guild", L["Guild"], "right", L["Shows guild members online. Hidden when you have no guild."] },
+	{ "friends", L["Friends"], "right", L["Shows online Warcraft and Battle.net friends."] },
+	{ "durability", L["Durability"], "right", L["Shows your lowest equipped durability."] },
+	{ "bags", L["Bag space"], "right", L["Shows the free slots in your bags."] },
+	{ "fps", L["Frame rate"], "right", L["Click: open the data bar settings."] },
+	{ "latency", L["Latency"], "right" },
+	{ "gold", L["Gold"], "right" },
+	{ "currencies", L["Currencies"], "right", L["Shows up to three currencies tracked in your backpack."] },
+	{ "xp", L["Experience and reputation"], "right", L["Shows experience, or watched reputation at the level cap."] },
+}
+defaults.strip.modules = {}
+for i, def in ipairs(MODULES) do
+	defaults.strip.modules[i] = { id = def[1], shown = def[1] ~= "xp", zone = def[3] }
+end
+
+defaults.strip.dockModules = {}
+for i, id in ipairs({ "fps", "latency", "gold", "durability", "time", "micro", "spec", "hearth", "guild", "friends", "bags", "currencies", "xp" }) do
+	defaults.strip.dockModules[#defaults.strip.dockModules + 1] = { id = id, shown = i <= 6, zone = id == "time" and "centre" or (id == "spec" or id == "hearth" or id == "micro") and "left" or "right" }
+end
 
 function ns.Schema()
 	if ns.schema then return ns.schema end
@@ -169,14 +191,6 @@ function ns.Schema()
 	ns.AddRows(BarRows("rep", L["Reputation bar"], SOURCES_REACTION))
 	ns.AddRows(BarRows("honor", L["Honour bar"], SOURCES_PLAIN))
 
-	local STRIP_ITEMS = {
-		{ value = "none", label = L["Empty"] },
-		{ value = "fps", label = L["Frame rate"] },
-		{ value = "latency", label = L["Latency"] },
-		{ value = "gold", label = L["Gold"] },
-		{ value = "durability", label = L["Durability"] },
-		{ value = "time", label = L["Time"] },
-	}
 	local SHAPES = {
 		{ value = "round", label = L["Round crystal"] },
 		{ value = "tile", label = L["Chamfered tile"] },
@@ -207,6 +221,10 @@ function ns.Schema()
 		{ value = "realm", label = L["Realm time"] },
 	}
 
+	local moduleOptions = {}
+	for i, def in ipairs(MODULES) do
+		moduleOptions[i] = { value = def[1], label = def[2], rows = def[4] and { { type = "note", label = def[4] } } or {} }
+	end
 	local stripRows = {
 		{ type = "header", label = L["Data bar"] },
 		{ type = "toggle", key = "strip.enabled", label = L["Show the data bar"], help = L["Show the data bar and its readouts."] },
@@ -220,11 +238,11 @@ function ns.Schema()
 		{ type = "slider", key = "strip.background", label = L["Background"], help = L["The opacity of the top data bar's background."], min = 0, max = 100, step = 1 },
 	}
 	stripRows[#stripRows + 1] = { type = "toggle", key = "strip.dockMeter", label = L["Dock readouts to the meter"], help = L["Place the data strip beside the damage meter title. Off returns it to its own position."] }
-	for i = 1, Strip.SLOTS do
-		stripRows[#stripRows + 1] = {
-			type = "dropdown", key = "strip.slot" .. i, label = string.format(L["Place %d"], i),
-			help = L["What this place on the strip shows, counted from the left or the top."], options = STRIP_ITEMS,
-		}
+	for _, key in ipairs({ "modules", "dockModules" }) do
+		local dock = key == "dockModules"
+		stripRows[#stripRows + 1] = { type = "order", key = "strip." .. key, label = L["Modules"], help = L["Switch modules on, choose their zones and move them up or down."], options = moduleOptions, showWhen = function(settings)
+			return dock == (Widgets.Medallions() and settings.strip.placement ~= "rail")
+		end }
 	end
 	for _, row in ipairs({
 		{ type = "toggle", key = "strip.line", label = L["One line"], help = L["Items run together on one line at the right, joined by middle dots. Off, each sits in its own cell."] },
@@ -241,14 +259,19 @@ function ns.Schema()
 		{ type = "dropdown", key = "strip.font", label = L["Font"], help = L["The font of the strip's text."], options = Font.Faces },
 		{ type = "slider", key = "strip.fontSize", label = L["Font size"], help = L["The size of the strip's text."], min = Font.MIN_SIZE, max = Font.MAX_SIZE, step = Font.STEP },
 		{ type = "dropdown", key = "strip.outline", label = L["Outline"], help = L["A thin or thick outline, or a soft shadow, around the text."], options = Font.OUTLINES },
-		{ type = "dropdown", key = "strip.money", label = L["Gold format"], help = L["How the strip writes your money."], options = MONEY_STYLES },
-		{ type = "dropdown", key = "strip.latency", label = L["Latency shown"], help = L["Home latency for chat and logins, or world latency for combat."], options = LATENCIES },
-		{ type = "dropdown", key = "strip.timeSource", label = L["Clock"], help = L["Your computer's time or the realm's time."], options = TIME_SOURCES },
-		{ type = "toggle", key = "strip.clock24", label = L["24-hour clock"], help = L["Shows 14:32 instead of 2:32 PM."] },
 	}) do
 		stripRows[#stripRows + 1] = row
 	end
 	ns.AddRows(stripRows)
+	ns.AddRows({
+		{ type = "header", label = L["Clock"] },
+		{ type = "dropdown", key = "strip.timeSource", label = L["Clock"], help = L["Your computer's time or the realm's time."], options = TIME_SOURCES },
+		{ type = "toggle", key = "strip.clock24", label = L["24-hour clock"], help = L["Shows 14:32 instead of 2:32 PM."] },
+		{ type = "header", label = L["Latency"] },
+		{ type = "dropdown", key = "strip.latency", label = L["Latency shown"], help = L["Home latency for chat and logins, or world latency for combat."], options = LATENCIES },
+		{ type = "header", label = L["Gold"] },
+		{ type = "dropdown", key = "strip.money", label = L["Gold format"], help = L["How the strip writes your money."], options = MONEY_STYLES },
+	})
 
 	local TINTS = {
 		{ value = "none", label = L["Blizzard's colours"] },
@@ -333,6 +356,8 @@ function ns.Preview(...)
 			gold = { Format.Money(SAMPLE_MONEY, s.money) },
 			durability = { SAMPLE_DURABILITY .. "%", "good" },
 			time = { Format.Clock(SAMPLE_HOUR, SAMPLE_MINUTE, s.clock24) },
+			spec = { L["Specialization"] }, hearth = { L["ready"] .. " " .. L["Stormwind"] }, bags = { "22" },
+			guild = { "17" }, friends = { "7" }, currencies = { "1250" }, xp = { "32%" },
 		}
 	end
 
