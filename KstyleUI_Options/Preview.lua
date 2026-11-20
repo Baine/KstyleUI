@@ -1,4 +1,4 @@
--- Preview.lua: the live preview pane: a module's own preview builder or the kit sample for General, in a card sized to what it draws; a page with no preview hides the pane.
+-- Preview.lua: the live preview pane: a module's own preview builder or the typography sample for General, in a card sized to what it draws; a page with no preview hides the pane.
 local _, ns = ...
 
 local K = KstyleUI
@@ -8,9 +8,7 @@ local Model = ns.Model
 local Preview = {}
 ns.Preview = Preview
 
-local SAMPLE_WIDTH = 220
-local SAMPLE_BAR = 0.7
-local SAMPLE_SLIDER = 68
+local SAMPLE_WIDTH = 160
 local SNUG_MARGIN = 4
 local SCALE_SAME = 0.0001
 Preview.MAX_SCALE = 1.6
@@ -23,26 +21,34 @@ end
 
 function Preview.Sample(parent)
 	local frame = CreateFrame("Frame", nil, parent)
-	local gap = Tokens.Size("gapLarge")
-	local title = Widgets.Text(frame, "caps", "capsGold")
-	Widgets.CapsSize(title)
-	Widgets.Point(title, "TOP", frame, "TOP", 0, -gap)
-	Widgets.SetText(title, L["Sample panel"])
-	local body = Widgets.Text(frame, "body", "text")
-	Widgets.Point(body, "TOP", title, "BOTTOM", 0, -Tokens.Size("gapSmall"))
-	body:SetWidth(SAMPLE_WIDTH)
-	Widgets.SetText(body, L["Accent, font, size and motion changes show here at once."])
-	local bar = Widgets.StatusBar(frame, { width = SAMPLE_WIDTH, smooth = true, spark = true })
-	Widgets.Point(bar, "TOP", body, "BOTTOM", 0, -gap)
-	bar:SetBarRange(0, 1)
-	bar:SetBarValue(SAMPLE_BAR)
-	local toggle = Widgets.Toggle(frame, { value = true, label = L["Switch"] })
-	Widgets.Point(toggle, "TOPLEFT", bar, "BOTTOMLEFT", 0, -gap)
-	local slider = Widgets.Slider(frame, { min = 0, max = 100, step = 1, value = SAMPLE_SLIDER, width = SAMPLE_WIDTH })
-	Widgets.Point(slider, "TOPLEFT", toggle, "BOTTOMLEFT", 0, -gap)
-	local button = Widgets.Button(frame, { text = L["Button"], primary = true })
-	Widgets.Point(button, "TOPLEFT", slider, "BOTTOMLEFT", 0, -gap)
-	frame.bar, frame.toggle, frame.slider, frame.button = bar, toggle, slider, button
+	local samples = {
+		Widgets.Text(frame, "caps", "capsGold"),
+		Widgets.Text(frame, "unit", "textEmphasis"),
+		Widgets.Text(frame, "number", "text"),
+		Widgets.Text(frame, "body", "text"),
+	}
+	Widgets.CapsSize(samples[1])
+	Widgets.SetText(samples[1], L["Sample panel"])
+	Widgets.SetText(samples[2], L["Frost Howler"])
+	Widgets.SetText(samples[3], string.format("%d / %d", 2240, 4020))
+	Widgets.SetText(samples[4], L["Accent, font, size and motion changes show here at once."])
+	frame.body = samples[4]
+	frame.Refresh = function(self)
+		local width, gap = Widgets.Snap(self, SAMPLE_WIDTH), Tokens.Size("gapMedium")
+		local height = -gap
+		Widgets.Point(samples[1], "TOPLEFT", self, "TOPLEFT", Tokens.Size("gapLarge"), 0, true)
+		for i, text in ipairs(samples) do
+			Widgets.StyleText(text)
+			local row = Widgets.Snap(text, Widgets.WrappedHeight(text, width))
+			Widgets.Size(text, width, row)
+			if i > 1 then Widgets.Point(text, "TOPLEFT", samples[i - 1], "BOTTOMLEFT", 0, -gap, true) end
+			height = height + row + gap
+		end
+		Widgets.Size(self, width + 2 * Tokens.Size("gapLarge"), height)
+	end
+	frame.Restyle = frame.Refresh
+	Widgets.Track(frame)
+	frame:Refresh()
 	return frame
 end
 
@@ -494,8 +500,9 @@ function RefreshCurrent(pane)
 	pane.held[frame] = { room = pane.room, wide = pane.wide, height = height, scale = frame:GetScale() }
 end
 
-function Preview.Show(pane, page)
+function Preview.Show(pane, page, section)
 	pane.page = page
+	pane.section = section
 	local previous = pane.current
 	local frame
 	if page then
@@ -503,7 +510,7 @@ function Preview.Show(pane, page)
 		if builder then
 			frame = Build(pane, page.module, builder)
 		elseif page.builtinPreview then
-			local sample = page.builtinPreview()
+			local sample = page.builtinPreview(section)
 			if sample then
 				frame = Build(pane, sample, sample)
 			end
@@ -532,7 +539,7 @@ end
 
 function Preview.Refresh(pane, module)
 	if pane.page and pane.page.builtinPreview then
-		Preview.Show(pane, pane.page)
+		Preview.Show(pane, pane.page, pane.section)
 	elseif module == nil or module == pane.module then
 		RefreshCurrent(pane)
 	end

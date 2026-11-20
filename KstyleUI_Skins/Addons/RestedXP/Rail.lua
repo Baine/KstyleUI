@@ -365,9 +365,9 @@ function Rail.CardHeight(path, resize)
 		return nil
 	end
 	local f = path.frame
-	local scale = Widgets.ScaleFactor(f)
 	local steps = f.CurrentStepFrame:IsShown() and Height(f.CurrentStepFrame) or nil
-	return math.max(Shape(f, path, steps).span, ns.QuestCard.NaturalHeight() * Widgets.ScaleFactor(quest) / scale)
+	local minimum = ns.Skins.Setting(KEY, "fit") and MIN_HEIGHT or ns.QuestCard.NaturalHeight() * Widgets.ScaleFactor(quest) / Widgets.ScaleFactor(f)
+	return math.max(minimum, Shape(f, path, steps).span)
 end
 
 local function More(path)
@@ -677,7 +677,7 @@ function Rail.Place()
 	local quest = ns.QuestCard and ns.QuestCard.Frame()
 	local height = path and Rail.CardHeight(path, true)
 	if height and quest and not InCombatLockdown() then
-		ns.QuestCard.Resize(Widgets.Snap(quest, height * scale / Widgets.ScaleFactor(quest)))
+		ns.QuestCard.Resize(math.max(ns.QuestCard.NaturalHeight(), Widgets.Snap(quest, height * scale / Widgets.ScaleFactor(quest))))
 	end
 	if Docking() then
 		Dock(f, path, band)
