@@ -440,12 +440,15 @@ function C.Item(env, viewer, id)
 		return id
 	end
 	if viewer._bars then
+		item._width, item._height = 220, 30
 		local icon = Frame(env, "Frame", item)
+		icon._width, icon._height = 30, 30
 		icon.Icon = Texture(env, icon)
 		icon.Overlay = Texture(env, icon, "OVERLAY")
 		icon.Applications = FontString(env, icon)
 		item.Icon = icon
 		local bar = Frame(env, "StatusBar", item)
+		bar._height = 19
 		bar:SetStatusBarTexture("bar-atlas")
 		Own(env, bar:GetStatusBarTexture())
 		bar.BarBG = Texture(env, bar, "BACKGROUND")
@@ -499,7 +502,17 @@ function C.Viewers(env)
 		viewer.GetHideWhenInactive = function(self)
 			return self._hideWhenInactive ~= false
 		end
-		viewer.Layout = function() end
+		viewer.Layout = function(self)
+			if not self._nativePadding then return end
+			local top = 0
+			for i = 1, self._nativeCount do
+				local item = self._items[i]
+				item._points = { { "TOPLEFT", self, "TOPLEFT", 0, 0, n = 5 } }
+				item._points[1][5] = -top / item:GetScale()
+				top = top + item:GetHeight() * item:GetScale() + self._nativePadding
+			end
+			self._height = top - self._nativePadding
+		end
 		for i = 1, 2 do
 			C.Item(env, viewer, i)
 		end
@@ -539,6 +552,7 @@ function C.Native(env, name, entry, items, format)
 	local pad = setting(4) - (bars and 2 or 4)
 	pad = pad * scale
 	local n = math.max(2, #items)
+	if bars then viewer._nativePadding, viewer._nativeCount = pad, n end
 	while #viewer._items < n do
 		C.Item(env, viewer, #viewer._items + 1)
 	end
