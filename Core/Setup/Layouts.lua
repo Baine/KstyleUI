@@ -267,7 +267,7 @@ local SHARED_SETTINGS = {
 	{ module = "ActionBars", key = "bar4.showEmpty", value = false },
 	{ module = "ActionBars", key = "bar5.showEmpty", value = false },
 	{ module = "ActionBars", key = "bar6.showEmpty", value = false },
-	{ module = "DataBars", key = "strip.menus", value = false },
+	{ module = "DataBars", key = "strip.menus", value = true },
 	{ module = "GroupFrames", key = "raid.groupsPerRow", value = 4 },
 }
 local GRID_ORDER = { "bar1", "bar2", "bar3", "bar4", "bar5", "bar6", "pet", "stance" }
@@ -570,6 +570,8 @@ end
 function Layouts.ActionBarSignature(style)
 	local saved = ns.Store and ns.Store.IsLoaded() and ns.Store.Module("ActionBars") or {}
 	local out = { tostring(saved.slab ~= false), tostring(saved.useTray ~= false), tostring(saved.trayColumn ~= false), saved.extraBarsApplied or "off" }
+	local strip = ns.Store and ns.Store.IsLoaded() and ns.Store.Module("DataBars").strip or {}
+	out[#out + 1] = strip.placement or "rail"
 	local height = Layouts.DataBarHeight(style)
 	if height then
 		local bar = Layouts.DataBarPosition(style)
@@ -975,6 +977,10 @@ function Layouts.OrbsTray(width)
 end
 Layouts.STYLES = { "orbs", "medallions" }
 
+function Layouts.DataBarBelowDock(style, name, key, class)
+	return style == "medallions" and (key == "databars.rep" or key == "databars.honor") and Layouts.DataBarDock(style, name, class)
+end
+
 function Layouts.Style(style, name, key)
 	if style == "medallions" and (key == "meters.damage" or key == "meters.threat") and ns.Store.IsLoaded() and ns.Store.Layout()["medallions:" .. key] then
 		return layouts[name] and layouts[name][key]
@@ -985,7 +991,9 @@ function Layouts.Style(style, name, key)
 	end
 	local extra = style == "medallions" and key ~= "chat.main" and key ~= "qol.lootfeed" and key ~= "unitframes.resource" and Layouts.ExtraBarsPlace(ns.Scale.Aspect(), name, key)
 	if extra then return extra end
-	if style == "medallions" and key == "databars.strip" then
+	if key == "databars.strip" and style == "medallions" then
+		local dock = Layouts.DataBarDock(style, name, ns.Scale.Aspect())
+		if dock then return dock end
 		local position = layouts[name][key]
 		return { anchor = position.anchor, x = position.x, y = position.y, width = STORY_W, height = READOUT_H }
 	end
@@ -1004,7 +1012,8 @@ function Layouts.Style(style, name, key)
 	local set = STYLES[style][name]
 	local position = set and (set[key] or STORY_STYLES[style] and STORY_STYLES[style][key])
 	if position then
-		return { anchor = position.anchor, x = position.x, y = position.y, scale = position.scale, width = position.width, height = position.height }
+		local drop = Layouts.DataBarBelowDock(style, name, key) and 15 or 0
+		return { anchor = position.anchor, x = position.x, y = position.y - drop, scale = position.scale, width = position.width, height = position.height }
 	end
 end
 
@@ -1193,6 +1202,7 @@ function Layouts.DisplayInsets(key, height, anchor)
 	place = place or STYLES[style] and STYLES[style][name] and STYLES[style][name][key]
 	local inset = place and place.insets or element.insets
 	local l, r, b, t = inset and inset[1] or 0, inset and inset[2] or 0, inset and inset[3] or 0, inset and inset[4] or 0
+	if Layouts.DataBarBelowDock(style, name, key, class) then b = math.max(0, b - 15) end
 	if place and place.height then t = math.max(0, t + (place.height - height) / 2) end
 	local reserve = not (place and place.width) and element.reserve
 	if reserve then
@@ -1233,6 +1243,7 @@ function Layouts.Aspect(class, style, name, key)
 	if position and position.anchor and position.x and position.y then
 		local place = copy(position)
 		place.width, place.height = position.width, position.height
+		if Layouts.DataBarBelowDock(style, name, key, class) then place.y = place.y - 15 end
 		return place
 	end
 end
@@ -1361,6 +1372,8 @@ function Layouts.Positions(name, style, class, band)
 		position.anchor, position.x, position.y = place.anchor, place.x, place.y
 	end
 	if out and Layouts.DataBarHeight(style) then out["databars.strip"] = { anchor = "TOP", x = 0, y = 0 } end
+	local dock = out and Layouts.DataBarDock(style, name, class)
+	if dock then out["databars.strip"] = dock end
 	return out
 end
 
@@ -1508,12 +1521,22 @@ function Layouts.UpgradeCentre(saved, rootHeight)
 	end
 end
 
+function Layouts.DataBarDock(style, name, class)
+	style = style or (ns.HudStyle and ns.HudStyle.Current() or "frames")
+	local strip = ns.Store.IsLoaded() and ns.Store.Module("DataBars").strip
+	if not strip or strip.enabled == false then return nil end
+	if strip.placement ~= "dock" and not (style == "medallions" and strip.placement == "top") then return nil end
+	name = name or ns.Layout.Setting("preset")
+	local xp = Layouts.Aspect(class or ns.Scale.Aspect(), style, name, "databars.xp") or Layouts.Style(style, name, "databars.xp") or layouts[name]["databars.xp"]
+	return { anchor = xp.anchor, x = xp.x, y = xp.y - 15, width = xp.width or COLUMN, height = 12 }
+end
+
 function Layouts.DataBarHeight(style)
 	style = style or (ns.HudStyle and ns.HudStyle.Current() or "frames")
 	if style == "medallions" then return nil end
 	local bars = ns.Store.IsLoaded() and ns.Store.Module("DataBars") or {}
 	local strip = bars.strip or {}
-	if strip.placement == "rail" then return nil end
+	if strip.placement == "rail" or strip.placement == "dock" then return nil end
 	local height = strip.height
 	if type(height) ~= "number" or height ~= height then height = 20 end
 	return math.max(12, math.min(32, height))
@@ -1546,6 +1569,10 @@ function Layouts.Rect(element, position, rootWidth, rootHeight, style)
 	local point = OFFSETS[position.anchor] or OFFSETS.CENTER
 	local fx, fy = point[1], point[2]
 	local width, height = element.width, element.height
+	if element.key == "databars.strip" then
+		local dock = Layouts.DataBarDock(style)
+		if dock then width, height = position.width or dock.width, position.height or dock.height end
+	end
 	if element.key == "databars.strip" and Layouts.DataBarHeight(style) then
 		width, height = position.width or rootWidth, position.height or Layouts.DataBarHeight(style)
 	end
@@ -1650,6 +1677,10 @@ function Layouts.PrepareFits(name, physicalWidth, physicalHeight, enabled, posit
 		local styled = not GRIDS[key] and style and (Layouts.Aspect(class, style, name, key) or Layouts.Style(style, name, key))
 		if styled and styled.width then
 			width, height, offsetX, offsetY = styled.width, styled.height, nil, nil
+		end
+		if key == "databars.strip" then
+			local dock = Layouts.DataBarDock(style, name, class)
+			if dock then width, height = dock.width, dock.height end
 		end
 		if style == "medallions" and key == "unitframes.player" then
 			height, offsetY = height + Layouts.MEDALLIONS_UNITS.powerReserve, -Layouts.MEDALLIONS_UNITS.powerReserve
@@ -1790,7 +1821,10 @@ function Layouts.Fits(name, physicalWidth, physicalHeight, user, enabled, positi
 		end
 		for index = 1, count do
 			local rect = rects[index]
-			if rect.key ~= "databars.xp" and left < rect[3] and rect[1] < left + ring and bottom < rect[4] and rect[2] < bottom + ring then
+			local dock = rect.key == "databars.strip" and Layouts.DataBarDock(style, name, ns.Scale.AspectClass(physicalWidth, physicalHeight))
+			local position = layout[rect.key]
+			local docked = dock and position.anchor == dock.anchor and position.x == dock.x and position.y == dock.y
+			if rect.key ~= "databars.xp" and not docked and left < rect[3] and rect[1] < left + ring and bottom < rect[4] and rect[2] < bottom + ring then
 				return false
 			end
 		end

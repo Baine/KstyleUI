@@ -69,7 +69,7 @@ defaults.honor.show = "pvp"
 defaults.strip = {
 	enabled = true, placement = "top", height = 20, background = 85, artwork = "forged",
 	dockMeter = true,
-	line = true, labels = "inline", menus = false, valueColor = "plain", accentEdge = false, backdrop = false, separators = false,
+	line = true, labels = "inline", menus = true, valueColor = "plain", accentEdge = false, backdrop = false, separators = false,
 	spacing = STRIP_SPACING, orientation = "HORIZONTAL",
 	font = Font.DEFAULT, fontSize = STRIP_FONT_SIZE, outline = Font.WORLD,
 	money = "full", latency = "home", timeSource = "local", clock24 = true,
@@ -210,11 +210,11 @@ function ns.Schema()
 	local stripRows = {
 		{ type = "header", label = L["Data bar"] },
 		{ type = "toggle", key = "strip.enabled", label = L["Show the data bar"], help = L["Show the data bar and its readouts."] },
-		{ type = "dropdown", key = "strip.placement", label = L["Position"], help = L["The top of the screen in Frames and Orbs, or the original right rail. Move either in Layout Mode."], options = {
-			{ value = "top", label = L["Top"] }, { value = "rail", label = L["Right rail"] },
+		{ type = "dropdown", key = "strip.placement", label = L["Position"], help = L["Top docks to the slab in Medallions. Dock follows the action bars. Rail is the old readout."], options = {
+			{ value = "top", label = L["Top"] }, { value = "dock", label = L["Docked under the action bars"] }, { value = "rail", label = L["Right rail"] },
 		} },
 		{ type = "slider", key = "strip.height", label = L["Height"], help = L["The height of the top data bar."], min = 12, max = 32, step = 1 },
-		{ type = "dropdown", key = "strip.artwork", label = L["Data bar artwork"], help = L["Forged trim and a crest gem, or a plain glass plate."], options = {
+		{ type = "dropdown", key = "strip.artwork", label = L["Data bar artwork"], help = L["Forged trim and a crest gem, or a plain glass plate."], showWhen = function() return not K.Setup.Layouts.DataBarDock() end, options = {
 			{ value = "forged", label = L["Forged"] }, { value = "plain", label = L["Plain"] },
 		} },
 		{ type = "slider", key = "strip.background", label = L["Background"], help = L["The opacity of the top data bar's background."], min = 0, max = 100, step = 1 },
