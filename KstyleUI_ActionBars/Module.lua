@@ -401,6 +401,7 @@ end
 
 local EVENTS = {
 	PLAYER_ENTERING_WORLD = UpdateAll,
+	GET_ITEM_INFO_RECEIVED = ns.Button.ItemInfoReceived,
 	ACTIONBAR_SLOT_CHANGED = OnSlotChanged,
 	ACTIONBAR_UPDATE_COOLDOWN = OnCooldown,
 	SPELL_UPDATE_COOLDOWN = OnSpellCooldown,
