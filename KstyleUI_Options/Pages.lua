@@ -311,33 +311,33 @@ function Pages.ElementItems(element, page, level)
 		local minH, maxH = opts.minHeight or SIZE_MIN, opts.maxHeight or height
 		if minW < maxW and has("width") then
 			add({
-				kind = "slider", label = L["Width"], help = L["The element's width in interface units."],
+				kind = "slider", label = L["Width"], help = own and L["Settings window width in interface units; release the slider to apply."] or L["The element's width in interface units."],
 				min = minW, max = maxW, step = 1, format = Whole, get = get("width", minW), set = set("width"),
 			})
 		end
 		if minH < maxH and has("height") then
 			add({
-				kind = "slider", label = L["Height"], help = L["The element's height in interface units."],
+				kind = "slider", label = L["Height"], help = own and L["Settings window height in interface units; release the slider to apply."] or L["The element's height in interface units."],
 				min = minH, max = maxH, step = 1, format = Whole, get = get("height", minH), set = set("height"),
 			})
 		end
 	end
 	if opts.scalable and has("scale") then
 		add({
-			kind = "slider", label = L["Scale"], help = L["Makes the element larger or smaller."],
+			kind = "slider", label = L["Scale"], help = own and L["Scales the entire settings window, including its text; release to apply."] or L["Makes the element larger or smaller."],
 			min = Limit("SCALE_MIN", SCALE_MIN), max = Limit("SCALE_MAX", SCALE_MAX), step = Limit("SCALE_STEP", SCALE_STEP),
 			format = Percent, get = get("scale", FALLBACK.scale), set = set("scale"),
 		})
 	end
 	if has("alphaCombat") then
 		add({
-			kind = "slider", label = L["Opacity in combat"], help = L["How solid the element is while you fight."],
+			kind = "slider", label = L["Opacity in combat"], help = own and L["Settings window opacity during combat, with a 25 percent minimum."] or L["How solid the element is while you fight."],
 			min = minAlpha, max = 1, step = ALPHA_STEP, format = Percent, get = get("alphaCombat", FALLBACK.alphaCombat), set = set("alphaCombat"),
 		})
 	end
 	if has("alphaIdle") then
 		add({
-			kind = "slider", label = L["Opacity out of combat"], help = L["How solid the element is the rest of the time."],
+			kind = "slider", label = L["Opacity out of combat"], help = own and L["Settings window opacity outside combat, with a 25 percent minimum."] or L["How solid the element is the rest of the time."],
 			min = minAlpha, max = 1, step = ALPHA_STEP, format = Percent, get = get("alphaIdle", FALLBACK.alphaIdle), set = set("alphaIdle"),
 		})
 	end
@@ -348,12 +348,14 @@ function Pages.ElementItems(element, page, level)
 		})
 	end
 	add({
-		kind = "button", label = L["Reset this element"], help = L["Puts the element back where its module placed it."],
+		kind = "button", label = own and L["Reset window size and opacity"] or L["Reset this element"], help = own and L["Restores the settings window size, scale and opacity while keeping its position."] or L["Puts the element back where its module placed it."],
 		buttons = {
 			{
 				label = L["Reset"],
 				onClick = function()
-					Pages.ResetElement(key)
+					if own then
+						for _, field in ipairs({ "width", "height", "scale", "alphaCombat", "alphaIdle" }) do set(field)(nil) end
+					else Pages.ResetElement(key) end
 				end,
 			},
 		},
@@ -419,6 +421,10 @@ local function GeneralItems()
 			item.defer = true
 		end
 	end
+	items[#items + 1] = { kind = "header", level = 1, page = "General", label = L["Window conveniences"] }
+	items[#items + 1] = { kind = "toggle", page = "General", label = L["Search current page only"], help = L["Searches this page only. Off searches every settings page."],
+		get = function() return K.Store.Account().optionsSearchPage == true end,
+		set = function(value) K.Store.Account().optionsSearchPage = value; ns.Changed() end }
 	for _, element in ipairs(Pages.Elements(true)) do
 		if element.key == Pages.WINDOW_KEY then
 			element.label = L["Window size and opacity"]
@@ -439,6 +445,7 @@ local function GeneralItems()
 end
 
 local function ResetGeneral()
+	K.Store.Account().optionsSearchPage = nil
 	for _, section in ipairs(Pages.GENERAL_SECTIONS) do
 		Model.ResetSchema(section, K.Options.Get(section))
 	end
@@ -452,6 +459,10 @@ local function ElementsItems()
 		Append(items, Model.SchemaItems(Pages.ELEMENTS_SECTION, schema, "Elements"))
 	end
 	Append(items, Model.SchemaItems("LayoutControls", K.Options.Get("LayoutControls"), "Elements"))
+	items[#items + 1] = { kind = "toggle", page = "Elements", label = L["Double-click movers for settings"],
+		help = L["Opens element settings on double-click. Action bars keep their own shortcut setting."],
+		get = function() return K.Store.Account().moverOptions ~= false end,
+		set = function(value) K.Store.Account().moverOptions = value; ns.Changed() end }
 	NoLayoutNote(items, "Elements")
 	local byModule, order = {}, {}
 	for _, element in ipairs(Pages.Elements()) do
@@ -642,8 +653,8 @@ function Pages.ExportProfile()
 	return text
 end
 
-function Pages.ImportProfile(text)
-	local ok, result = K.Store.Import(text)
+function Pages.ImportProfile(text, name)
+	local ok, result = K.Store.Import(text, name)
 	ns.Changed()
 	if ok then
 		Notify(L["Profile imported"], format(L["Imported the profile as %s. This character now uses it."], tostring(result)))
@@ -658,10 +669,17 @@ function Pages.ReviewImport(text)
 	local preview, why = K.Profiles.Preview(text, ShareScope(), Pages.includeLayout ~= false)
 	if not preview then Notify(L["Import failed"], tostring(why)); return false, why end
 	local message = K.Store.Module("ProfileTools").backups and L["Will change: %s. A Before import backup will be saved."] or L["Will change: %s."]
-	message = format(message, preview.summary)
+	local labels = {}
+	for _, module in ipairs(preview.changes) do labels[#labels + 1] = Pages.ModuleLabel(module) end
+	message = format(message, #labels > 0 and table.concat(labels, ", ") or L["No changes"])
 	if preview.warning then message = message .. "\n\n" .. preview.warning end
-	K.Widgets.Confirm({ title = L["Review import"], text = message,
-		acceptLabel = L["Apply"], onAccept = function() Pages.ImportProfile(preview.text) end })
+	K.Widgets.Popup({ title = L["Review import"], text = message,
+		editBox = { placeholder = L["Profile name (optional)"], maxLetters = 48 }, buttons = {
+			{ label = L["Cancel"] }, { label = L["Apply"], primary = true, onClick = function(handle)
+				local name = handle:GetText():match("^%s*(.-)%s*$")
+				Pages.ImportProfile(preview.text, name ~= "" and name or nil)
+			end },
+		} })
 	return true, preview
 end
 

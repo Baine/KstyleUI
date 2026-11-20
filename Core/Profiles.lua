@@ -17,7 +17,6 @@ local function Selection(scope)
 	if type(scope) ~= "table" then return end
 	local selected = {}
 	for module, on in pairs(scope) do
-		if issecretvalue and (issecretvalue(module) or issecretvalue(on)) then return end
 		if type(module) ~= "string" or type(on) ~= "boolean" or not Store.Defaults(module) then return end
 		if on then selected[module] = true end
 	end
@@ -181,12 +180,6 @@ function Profiles.Preview(text, scope, includeLayout)
 		payload.namedLayouts = nil
 	end
 	table.sort(changes)
-	local labels = {}
-	for _, module in ipairs(changes) do
-		local label = ({ Appearance = L["Appearance"], Widgets = L["Widgets"], HudStyle = L["HUD style"], Readability = L["Readability"] })[module] or module
-		for _, entry in ipairs(K.Setup and K.Setup.PICKER or {}) do if entry.name == module then label = entry.label; break end end
-		labels[#labels + 1] = label
-	end
 	payload.settings, payload.layout = settings, layout
 	local encoded = Encode(payload)
 	local valid, err = Store.Decode(encoded)
@@ -194,7 +187,7 @@ function Profiles.Preview(text, scope, includeLayout)
 	local current, future = Store.Module("Appearance"), settings.Appearance
 	local scaleChanged = Store.Module("ProfileTools").scaleWarning and future
 		and (future.uiScaleAuto ~= current.uiScaleAuto or future.uiScaleAuto == false and future.uiScale ~= current.uiScale)
-	return { text = encoded, changes = changes, summary = #changes > 0 and table.concat(labels, ", ") or L["No changes"],
+	return { text = encoded, changes = changes, summary = #changes > 0 and table.concat(changes, ", ") or L["No changes"],
 		warning = scaleChanged and L["This import changes your interface size. Review Size in General after applying."] or nil }
 end
 
