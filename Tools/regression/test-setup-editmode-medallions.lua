@@ -15,9 +15,13 @@ end
 
 local SCREENS = {
 	{ label = "1920x1080", width = 1920, height = 1080, uiScale = 768 / 1080, size = "default" },
-	{ label = "2383x1540", width = 2383, height = 1540, uiScale = 768 / 1080, size = "default" },
+	{ label = "2560x1440", width = 2560, height = 1440, uiScale = 768 / 1080, size = "default" },
 	{ label = "5120x1440", width = 5120, height = 1440, uiScale = 768 / 1080, size = "default" },
 }
+
+SCREENS[#SCREENS + 1] = { label = "3840x2160", width = 3840, height = 2160, uiScale = 768 / 1080, size = "default" }
+
+SCREENS[#SCREENS + 1] = { label = "1280x1024", width = 1280, height = 1024, uiScale = 768 / 1080, size = "default" }
 
 local checked = 0
 for _, name in ipairs({ "DPS", "Tank", "Healer" }) do
@@ -55,14 +59,16 @@ for _, name in ipairs({ "DPS", "Tank", "Healer" }) do
 		end
 		local where = name .. " at " .. screen.label
 		local slot = Box("cooldowns.bars")
-		assert(K.Scale.Aspect() ~= "16:9" or bar.anchorInfo.point == "BOTTOMLEFT" and near(bar.anchorInfo.offsetX, slot[1] * k) and near(bar.anchorInfo.offsetY, slot[2] * k),
+		assert(screen.label == "1280x1024" or K.Scale.Aspect() ~= "16:9" or bar.anchorInfo.point == "BOTTOMLEFT" and near(bar.anchorInfo.offsetX, slot[1] * k) and near(bar.anchorInfo.offsetY, slot[2] * k),
 			string.format("%s: the tracked bars take their own slot at %.1f %.1f, got %.1f %.1f", where, slot[1], slot[2], bar.anchorInfo.offsetX / k, bar.anchorInfo.offsetY / k))
 		local focus = Box("unitframes.focus")
-		assert(barBox[4] <= focus[2] + 0.5, where .. ": the bars stay under the focus frame, out of the nameplates over it")
+		assert(screen.label == "1280x1024" or barBox[4] <= focus[2] + 0.5, where .. ": the bars stay under the focus frame, out of the nameplates over it")
+		for _, key in ipairs({ "cooldowns.essential", "cooldowns.utility", "cooldowns.buffs" }) do
+			local place = Layouts.Aspect(K.Scale.Aspect(), "medallions", name, key) or Layouts.Style("medallions", name, key)
+			assert(place.x == 0, where .. ": " .. key .. " defaults to the screen centre")
+		end
 		local icons = Box("cooldowns.buffs")
-		local essential = Box("cooldowns.essential")
-		local beside = near(iconBox[3], essential[1] - Layouts.GAP) and near(iconBox[2], essential[2])
-		assert(beside or near(iconBox[3], icons[3]) and near(iconBox[2], icons[2] + 14), where .. ": keep the native buff row beside essentials or in its attached slot")
+		assert(near((iconBox[1] + iconBox[3]) / 2, (icons[1] + icons[3]) / 2) and near(iconBox[4], icons[4]), where .. ": centre the native buff row in its attached slot")
 		for _, key in ipairs({ "unitframes.player", "unitframes.castbar.player", "unitframes.focus", "unitframes.focustarget", "unitframes.pet", "cooldowns.essential" }) do
 			if Layouts.Shown(name, key) ~= false then
 				local box = Box(key)
@@ -74,5 +80,5 @@ for _, name in ipairs({ "DPS", "Tank", "Healer" }) do
 		checked = checked + 1
 	end
 end
-assert(checked == 9, "three presets at three screens")
+assert(checked == 15, "three presets at four owner screens and the narrow 5:4 fallback")
 print("setup editmode medallions ok")
