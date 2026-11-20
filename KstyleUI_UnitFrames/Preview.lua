@@ -26,7 +26,7 @@ local THREAT_TANKING = 3
 
 local SAMPLES = {
 	player = { name = L["Valerin"], level = 60, health = 3120, healthMax = 3980, power = 3120, powerMax = 3980, reaction = 5, own = true, leader = true, resting = true, caption = L["Battle Stance"], class = L["Warrior"] },
-	target = { name = L["Frost Howler"], level = 61, classification = "elite", creature = L["Beast"], health = 2240, healthMax = 4020, power = 40, powerMax = 100, reaction = 2, marker = true, threat = true },
+	target = { name = L["Frost Howler"], level = 61, classification = "elite", creature = L["Beast"], health = 2240, healthMax = 4020, power = 40, powerMax = 100, reaction = 2, marker = true, threat = true, faction = "Horde" },
 	targettarget = { name = L["Valerin"], level = 60, health = 3120, healthMax = 3980, power = 3120, powerMax = 3980, reaction = 5, own = true },
 	focus = { name = L["Elunara"], level = 60, health = 2530, healthMax = 4010, power = 2900, powerMax = 4400, reaction = 2 },
 	focustarget = { name = L["Krazhk"], level = 60, health = 3300, healthMax = 4000, power = 1800, powerMax = 3600, reaction = 2 },
@@ -46,6 +46,9 @@ local function SampleColor(s, sample, source, custom)
 	if source == "custom" then
 		return custom.r, custom.g, custom.b
 	end
+	if source == "health" then
+		return ns.Unit.ShareColor(sample.healthMax > 0 and sample.health / sample.healthMax or 0)
+	end
 	if source == "power" then
 		return ns.Unit.PowerTypeColor(sample.own and "player" or nil)
 	end
@@ -56,7 +59,7 @@ local function SampleColor(s, sample, source, custom)
 end
 
 local function Hostile(s, sample)
-	return s.levelDifficulty and sample.reaction < 5
+	return s.levelDifficulty and (sample.reaction < 5 or s.levelFriendly)
 end
 
 local function GlowAlpha(share)
@@ -75,7 +78,7 @@ local function PaintLumen(view, kind, sample)
 	local share = sample.healthMax > 0 and sample.health / sample.healthMax or 0
 	if form == "vitals" then
 		local split = s.healthText == "both" or s.healthText == "currentMax"
-		Format.Sample(view.healthText, split and "current" or s.healthText, sample.health, sample.healthMax)
+		Format.Sample(view.healthText, split and "current" or s.healthText, sample.health, sample.healthMax, s.healthDecimal)
 		if split then
 			Format.SampleMax(view.healthSub, sample.healthMax)
 		else
@@ -92,10 +95,10 @@ local function PaintLumen(view, kind, sample)
 		local mirror = view.geometry.mirror
 		local split = not mirror and (s.healthText == "both" or s.healthText == "currentMax")
 		if mirror then
-			Format.Sample(view.healthText, Format.Main(s.healthText), sample.health, sample.healthMax)
+			Format.Sample(view.healthText, Format.Main(s.healthText), sample.health, sample.healthMax, s.healthDecimal)
 			view.caption:SetText(sample.creature or "")
 		else
-			Format.Sample(view.healthText, split and "current" or s.healthText, sample.health, sample.healthMax)
+			Format.Sample(view.healthText, split and "current" or s.healthText, sample.health, sample.healthMax, s.healthDecimal)
 			view.caption:SetText(sample.class or "")
 		end
 		if split then
@@ -105,13 +108,13 @@ local function PaintLumen(view, kind, sample)
 		end
 		view.levelText:SetText(sample.level)
 	elseif form == "card" then
-		Format.Sample(view.healthText, Format.Main(s.healthText), sample.health, sample.healthMax)
+		Format.Sample(view.healthText, Format.Main(s.healthText), sample.health, sample.healthMax, s.healthDecimal)
 		ns.Unit.LevelText(view.caption, sample.level, sample.classification, nil, true, nil, Hostile(s, sample))
 		view.capLabel:SetText(Settings.CAP_LABELS[kind] or "")
 	elseif form == "sigil" then
 		ns.Unit.LevelText(view.caption, sample.level, sample.classification, sample.creature, false, nil, Hostile(s, sample))
 	else
-		Format.Sample(view.healthText, s.healthText, sample.health, sample.healthMax)
+		Format.Sample(view.healthText, s.healthText, sample.health, sample.healthMax, s.healthDecimal)
 	end
 end
 
@@ -119,11 +122,12 @@ local function Paint(view, kind)
 	local s, sample = view.s, SAMPLES[kind]
 	view.health:SetBarRange(0, sample.healthMax)
 	view.health:SetHealth(sample.health, true)
-	view.health:SetBarColor(SampleColor(s, sample, s.healthColor, s.healthCustom))
-	Style.HealthTint(view, SampleColor(s, sample, s.healthColor, s.healthCustom))
+	local r, g, b = SampleColor(s, sample, s.healthColor, s.healthCustom)
+	ns.Unit.SetColor(view.health, r, g, b, s.healthAlpha)
+	Style.HealthTint(view, r, g, b)
 	local split = view.geometry and view.geometry.healthSub
 	if view.form == "plate" then
-		Format.Sample(view.healthText, split and Format.Main(s.healthText) or s.healthText, sample.health, sample.healthMax)
+		Format.Sample(view.healthText, split and Format.Main(s.healthText) or s.healthText, sample.health, sample.healthMax, s.healthDecimal)
 		Format.SampleDetail(view.healthSub, split and s.healthText or "none", sample.health, sample.healthMax)
 	end
 	view.power:SetBarRange(0, sample.powerMax)
@@ -137,7 +141,9 @@ local function Paint(view, kind)
 	else
 		view.incoming:Hide()
 	end
-	view.absorb:Hide()
+	view.absorb:SetBarRange(0, sample.healthMax)
+	view.absorb:SetValue(sample.healthMax * INCOMING_SHARE)
+	view.absorb:SetShown(s.healPrediction == true and s.absorbs ~= false)
 	if s.healPrediction and s.healAbsorbs then
 		local eaten = view.healAbsorb or ns.Style.HealAbsorb(view)
 		eaten:SetBarRange(0, sample.healthMax)
@@ -158,10 +164,11 @@ local function Paint(view, kind)
 	end
 	ns.Unit.TextTags(view, nil, nil, sample)
 	if s.portraitStyle == "class" and GetClassAtlas and Theme.Class() then
-		view.portrait:SetAtlas(GetClassAtlas(Theme.Class()))
+		ns.Unit.ClassArt(view.portrait, Theme.Class(), s)
 	elseif SetPortraitTexture then
 		view.portrait:SetTexCoord(0, 1, 0, 1)
 		SetPortraitTexture(view.portrait, "player", s.portraitShape ~= "round")
+		ns.Unit.Crop(view.portrait, s, 0, 1, 0, 1)
 	end
 end
 
@@ -171,6 +178,12 @@ local function PaintIndicators(view, s, sample)
 		icons[key]:SetAlpha(1)
 		icons[key]:SetShown(s[key] == true and sample[key] == true)
 	end
+	local own = UnitFactionGroup and UnitFactionGroup("player")
+	local pvp = s.pvp and sample.faction and not s.pvpPlayersOnly and not (s.pvpEnemyOnly and (issecretvalue and issecretvalue(own) or own == sample.faction))
+	icons.pvp:SetShown(pvp == true)
+	if pvp then icons.pvp:SetAtlas(ns.Indicators.ATLAS[sample.faction]) end
+	ns.Indicators.Extra(view, nil, view.kind == "pet" and 3 or sample.classification or "normal")
+	ns.Frames.Edge(view, true)
 	if s.raidMarker and sample.marker then
 		view.marker:SetSpriteSheetCell(SKULL, 4, 4)
 		view.marker:Show()

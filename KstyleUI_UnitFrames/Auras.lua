@@ -36,7 +36,6 @@ local POSITION = {
 	SIDE = { "TOPLEFT", "TOPRIGHT", 1, 0, false, below = true },
 }
 local GAP = 2
-local ICON_CROP = 0.07
 local ICON_INSET_LINES = 2
 local MASK_WRAP = "CLAMPTOBLACKADDITIVE"
 local COUNT_INSET = 1
@@ -135,8 +134,18 @@ function Auras.SampleTile(parent)
 	return tile
 end
 
+function Auras.Zoom(entry, kind)
+	local zoom = Settings.Value(kind, "auraZoom")
+	entry.icon:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
+	local button = entry.button
+	if button and button.SetHideTooltipInCombat then
+		button:SetHideTooltipInCombat(not Settings.Value(kind, "auraTooltipCombat"))
+	end
+end
+
 function Auras.StyleSample(tile, kind)
 	local view = { kind = kind }
+	Auras.Zoom(tile, kind)
 	local inset = Widgets.Snap(tile.skin, COUNT_INSET)
 	tile.count:ClearAllPoints()
 	tile.count:SetPoint("TOPRIGHT", tile.skin, "TOPRIGHT", inset, inset)
@@ -148,7 +157,6 @@ function Auras.NewTile(parent, chrome)
 	local skin = CreateFrame("Frame", nil, parent)
 	chrome = chrome or Widgets.IconChrome(skin)
 	local icon = skin:CreateTexture(nil, "ARTWORK")
-	icon:SetTexCoord(ICON_CROP, 1 - ICON_CROP, ICON_CROP, 1 - ICON_CROP)
 	local mask = skin:CreateMaskTexture()
 	mask:SetTexture((Tokens.Texture("iconMask")), MASK_WRAP, MASK_WRAP)
 	mask:SetAllPoints(icon)
@@ -243,6 +251,7 @@ local function StyleButton(view, entry, style)
 	local size = Snap(view, Value(view, "auraSize"))
 	entry.button:SetSize(size, size)
 	Auras.LayoutTile(entry)
+	Auras.Zoom(entry, view.kind)
 	local inset = Widgets.Snap(entry.skin, COUNT_INSET)
 	entry.count:ClearAllPoints()
 	entry.count:SetPoint("TOPRIGHT", entry.skin, "TOPRIGHT", inset, inset)
