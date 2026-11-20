@@ -16,9 +16,16 @@ function Preview.Build(...)
 	local GRAIN_ALPHA = 0.08
 	local PLAYER_SIZE = 8
 	local SAMPLE_ZOOM, SAMPLE_ZOOM_LEVELS = 5, 6
+	local SAMPLE_GROUP, SAMPLE_FPS, SAMPLE_MS = 25, 60, 42
+	local SAMPLE_ADDONS = { { "BugSack", 132176 }, { "Details", 132153 }, { "WeakAuras", 132111 } }
 
 	local function Refresh(frame)
-		local face = frame.face
+		local face, drawer = frame.face, frame.column.drawer
+		if Settings.Get("column.drawer") and Settings.Get("drawer.behaviour") == "open" then
+			drawer:Refresh()
+		else
+			drawer:Close(true)
+		end
 		face:Refresh()
 		local zone, pvpType = Data.Zone()
 		if type(zone) ~= "string" or zone == "" then
@@ -27,6 +34,8 @@ function Preview.Build(...)
 		face:SetZone(zone, pvpType)
 		face:SetClock(Data.Clock(Settings.Get("clock.mode")) or Format.Time(14, 32, true))
 		face:SetCoords(Format.Coords(SAMPLE_X, SAMPLE_Y, Settings.Get("coords.precision")))
+		face:SetDifficulty(Data.Difficulty() or L["%dH"]:format(SAMPLE_GROUP))
+		face:SetPerf(ns.Map.PerfText(SAMPLE_FPS, SAMPLE_MS))
 		face:SetRevealed(true)
 		face:SetZoom(SAMPLE_ZOOM, SAMPLE_ZOOM_LEVELS)
 		frame.column:Refresh()
@@ -64,7 +73,15 @@ function Preview.Build(...)
 		Widgets.Point(player, "CENTER", area, "CENTER")
 		frame.player = player
 		frame.column = Column.New(face, { preview = true })
-		frame.column.drawer = ns.Drawer.New(frame.column, { preview = true })
+		local drawer = ns.Drawer.New(frame.column, { preview = true })
+		drawer.panel:SetFrameStrata("DIALOG")
+		for _, sample in ipairs(SAMPLE_ADDONS) do
+			local button = CreateFrame("Button", nil, drawer.panel)
+			local icon = button:CreateTexture(nil, "ARTWORK")
+			icon:SetTexture(sample[2])
+			drawer.adopted[button], drawer.order[#drawer.order + 1] = { name = sample[1], icon = icon }, button
+		end
+		drawer.active, frame.column.drawer = true, drawer
 
 		frame.Refresh = Refresh
 		frame:Refresh()
