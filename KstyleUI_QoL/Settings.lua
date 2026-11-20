@@ -21,6 +21,8 @@ ns.defaults = {
 	questModifier = "SHIFT",
 	maxCamera = true,
 	quietErrors = false,
+	autoDelete = false,
+	autoResurrect = false,
 }
 
 function ns.Get(key)
@@ -81,6 +83,9 @@ function ns.Schema()
 		{ type = "toggle", key = "maxCamera", label = L["Max camera distance"], help = L["Let the camera zoom out as far as the game allows."], disableWhen = isOff },
 		{ type = "header", label = L["Alerts"] },
 		{ type = "toggle", key = "quietErrors", label = L["Quiet error text"], help = L["Hide the red cooldown, range and resource errors that flood the screen in combat."], disableWhen = isOff },
+		{ type = "toggle", key = "autoDelete", label = L["Fill in the delete word"], help = L["Type the confirmation word when you delete a good item. You still click Yes."], disableWhen = isOff },
+		{ type = "header", label = L["Resurrection"] },
+		{ type = "toggle", key = "autoResurrect", label = L["Accept resurrection"], help = L["Accept a resurrection out of combat the moment it is offered, unless the game makes you wait."], disableWhen = isOff },
 	}
 	return ns.schema
 end

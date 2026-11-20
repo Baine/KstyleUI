@@ -6,8 +6,14 @@ local Load = dofile("Tools/regression/load_files.lua")
 local module = os.getenv("RENDER_SHELL_MODULE") or "Minimap"
 local loaders = { Minimap = "minimap", DataBars = "databars", Chat = "chat", Bags = "bags", Tooltips = "tooltips", QoL = "qol" }
 local keys = { Minimap = "zone.subzone", DataBars = "strip.modules", Bags = "desaturateJunk", Tooltips = "maxStack", QoL = "autoGossip" }
-local followup = os.getenv("RENDER_SHELL_FOLLOWUP") == "1"
-local followups = {
+local batch = os.getenv("RENDER_SHELL_FOLLOWUP")
+local followup = batch == "1" or batch == "3"
+local followups = batch == "3" and {
+	DataBars = { { "strip.money", "short" } },
+	Bags = { { "characterBags", true } },
+	Tooltips = { { "show", "outOfCombat" }, { "awayTag", true }, { "mountLine", true } },
+	QoL = { { "autoDelete", true }, { "autoResurrect", true } },
+} or {
 	Minimap = { { "coords.hover", true } },
 	DataBars = { { "strip.itemLevelSource", "overall" }, { "strip.itemLevelDecimals", 2 } },
 	Chat = { { "inputOnTop", true }, { "editBox", "always" } },
@@ -24,6 +30,7 @@ return Common.Run(function()
 		setup = function(env)
 			Gallery.Setup(env)
 			env.GetZoneText = function() return "Elwynn Forest" end
+			env.CHAT_FLAG_AFK = "<AFK>"
 			env.GetAverageItemLevel = function() return 62.8, 58.3 end
 			if env.C_Item then env.C_Item.GetItemMaxStackSizeByID = function() return 20 end end
 			env.C_AddOns = env.C_AddOns or {}
@@ -46,7 +53,7 @@ return Common.Run(function()
 			local s = K.Store.Module(module).strip
 			for _, key in ipairs({ "modules", "dockModules", "railModules" }) do
 				for _, entry in ipairs(s[key]) do
-					if followup then entry.shown = entry.id == "itemLevel"
+					if followup then entry.shown = entry.id == (batch == "3" and "gold" or "itemLevel")
 					elseif entry.id == "location" or entry.id == "itemLevel" then entry.shown = true end
 				end
 				assert(K.Options.Write(module, "strip." .. key, s[key]) ~= false)
