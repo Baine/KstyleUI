@@ -69,7 +69,7 @@ local function Shows(cfg, kind)
 	elseif kind == "miss" then
 		return cfg.misses
 	end
-	return cfg.neutral
+	return cfg.neutral or kind == "combat"
 end
 
 local function Count(unit, event, flag, amount, school)
@@ -128,6 +128,10 @@ end
 
 local function OnRoster()
 	Anchors.Schedule()
+end
+
+local function OnCombat(event)
+	if Module.cfg.combat then OnUnitCombat(nil, "player", event, "", 0) end
 end
 
 local function OnPlateRemoved(_, unit)
@@ -197,6 +201,8 @@ local function Enable()
 	Module.layer:Show()
 	Module.field:Show()
 	K.Events.Register(MODULE, "UNIT_COMBAT", OnUnitCombat)
+	K.Events.Register(MODULE, "PLAYER_REGEN_DISABLED", OnCombat)
+	K.Events.Register(MODULE, "PLAYER_REGEN_ENABLED", OnCombat)
 	K.Events.Register(MODULE, "GROUP_ROSTER_UPDATE", OnRoster)
 	K.Events.Register(MODULE, "NAME_PLATE_UNIT_REMOVED", OnPlateRemoved)
 	K.Callbacks.Register("SettingChanged", MODULE, OnSetting)

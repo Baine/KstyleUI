@@ -43,10 +43,11 @@ local function Crop(texture)
 	end
 end
 
-local function Text(text, font, size, outline, role)
+local function Text(text, font, size, outline, role, shown)
 	if type(text) == "table" and type(text.SetFont) == "function" then
 		Style.Font(text, font, size, outline, role)
 		Widgets.TextColor(text, "textEmphasis")
+		if shown ~= nil then text:SetAlpha(shown == false and 0 or 1) end
 	end
 end
 
@@ -70,6 +71,34 @@ local function Outset(backdrop, outset)
 		end
 	end
 	return backdrop
+end
+
+local function Toggle(cooldown, group, method, key, off, native)
+	if type(cooldown[method]) ~= "function" then return end
+	local side = K.Safe.Side(cooldown)
+	local state = side[method]
+	if not state then
+		state = { native = native }
+		side[method] = state
+		hooksecurefunc(cooldown, method, function(frame, value)
+			if state.busy then return end
+			state.native = value
+			if active[group] and not Settings.current[group][key] then
+				state.busy = true
+				frame[method](frame, off)
+				state.busy = nil
+			end
+		end)
+	end
+	local disabled = not Settings.current[group][key]
+	if disabled or state.disabled then
+		state.busy = true
+		local value = state.native
+		if disabled then value = off end
+		cooldown[method](cooldown, value)
+		state.busy = nil
+	end
+	state.disabled = disabled
 end
 
 local function SkinIcon(group, item)
@@ -101,6 +130,8 @@ local function SkinIcon(group, item)
 	end
 	local cooldown = item.Cooldown
 	if type(cooldown) == "table" and type(cooldown.GetCountdownFontString) == "function" then
+		Toggle(cooldown, group, "SetHideCountdownNumbers", "timer", true, not Viewers.Frame(group).timerShown)
+		Toggle(cooldown, group, "SetDrawSwipe", "swipe", false, item.cooldownShowSwipe)
 		local text = cooldown:GetCountdownFontString()
 		Text(text, current.timerFont, cfg.timerSize / scale, current.timerOutline, group ~= "essential" and "timer" or nil)
 		Style.Countdown(cooldown, group == "essential")
@@ -115,9 +146,9 @@ local function SkinIcon(group, item)
 		end
 	end
 	local charges = item.ChargeCount
-	Text(type(charges) == "table" and charges.Current, current.countFont, cfg.countSize / scale, current.countOutline)
+	Text(type(charges) == "table" and charges.Current, current.countFont, cfg.countSize / scale, current.countOutline, nil, cfg.showCount)
 	local applications = item.Applications
-	Text(type(applications) == "table" and applications.Applications, current.countFont, cfg.countSize / scale, current.countOutline)
+	Text(type(applications) == "table" and applications.Applications, current.countFont, cfg.countSize / scale, current.countOutline, nil, cfg.showCount)
 end
 
 local function SkinBar(item)
@@ -148,7 +179,7 @@ local function SkinBar(item)
 		Skin.Strip(frame, { keep = Keep(frame.Icon) })
 		Crop(frame.Icon)
 		Outset(Skin.Backdrop(frame, { shape = "tile", fill = "buttonFill", inset = -ICON_OUTSET / scale }), ICON_OUTSET / scale)
-		Text(frame.Applications, current.countFont, cfg.countSize / scale, current.countOutline)
+		Text(frame.Applications, current.countFont, cfg.countSize / scale, current.countOutline, nil, cfg.showCount)
 	end
 end
 

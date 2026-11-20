@@ -7,7 +7,6 @@ local Widgets, Tokens = K.Widgets, K.Tokens
 local Button = {}
 ns.Button = Button
 
-local ICON_CROP = 0.07
 local ICON_INSET_LINES = 1
 local TEXT_INSET = 1
 local TIMER_LIFT = 0.5
@@ -51,7 +50,6 @@ function Button.Create(button, hasDispel)
 	rim:SetColorTexture(Widgets.Rgba("white"))
 	rim:SetAllPoints(skin)
 	local icon = skin:CreateTexture(nil, "ARTWORK")
-	icon:SetTexCoord(ICON_CROP, 1 - ICON_CROP, ICON_CROP, 1 - ICON_CROP)
 	local over = CreateFrame("Frame", nil, skin)
 	over:SetAllPoints(skin)
 	over:SetFrameLevel(skin:GetFrameLevel() + BADGE_LEVEL)
@@ -92,14 +90,15 @@ local function PlaceTexts(entry, ctx, inset)
 	count:ClearAllPoints()
 	local text = Widgets.Snap(skin, TEXT_INSET)
 	if ctx.timer.position == "inside" then
-		Widgets.Point(timer, "BOTTOM", skin, "BOTTOM", 0, inset + text)
+		Widgets.Point(timer, "BOTTOM", skin, "BOTTOM", ctx.timer.x, inset + text + ctx.timer.y)
 	else
-		Widgets.Point(timer, "TOP", skin, "BOTTOM", 0, -(ns.Model.TIMER_GAP - TIMER_LIFT))
+		Widgets.Point(timer, "TOP", skin, "BOTTOM", ctx.timer.x, -(ns.Model.TIMER_GAP - TIMER_LIFT) + ctx.timer.y)
 	end
 	local shadow = Widgets.Border(skin)
 	count:SetShadowColor(Tokens.Color("textShadow"))
 	count:SetShadowOffset(shadow, -shadow)
-	count:SetPoint("TOPRIGHT", skin, "TOPRIGHT", -(inset + text), -(inset + text))
+	Widgets.Point(count, "TOPRIGHT", skin, "TOPRIGHT", -(inset + text) + ctx.count.x, -(inset + text) + ctx.count.y)
+	count:SetAlpha(ctx.count.shown and 1 or 0)
 	timer:SetJustifyH("CENTER")
 	count:SetJustifyH("RIGHT")
 	badge:ClearAllPoints()
@@ -145,6 +144,9 @@ function Button.Bind(entry, ctx)
 		entry.badge:Hide()
 	end
 	BindDispel(entry, ctx)
+	if type(button.SetDurationCooldown) == "function" and type(button.ClearDurationCooldown) == "function" then
+		if ctx.group.swipe and entry.swipe then button:SetDurationCooldown(entry.swipe) else button:ClearDurationCooldown() end
+	end
 	if ctx.group.cancel ~= nil then
 		button:SetCancelAuraButtons(ctx.group.cancel and CANCEL_CLICK or nil)
 	end
@@ -162,9 +164,25 @@ function Button.Style(entry, ctx)
 	Widgets.ShowSlice(entry.rim, true)
 	local inset = Widgets.Border(skin) * ICON_INSET_LINES
 	local icon = entry.icon
+	local crop = ctx.iconZoom
+	icon:SetTexCoord(crop, 1 - crop, crop, 1 - crop)
 	icon:ClearAllPoints()
 	icon:SetPoint("TOPLEFT", skin, "TOPLEFT", inset, -inset)
 	icon:SetPoint("BOTTOMRIGHT", skin, "BOTTOMRIGHT", -inset, inset)
+	if ctx.group.swipe and not entry.swipe then
+		local swipe = CreateFrame("Cooldown", nil, skin, "CooldownFrameTemplate")
+		swipe:SetDrawSwipe(true)
+		swipe:SetHideCountdownNumbers(true)
+		swipe:SetDrawEdge(false)
+		swipe:SetDrawBling(false)
+		swipe:SetReverse(true)
+		swipe:SetSwipeColor(Widgets.Rgba("black", 0.65))
+		entry.swipe = swipe
+	end
+	if entry.swipe then
+		Widgets.Cover(entry.swipe, icon)
+		entry.swipe:SetShown(ctx.group.swipe)
+	end
 	PlaceTexts(entry, ctx, inset)
 	if Engine(button) then
 		Button.Bind(entry, ctx)

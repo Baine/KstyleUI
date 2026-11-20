@@ -27,6 +27,9 @@ local defaults = {
 	worldFont = true,
 	worldFace = "",
 	style = "rise",
+	direction = "up",
+	shadow = "style",
+	combat = false,
 	damage = true,
 	heals = true,
 	misses = true,
@@ -43,6 +46,7 @@ local defaults = {
 	critScale = 1.6,
 	critColor = true,
 	critTint = TokenColor("neutral"),
+	combatColor = TokenColor("neutral"),
 	playerPlacement = "field",
 	clearLanes = true,
 	calmNumbers = true,
@@ -163,6 +167,9 @@ function Settings.Schema()
 			help = L["Numbers rise straight up, arc to one side, or pop in and drift."],
 			options = STYLE_OPTIONS,
 		},
+		{ type = "dropdown", key = "direction", label = L["Scroll direction"], help = L["Move combat text upward or downward."], options = {
+			{ value = "up", label = L["Upward"] }, { value = "down", label = L["Downward"] },
+		} },
 		{ type = "toggle", key = "damage", label = L["Damage"], help = L["Shows the damage you take."] },
 		{ type = "toggle", key = "heals", label = L["Heals"], help = L["Shows the healing you receive, with a plus sign."] },
 		{
@@ -196,6 +203,9 @@ function Settings.Schema()
 			help = L["A soft shadow, or a thin or thick outline that reads well over the game world."],
 			options = OUTLINE_OPTIONS,
 		},
+		{ type = "dropdown", key = "shadow", label = L["Text shadow"], help = L["Keep the current outline's shadow, or show or hide it explicitly."], options = {
+			{ value = "style", label = L["Current style"] }, { value = "show", label = L["Show"] }, { value = "hide", label = L["Hide"] },
+		} },
 		{ type = "header", label = L["Colours"] },
 		{
 			type = "dropdown", key = "colorMode", label = L["Damage colour"],
@@ -268,6 +278,9 @@ function Settings.Schema()
 		},
 	}
 	Settings.schema.preview = ns.Preview.Build
+	Settings.schema[#Settings.schema + 1] = { type = "header", label = L["Combat messages"] }
+	Settings.schema[#Settings.schema + 1] = { type = "toggle", key = "combat", label = L["Show combat enter and leave"], help = L["Show a short message when you enter or leave combat."] }
+	Settings.schema[#Settings.schema + 1] = { type = "color", key = "combatColor", label = L["Combat message colour"], help = L["The colour of enter and leave combat messages."], showWhen = function(settings) return settings.combat == true end }
 	return Settings.schema
 end
 
@@ -368,6 +381,9 @@ function Settings.Snapshot(values, cfg)
 	cfg.worldFont = Bool(values.worldFont, d.worldFont)
 	cfg.worldFace = FontPath(values.worldFace, (Tokens.Font("world")))
 	cfg.style = Choice(values.style, STYLES, d.style)
+	cfg.direction = Choice(values.direction, { up = true, down = true }, d.direction)
+	cfg.combat = Bool(values.combat, d.combat)
+	cfg.combatR, cfg.combatG, cfg.combatB = Color(values.combatColor, d.combatColor)
 	cfg.damage = Bool(values.damage, d.damage)
 	cfg.heals = Bool(values.heals, d.heals)
 	cfg.misses = Bool(values.misses, d.misses)
@@ -383,6 +399,8 @@ function Settings.Snapshot(values, cfg)
 	local outline = Choice(values.outline, OUTLINES, d.outline)
 	cfg.flags = OUTLINE_FLAGS[outline]
 	cfg.shadow = outline == "NONE"
+	local shadow = Choice(values.shadow, { style = true, show = true, hide = true }, d.shadow)
+	if shadow ~= "style" then cfg.shadow = shadow == "show" end
 	cfg.colorMode = Choice(values.colorMode, COLOR_MODES, d.colorMode)
 	cfg.damageR, cfg.damageG, cfg.damageB = Color(Styled(values, "damageColor", medallions), d.damageColor)
 	cfg.healR, cfg.healG, cfg.healB = Color(Styled(values, "healColor", medallions), d.healColor)
