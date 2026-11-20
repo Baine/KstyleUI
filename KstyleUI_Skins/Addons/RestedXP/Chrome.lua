@@ -494,6 +494,9 @@ local function PaintCaption(text, entry)
 			PaintCaption(text, entry)
 		end
 	end
+	local heading = Parts.HeadingOf(caption)
+	if entry.row then entry.row:SetHeight(Widgets.Snap(entry.row, Tokens.Size("gapXLarge"))) end
+	if heading then heading:Restyle() end
 end
 
 local function HangsLeft(title)
@@ -511,11 +514,17 @@ local function CaptionFor(text, title, sized, heading)
 	if not IsTable(text) or type(text.GetText) ~= "function" or type(text.SetText) ~= "function" or type(text.SetFont) ~= "function" or type(text.GetParent) ~= "function" or captions[text] then
 		return
 	end
-	local holder = CreateFrame("Frame", nil, title or text:GetParent())
+	local holder = CreateFrame("Frame", nil, sized and heading and heading.panel or title or text:GetParent())
 	holder:SetAllPoints(title or text)
 	local caption = Widgets.FontString(holder, "OVERLAY")
 	local entry = { caption = caption, busy = false }
 	if sized then
+		if heading then
+			holder:ClearAllPoints()
+			holder:SetPoint("TOPLEFT", heading.panel, "TOPLEFT")
+			holder:SetPoint("TOPRIGHT", heading.panel, "TOPRIGHT")
+			entry.row = holder
+		end
 		caption:SetPoint("BOTTOMLEFT", text, "BOTTOMLEFT", 0, 0)
 		caption:SetPoint("BOTTOMRIGHT", text, "BOTTOMRIGHT", 0, 0)
 		caption:SetJustifyH("LEFT")
@@ -527,9 +536,6 @@ local function CaptionFor(text, title, sized, heading)
 		caption:SetPoint("CENTER", text, "CENTER", 0, 0)
 	end
 	caption:SetWordWrap(false)
-	if heading and heading.panel then
-		Parts.Heading(heading.panel, caption, { row = text, close = heading.close })
-	end
 	captions[text] = entry
 	HushText(text)
 	Worded(text, K.Locale.Upper)
@@ -553,6 +559,9 @@ local function CaptionFor(text, title, sized, heading)
 		end
 	end)
 	word(text:GetText())
+	if heading and heading.panel then
+		Parts.Heading(heading.panel, caption, { row = entry.row or text, close = heading.close })
+	end
 end
 
 function Chrome.Caption(text)
@@ -1181,7 +1190,7 @@ local function GuideWindowV2(rxp)
 	CloseButton(window.closebutton)
 	local scroll = IsTable(window.guideSteps) and window.guideSteps.scroll
 	ScrollBar(IsTable(scroll) and scroll.scrollbar or nil)
-	CaptionFor(window.title, nil, true)
+	CaptionFor(window.title, nil, true, { panel = upper, close = window.closebutton })
 	Readable(window.subtitle, "body", 0)
 	Hook(window.frame, "SetScale", "guideWindow.frame.SetScale", Rescaled)
 end
