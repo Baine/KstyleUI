@@ -455,15 +455,18 @@ for _, screen in ipairs({ { 1920, 1080 }, { 2560, 1440 }, { 5120, 1440 }, { 3840
 	assert(b.info._points[1][3] == "BOTTOMLEFT", "coordinates use the shared plate placement")
 	assert(Layout.Set(b.key, "x", 302) and b.info:GetText():find("302", 1, true), "coordinates follow a changed position")
 	assert(Layout.Set(b.key, "x", 301))
-	Element(env, K, "Test.Thin", { anchor = "BOTTOMLEFT", x = 1000, y = 600 }, 120, 22)
+	Element(env, K, "Test.Thin", { anchor = "BOTTOMLEFT", x = 1000, y = 600 }, 120, 22, { resizable = true, scalable = true })
 	Mode.Refresh()
 	local thin = Mode.Plate("Test.Thin")
-	assert(#thin.info._points == 2 and thin.info._points[1][2] == thin and thin.info._points[2][2] == thin and not thin.label:IsShown(),
-		"a thin plate's coordinates take one line across the plate")
+	assert(thin.info._points[1][2] == thin.label and thin.label._points[1][2] == thin.tag and thin.label:IsShown(),
+		"a thin plate's coordinates share its external name tag")
 	assert(thin.info:GetText() == "BOTTOMLEFT  1000, 600", "thin plates show the short coordinates")
 	K.Options.Write("Layout", "showCoordinates", false)
 	assert(a.info:GetText() ~= "" and b.info:GetText() == "", "turning off restores selection-only coordinates")
 	assert(Layout.Setting("showCoordinates") == false)
+	Mode.Select(thin.key)
+	assert(thin.info:GetText():find("120 X 22", 1, true) and thin.info:GetText():find("100%%"),
+		"selected thin plates retain size and scale when coordinates are off")
 
 	Cursor(env, K, 400, 320)
 	env._modifiers.alt = true

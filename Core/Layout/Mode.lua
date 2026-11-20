@@ -17,7 +17,7 @@ ns.Options.Register("LayoutControls", function() return {
 } end)
 
 local TOOLBAR_KEY = "Layout.Toolbar"
-local TOOLBAR_POSITION = { anchor = "TOP", x = 0, y = -96 }
+local TOOLBAR_POSITION = { anchor = "TOP", x = 0, y = -2 }
 local OVERLAY_STRATA = "FULLSCREEN"
 local TOOLBAR_STRATA = "FULLSCREEN_DIALOG"
 local GRID_STRATA = "BACKGROUND"
@@ -33,6 +33,7 @@ local HELP_LEADING, HINT_LINES = 1.3, 2
 local NUDGE_SMALL, NUDGE_BIG = 1, 10
 local EPSILON = 1e-4
 local ARROWS = { LEFT = { -1, 0 }, RIGHT = { 1, 0 }, UP = { 0, 1 }, DOWN = { 0, -1 } }
+local TAG_SIDES = { 0, -1, 1 }
 local HANDLE_POINT = {
 	TOPLEFT = "TOPLEFT", TOP = "TOP", TOPRIGHT = "TOPRIGHT", LEFT = "LEFT", RIGHT = "RIGHT",
 	BOTTOMLEFT = "BOTTOMLEFT", BOTTOM = "BOTTOM", BOTTOMRIGHT = "BOTTOMRIGHT", SCALE = "BOTTOMRIGHT",
@@ -40,6 +41,8 @@ local HANDLE_POINT = {
 
 local overlay, grid, guideX, guideY, toolbar, slot
 local plates, handles, gridLines = {}, {}, {}
+local tagBodies, tagOrder = {}, {}
+local tagRootW, tagRootH
 local selected, hoveredPlate, drag
 
 local function IsSecret(v)
@@ -103,6 +106,96 @@ local function PaintPlate(plate)
 	Widgets.SetText(plate.info, (active or Layout.Setting("showCoordinates")) and Describe(plate.key, plate.thin) or "")
 end
 
+local function TagFree(x, y, w, h, plate, rw, rh)
+	if x < 0 or y < 0 or x + w > rw or y + h > rh then return false end
+	for _, rect in ipairs(tagBodies) do
+		if x < rect[1] + rect[3] + 2 and rect[1] < x + w + 2
+			and y < rect[2] + rect[4] + 2 and rect[2] < y + h + 2 then return false end
+	end
+	for _, other in pairs(plates) do
+		local rect = other ~= plate and other.tagRect
+		if rect and x < rect[1] + rect[3] + 2 and rect[1] < x + w + 2
+			and y < rect[2] + rect[4] + 2 and rect[2] < y + h + 2 then return false end
+	end
+	return true
+end
+
+local function PlaceTags(first, second)
+	if not ns.Store.Module("LayoutControls").clearMovers then return end
+	local partial = first or second
+	if not partial then tagRootW, tagRootH = Layout.RootSize() end
+	local rw, rh = tagRootW, tagRootH
+	if not partial then
+		tagBodies, tagOrder = { { Layout.Rect(TOOLBAR_KEY) } }, Layout.Elements()
+		for _, plate in pairs(plates) do plate.tagRect, plate.tagBody = nil, nil end
+		if ns.HudStyle.Current() == "medallions" and ns.Store.Module("ActionBars").slab ~= false then
+			local l, b, w, h = Layout.Rect("actionbars.bar1")
+			local r = Layout.Rect("actionbars.bar2")
+			if l and r and r > l + w then
+				local gap = r - l - w
+				tagBodies[#tagBodies + 1] = { l + w, b + h - gap / 2, gap, gap }
+			end
+		end
+		for _, el in ipairs(tagOrder) do
+			local plate = plates[el.key]
+			if plate then
+				if plate:IsShown() then
+					local l, b, w, h = Layout.Rect(el.key)
+					plate.tagBody = { l, b, w, h }
+					local pw, ph = max(PLATE_MIN, w), max(PLATE_MIN, h)
+					tagBodies[#tagBodies + 1] = { l - (pw - w) / 2, b - (ph - h) / 2, pw, ph }
+					local _, size = plate.label:GetFont()
+					local text = plate.info:GetText()
+					Widgets.SetText(plate.info, Describe(el.key, plate.thin))
+					plate.tagLine = size * 1.2
+					plate.tagWidth = Scale.Snap(max(plate.label:GetStringWidth() or 0, plate.info:GetStringWidth() or 0) + 8)
+					Widgets.SetText(plate.info, text)
+				end
+			end
+		end
+	end
+	for i = 1, partial and 2 or #tagOrder do
+		local key = second
+		if not partial then key = tagOrder[i].key elseif i == 1 then key = first end
+		local plate = key and plates[key]
+		if plate and plate.tagBody then
+			local l, b, w, h = unpack(plate.tagBody)
+			local details = key == selected or Layout.Setting("showCoordinates")
+			local tw = plate.tagWidth
+			local th = Scale.Snap(plate.tagLine * (details and 2 or 1) + 4)
+			local rect = plate.tagRect
+			local placed = rect and (th <= rect[4] or TagFree(rect[1], rect[2] + rect[4] - th, tw, th, plate, rw, rh)) or false
+			if placed then
+				rect[2], rect[4] = rect[2] + rect[4] - th, th
+				plate.tag:SetHeight(th)
+			else
+				for step = 0, floor(rh / (th + 4)) * 2 do
+					local gap = 4 + floor(step / 2) * (th + 4)
+					local y = Scale.Snap(step % 2 == 0 and b + max(PLATE_MIN, h) + gap or b - th - gap)
+					for _, side in ipairs(TAG_SIDES) do
+						local x = Scale.Snap(side == -1 and l - tw - 4 or side == 1 and l + w + 4 or min(max(0, l + 4), rw - tw))
+						if TagFree(x, y, tw, th, plate, rw, rh) then
+							plate.tag:ClearAllPoints()
+							plate.tag:SetSize(tw, th)
+							Widgets.Point(plate.tag, "TOPLEFT", plate, "BOTTOMLEFT", x - l + (max(PLATE_MIN, w) - w) / 2, y + th - b + (max(PLATE_MIN, h) - h) / 2)
+							plate.tagRect = { x, y, tw, th }
+							placed = true
+							break
+						end
+					end
+					if placed then break end
+				end
+			end
+			if not placed then plate.tagRect = nil end
+			if not partial or not rect or not placed then
+				plate.label:SetShown(placed)
+				plate.info:SetShown(placed)
+				plate.tag:SetShown(placed)
+			end
+		end
+	end
+end
+
 local function PaintHandle(handle)
 	Widgets.Tint(handle.edge, "edgeOuter")
 	Widgets.Tint(handle.fill, handle.hover and "textHover" or "accent")
@@ -140,32 +233,32 @@ local function PlacePlate(plate, frame, w, h)
 	plate:ClearAllPoints()
 	Widgets.Point(plate, "CENTER", frame, "CENTER")
 	local clear = ns.Store.Module("LayoutControls").clearMovers
-	plate.label:ClearAllPoints()
-	plate.info:ClearAllPoints()
 	local attached = Layout.Element(plate.key).settings.attachTo ~= ""
-	local coordinates = Layout.Setting("showCoordinates")
-	plate.thin = not attached and coordinates and h < Tokens.Size("caption") * 2 + 8
-	if clear then
-		Widgets.Point(plate.label, "TOPLEFT", plate, "TOPLEFT", 4, -2)
-	else
-		Widgets.Point(plate.label, "CENTER", plate, "CENTER")
+	plate.thin = not attached and Layout.Setting("showCoordinates") and h < Tokens.Size("caption") * 2 + 8
+	if plate.clear ~= clear or not clear then
+		plate.label:ClearAllPoints()
+		plate.info:ClearAllPoints()
+		if clear then
+			Widgets.Point(plate.label, "TOPLEFT", plate.tag, "TOPLEFT", 4, -2)
+			Widgets.Point(plate.info, "TOPLEFT", plate.label, "BOTTOMLEFT", 0, 0)
+		else
+			Widgets.Point(plate.label, "CENTER", plate, "CENTER")
+			if attached then
+				Widgets.Point(plate.info, "TOPLEFT", plate, "BOTTOMLEFT", 4, -4)
+			elseif plate.thin then
+				Widgets.Point(plate.info, "LEFT", plate, "LEFT", 4, 0)
+				Widgets.Point(plate.info, "RIGHT", plate, "RIGHT", -4, 0)
+			else
+				Widgets.Point(plate.info, "TOP", plate.label, "BOTTOM", 0, -Widgets.Snap(plate, Tokens.Size("gapTiny")))
+			end
+		end
+		plate.info:SetWordWrap(not clear and not plate.thin)
+		plate.info:SetJustifyH((clear or plate.thin) and "LEFT" or "CENTER")
+		plate.clear = clear
 	end
-	if attached then
-		Widgets.Point(plate.info, "TOPLEFT", plate, "BOTTOMLEFT", 4, -4)
-	elseif plate.thin then
-		Widgets.Point(plate.info, "LEFT", plate, "LEFT", 4, 0)
-		Widgets.Point(plate.info, "RIGHT", plate, "RIGHT", -4, 0)
-	elseif clear and coordinates then
-		Widgets.Point(plate.info, "TOPLEFT", plate.label, "BOTTOMLEFT", 0, -2)
-	elseif clear then
-		Widgets.Point(plate.info, "BOTTOMLEFT", plate, "BOTTOMLEFT", 4, 2)
-	else
-		Widgets.Point(plate.info, "TOP", plate.label, "BOTTOM", 0, -Widgets.Snap(plate, Tokens.Size("gapTiny")))
-	end
-	plate.info:SetWordWrap(not plate.thin)
-	plate.info:SetJustifyH(plate.thin and "LEFT" or "CENTER")
-	plate.label:SetShown(not plate.thin)
-	plate.tag:SetShown(clear and not plate.thin)
+	plate.label:SetShown(clear or not plate.thin)
+	plate.info:Show()
+	plate.tag:SetShown(clear)
 end
 
 local function RefreshPlate(key)
@@ -196,6 +289,7 @@ function Mode.Select(key)
 		PaintPlate(plates[key])
 	end
 	PlaceHandles()
+	PlaceTags(old, key)
 end
 
 local function ShowGuide(guide, at, vertical)
@@ -319,7 +413,6 @@ local function EndDrag(commit)
 	if not d then
 		return
 	end
-	drag = nil
 	overlay:SetScript("OnUpdate", nil)
 	guideX:Hide()
 	guideY:Hide()
@@ -340,10 +433,12 @@ local function EndDrag(commit)
 	if not ok then
 		Layout.Restore(d.key)
 	end
+	drag = nil
 	RefreshPlate(d.key)
 	if d.key == selected then
 		PlaceHandles()
 	end
+	PlaceTags()
 end
 
 local function DragStop()
@@ -490,9 +585,8 @@ function Mode.NewPlate(key)
 	plate.key = key
 	plate.chrome = Widgets.Chrome(plate, { shape = "tile", fill = "buttonFill", shadow = false })
 	plate.label = Widgets.Text(plate, "caption", "textEmphasis")
+	plate.label:SetWordWrap(false)
 	plate.tag = plate:CreateTexture(nil, "BACKGROUND")
-	plate.tag:SetPoint("TOPLEFT", plate.label, "TOPLEFT", -2, 2)
-	plate.tag:SetPoint("BOTTOMRIGHT", plate.label, "BOTTOMRIGHT", 2, -2)
 	plate.tag:SetColorTexture(Widgets.Rgba("deep", 0.85))
 	plate.info = Widgets.Text(plate, "caption", "text")
 	plate:EnableMouse(true)
@@ -852,6 +946,7 @@ function Mode.Show()
 	PlaceSlot()
 	Mode.HistoryChanged()
 	toolbar:Open()
+	PlaceTags()
 end
 
 function Mode.Hide()
@@ -890,12 +985,14 @@ function Mode.Refresh()
 	DrawGrid()
 	PlaceHandles()
 	PlaceSlot()
+	PlaceTags()
 end
 
 function Mode.Changed(key)
 	if overlay and Layout.IsActive() and not (drag and drag.key == key) then
 		RefreshPlate(key)
 		PlaceSlot()
+		PlaceTags()
 		if key == selected then
 			local plate = plates[key]
 			if plate and plate:IsShown() then
@@ -911,6 +1008,7 @@ function Mode.Added(key)
 	if overlay and Layout.IsActive() then
 		RefreshPlate(key)
 		PlaceSlot()
+		PlaceTags()
 	end
 end
 
@@ -954,3 +1052,5 @@ ns.Callbacks.Register("SettingChanged", "LayoutControls", function(_, module, ke
 	if module == "LayoutControls" or module == "ActionBars" and key == "bindingHints" then RefreshControls() end
 end)
 ns.Callbacks.Register("ProfileChanged", "LayoutControls", RefreshControls)
+
+ns.Callbacks.Register("ThemeChanged", "LayoutControls", Mode.Refresh)
