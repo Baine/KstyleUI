@@ -25,6 +25,7 @@ function Preview.Build(...)
 		{ place = "frame", kind = "miss", emphasis = "none", word = "DODGE" },
 		{ place = "field", kind = "heal", emphasis = "crit", amount = 612 },
 		{ place = "frame", kind = "damage", emphasis = "none", amount = 842, school = 32 },
+		{ place = "field", kind = "power", emphasis = "none", amount = 25 },
 	}
 
 	local function Caption(frame, anchor, text)
@@ -103,6 +104,7 @@ function Preview.Build(...)
 				return
 			end
 			elapsed = 0
+			if nextSample == #SAMPLES and not (cfg.power and cfg.units.player) then nextSample = 1 end
 			local sample = SAMPLES[nextSample]
 			nextSample = nextSample % #SAMPLES + 1
 			Display.Spawn(emitters[sample.place], cfg, sample.kind, sample.emphasis, sample.amount, sample.word, sample.school)

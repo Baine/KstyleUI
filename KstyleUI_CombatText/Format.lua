@@ -120,26 +120,27 @@ function Format.Text(fontString, cfg, kind, amount, word)
 		fontString:SetText(Words()[word] or word)
 		return
 	end
-	local formatter = cfg.formatter
+	local formatter, text = cfg.formatter, amount
 	if formatter then
-		local ok, text = pcall(formatter, amount)
+		local ok, formatted = pcall(formatter, amount)
 		if ok then
-			if kind == "heal" then
-				fontString:SetFormattedText(HEAL_FORMAT, text)
-			else
-				fontString:SetText(text)
-			end
-			return
+			text = formatted
+		else
+			LogOnce("formatter", "the number formatter failed (" .. tostring(formatted) .. "); numbers show unformatted")
 		end
-		LogOnce("formatter", "the number formatter failed (" .. tostring(text) .. "); numbers show unformatted")
 	else
 		LogOnce("noformatter", "AbbreviateNumbers and BreakUpLargeNumbers are missing; numbers show unformatted")
 	end
-	fontString:SetText(amount)
+	if kind == "heal" or kind == "power" then
+		fontString:SetFormattedText(HEAL_FORMAT, text)
+	else
+		fontString:SetText(text)
+	end
 end
 
 function Format.Color(cfg, kind, emphasis, school)
 	if kind == "combat" then return cfg.combatR, cfg.combatG, cfg.combatB end
+	if kind == "power" then return cfg.powerR, cfg.powerG, cfg.powerB end
 	if kind == "heal" then
 		return cfg.healR, cfg.healG, cfg.healB
 	elseif kind ~= "damage" then
