@@ -234,6 +234,8 @@ function Setup.Go(target)
 		if old then
 			old:Hide()
 		end
+		panel.opts.height = HEIGHT
+		Widgets.Size(panel, WIDTH, HEIGHT)
 		step = target
 		Motion.FadeIn(panel.pages[step], Tokens.Duration("fade"))
 	end
@@ -401,7 +403,7 @@ local function BuildWelcome(page)
 		thumb:ClearAllPoints()
 		Widgets.Point(thumb, "TOPLEFT", bar, "TOPLEFT", 0, -offset * view / height)
 		Widgets.Size(thumb, 2, view * view / height)
-		bar:SetShown(scroll:IsShown() and height > view)
+		bar:SetShown(scroll:IsShown() and height > view + 1)
 	end
 	scroll:SetScript("OnMouseWheel", function(_, delta)
 		ScrollTo(scroll:GetVerticalScroll() - delta * Widgets.LineHeight(branded.features) * 3)
@@ -427,6 +429,9 @@ local function BuildWelcome(page)
 		if branded.note:IsShown() then
 			height = height + Widgets.WrappedHeight(branded.note, branded.note:GetWidth()) + gutter
 		end
+		local rise = 2 * Widgets.Border(panel)
+		panel.opts.height = HEIGHT + (self:IsVisible() and max(0, math.ceil((panel.opts.height + (shown and height or 0) - scroll:GetHeight() - HEIGHT) / rise - 0.01) * rise) or 0)
+		Widgets.Size(panel, WIDTH, panel.opts.height)
 		Widgets.Size(branded, branded:GetWidth(), max(scroll:GetHeight(), height))
 		ScrollTo(0)
 	end
