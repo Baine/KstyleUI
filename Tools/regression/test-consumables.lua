@@ -50,6 +50,77 @@ Clean()
 env._combat = false
 env.FireEvent("PLAYER_REGEN_ENABLED")
 assert(#C.buttons == 12 and C.selected[1].id == 118, "the first out-of-combat repack creates the secure pool")
+local button = C.buttons[1]
+K.Options.Write("ActionBars", "consumables.size", 38)
+local reference = K.Widgets.FontString(button.overlay, "OVERLAY")
+for _, scale in ipairs({ 0.5, 1, 1.5 }) do
+	C.holder:SetScale(scale)
+	ns.StyleTextsFor(button, "consumables")
+	for _, key in ipairs({ "hotkey", "count", "cooldown" }) do
+		local fs = key == "cooldown" and button.countdown or button[key]
+		local path = fs:GetFont()
+		K.Widgets.ApplyFont(reference, path, ns.Config("text")[key].size * K.Theme.FontScale(), "")
+		assert(not K.Widgets.IsFitted(fs), "size 38 must keep the old text floor at holder scale " .. scale)
+		assert(select(2, fs:GetFont()) == select(2, reference:GetFont()), "size 38 must keep the previous " .. key .. " text at holder scale " .. scale)
+	end
+end
+C.holder:SetScale(1)
+K.Options.Write("ActionBars", "consumables.size", 19)
+assert(cfg.size == 19 and cfg.backing == true and cfg.hotkey == false, "Options starts at half-size with backing on and keybind text off")
+local backing = C.header:GetChildren()
+assert(backing.chrome and backing:IsShown(), "the shared Chrome tile is shown by default")
+K.Options.Write("ActionBars", "consumables.backing", false)
+assert(not backing:IsShown(), "the backing toggle hides the tile")
+K.Options.Write("ActionBars", "consumables.backing", true)
+assert(backing:IsShown(), "the backing toggle restores the tile")
+for _, style in ipairs({ "frames", "orbs", "medallions" }) do
+	K.Options.Write("HudStyle", "style", style)
+	for _, class in ipairs(K.Setup.Layouts.ASPECTS) do
+		local _, size, gap = K.Setup.Layouts.ConsumableGrid(style, class)
+		local slot = K.Setup.Layouts.MEDALLIONS_SLOT
+		local actionSize = style == "medallions" and (slot[class] or slot.size) or ns.defaults.bar3.size
+		local actionGap = style == "medallions" and slot.gap * actionSize / slot.size or 3
+		assert(near(size, actionSize / 2) and near(gap, actionGap / 2), style .. ": buttons and default gaps stay half-size")
+	end
+	button:Restyle()
+	assert(button.countdown:GetPoint() == "CENTER", style .. ": restyling keeps the compact countdown centered")
+	for _, key in ipairs({ "hotkey", "count", "cooldown" }) do
+		local fs = key == "cooldown" and button.cooldown:GetCountdownFontString() or button[key]
+		local _, size = fs:GetFont()
+		assert(size <= button.opts.size and size < ns.Config("text")[key].size, style .. ": consumable " .. key .. " text scales with its button")
+		assert(size * K.Widgets.ScaleFactor(fs) / K.Scale.Pixel(1) >= 9 - 0.01 and select(3, fs:GetFont()) == "OUTLINE", style .. ": compact text keeps a nine-pixel outlined floor")
+	end
+end
+K.Options.Write("HudStyle", "style", "frames")
+K.Options.Write("ActionBars", "consumables.hotkey", true)
+assert(not button.hotkey:IsShown(), "compact counts win over optional keys")
+K.Options.Write("ActionBars", "consumables.count", false)
+assert(button.hotkey:IsShown() and not button.count:IsShown(), "optional compact keys show when Count text is off")
+env.C_Item.GetItemCooldown = function() return 1, 120, 1 end
+env.FireEvent("SPELL_UPDATE_COOLDOWN")
+C.buttons[1].cooldown:GetScript("OnShow")(C.buttons[1].cooldown)
+assert(C.buttons[1].hotkey:GetAlpha() == 0, "a compact countdown replaces the key label instead of crossing it")
+assert(C.buttons[1].countdown:GetPoint() == "CENTER" and C.buttons[1].count:GetAlpha() == 0, "the centered compact timer replaces the count")
+K.Options.Write("ActionBars", "consumables.count", true)
+assert(button.count:IsShown() and button.count:GetAlpha() == 0 and not button.hotkey:IsShown(), "enabling counts during cooldown keeps the timer alone")
+K.Options.Write("ActionBars", "consumables.cooldown", false)
+assert(C.buttons[1].hotkey:GetAlpha() > 0 and C.buttons[1].count:GetAlpha() == 1, "hiding countdown text restores both corners")
+K.Options.Write("ActionBars", "consumables.cooldown", true)
+env.C_Item.GetItemCooldown = function() return 0, 0, 1 end
+env.FireEvent("SPELL_UPDATE_COOLDOWN")
+C.buttons[1].cooldown:GetScript("OnCooldownDone")(C.buttons[1].cooldown)
+assert(not button.hotkey:IsShown() and button.count:GetAlpha() == 1, "the count returns when the cooldown ends without exposing the key")
+K.Options.Write("ActionBars", "consumables.hotkey", false)
+
+AB.CoreEnv.Logout(env)
+local _, refilled = AB.New({ saved = AB.CoreEnv.DeepCopy(env.KstyleUIDB) })
+assert(refilled.Store.Module("ActionBars").consumables.size == 19 and refilled.Store.Module("ActionBars").consumables.backing and refilled.Store.Module("ActionBars").consumables.hotkey == false, "stripped defaults refill without migration")
+local explicit = AB.CoreEnv.DeepCopy(env.KstyleUIDB)
+explicit.profiles.Default.ActionBars.consumables = { size = 46, backing = false, hotkey = true }
+local savedEnv, savedK = AB.New({ saved = explicit })
+assert(savedK.Store.Module("ActionBars").consumables.size == 46 and savedK.Store.Module("ActionBars").consumables.backing == false and savedK.Store.Module("ActionBars").consumables.hotkey == true, "explicit saved size and backing survive refill")
+AB.CoreEnv.Logout(savedEnv)
+assert(savedEnv.KstyleUIDB.profiles.Default.ActionBars.consumables.size == 46 and savedEnv.KstyleUIDB.profiles.Default.ActionBars.consumables.backing == false and savedEnv.KstyleUIDB.profiles.Default.ActionBars.consumables.hotkey == true, "explicit choices survive stripping")
 
 Bag({ 6948 })
 assert(#C.selected == 0, "a Hearthstone in the bags never creates a slot")
@@ -108,7 +179,7 @@ assert(#C.selected == 12, "raising the limit restores the remaining carried kind
 for _, rows in ipairs({ 1, 2, 3 }) do
 	K.Options.Write("ActionBars", "consumables.rows", rows)
 	local w, h = K.Setup.Layouts.ConsumableFootprint(K.HudStyle.Current())
-	assert(near(C.holder:GetWidth(), w) and near(C.holder:GetHeight(), h), "mover reserves all 12 at " .. rows .. " rows")
+	assert(near(C.holder:GetWidth(), K.Widgets.Snap(C.holder, w)) and near(C.holder:GetHeight(), K.Widgets.Snap(C.holder, h)), "mover reserves all 12 at " .. rows .. " rows, snapped to physical pixels")
 	local x, y, _, dx, dy = C.buttons[math.min(12, math.ceil(12 / rows) + 1)]:GetPoint()
 	assert(x == "BOTTOMRIGHT" and y == C.header and near(dx, 0) and dy > 0 or rows == 1, "row-major fill starts a new row from the attached edge")
 end
@@ -118,6 +189,8 @@ local pane = env.CreateFrame("Frame", nil, K.Scale.Root())
 pane:SetSize(600, 300)
 local preview = ns.Preview(pane)
 assert(preview:GetHeight() > C.buttons[1]:GetHeight(), "Options previews the consumables grid rather than bar 1")
+preview.buttons[3].cooldown:GetScript("OnShow")(preview.buttons[3].cooldown)
+assert(preview.buttons[3].countdown:GetPoint() == "CENTER" and preview.buttons[3].count:GetAlpha() == 0, "Options uses the live bar's compact countdown placement")
 K.Options.Write("ActionBars", "consumables.orientation", "VERTICAL")
 local _, _, _, x, y = C.buttons[2]:GetPoint()
 assert(x == 0 and y > 0, "column-first fill")
@@ -146,9 +219,19 @@ for _, style in ipairs({ "Frames", "Medallions", "Orbs" }) do
 	assert(docked == expected, "reattaching overrides a free saved position")
 end
 
+K.Options.Write("ActionBars", "consumables.hotkey", true)
 env._game.bindings["CLICK KstyleUI_Consumable1:LeftButton"] = { "SHIFT-1" }
 env.FireEvent("UPDATE_BINDINGS")
 assert(C.buttons[1].hotkey:GetText() == "S1", "bindings use the action bars' compact key text")
+local tooltipKey
+local tooltip = env.GameTooltip
+tooltip.SetItemByID = function() end
+tooltip.AddLine = function(_, text) tooltipKey = text end
+K.Options.Write("ActionBars", "consumables.hotkey", false)
+AB.W.Enter(C.buttons[1])
+assert(tooltipKey == env.GetBindingText("SHIFT-1"), "the tooltip exposes the full binding even when button keys are off")
+AB.W.Leave(C.buttons[1])
+K.Options.Write("ActionBars", "consumables.hotkey", true)
 assert(ns.Keybind.Enter())
 local overlay = ns.Keybind.overlays[C.buttons[1]]
 assert(overlay, "consumables take part in /kb")

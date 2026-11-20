@@ -67,7 +67,9 @@ local function Usable(b)
 end
 
 local function AfterPaint(b)
-	b.hotkey:SetAlpha(b.opts.readableCountdown and b.realCooldown and 0.6 or 1)
+	local timer = b.kind == "consumable" and b.opts.size < 30 and b.cooling and not b.opts.hideNumbers
+	if b.kind == "consumable" then b.count:SetAlpha(timer and 0 or 1) end
+	b.hotkey:SetAlpha(timer and 0 or b.opts.readableCountdown and b.realCooldown and 0.6 or 1)
 	if not Usable(b) then
 		return
 	end
