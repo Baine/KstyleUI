@@ -694,6 +694,11 @@ function Style.Restyle(view, kind)
 	Widgets.Tint(view.trackLine, TRACK_LINE, TRACK_LINE_ALPHA)
 	Style.Accent(view)
 	ns.Slab.Restyle(view, form)
+	if form == "slab" then
+		local _, size, flags = Settings.Font(kind, "level")
+		Widgets.ApplyFont(view.powerText, (Settings.Font(kind, "power")), size, flags)
+		view.powerText:SetTextColor(Tokens.Color("labelMuted"))
+	end
 end
 
 local function Plain(...)
@@ -746,7 +751,7 @@ function Style.PowerTint(view, r, g, b)
 	end
 	view.power:SetBarColor(r, g, b)
 	local geometry = view.geometry
-	local inside = geometry and geometry.form ~= "plate" and geometry.powerText and not geometry.powerReserve
+	local inside = geometry and geometry.form ~= "plate" and geometry.powerText and geometry.form ~= "slab"
 	view.powerFillClip:SetShown(inside == true)
 	if inside then
 		Widgets.InkText(view.powerText, Tokens.Color(TRACK))
