@@ -25,10 +25,16 @@ local THEME_FONT = "theme"
 Settings.THEME_FONT = THEME_FONT
 Settings.COMPACT_NAME_FONT = Tokens.FontPath("AlegreyaSansRegular")
 
+local function ExtraText()
+	return { font = "", size = 12, outline = "OUTLINE", colorMode = "", color = Rgb("textEmphasis"),
+		textFormat = "", position = "CENTER", x = 0, y = 0 }
+end
+
 Settings.defaults = {
 	layout = { tidyLanes = true },
 	blizzard = { party = true, raid = true, manager = false, keepManager = true },
 	party = {
+		extra1 = ExtraText(), extra2 = ExtraText(),
 		width = 259, height = 39, spacing = 13, growth = "DOWN", card = false,
 		showPlayer = true, showSolo = false, sortBy = "INDEX",
 		portrait = false, roleRing = false, classLine = false, power = true, powerHeight = 3,
@@ -39,6 +45,7 @@ Settings.defaults = {
 		buffSize = 11, buffCount = 3,
 	},
 	raid = {
+		extra1 = ExtraText(), extra2 = ExtraText(),
 		width = 116, height = 36, spacing = 9, growth = "DOWN", card = true,
 		groupGrowth = "RIGHT", groupSpacing = 13, groupsPerRow = 8,
 		sortBy = "GROUP", unitsPerColumn = 5,
@@ -85,8 +92,35 @@ end
 
 local rows
 
-function Settings.Schema()
-	if Settings.schema then return Settings.schema end
+local textRows = false
+local function TextSlotRows(schema)
+	if textRows then return end
+	textRows = true
+	for _, kind in ipairs({ "party", "raid" }) do
+		local label = kind == "party" and L["Party"] or L["Raid"]
+		local additions = {}
+		for i = 1, 2 do
+			additions[#additions + 1] = { type = "header", label = label .. ": " .. L["Extra text"] .. " " .. i }
+			K.Widgets.TextRows(additions, kind .. ".extra" .. i, { outlines = {
+				{ value = "NONE", label = L["None, soft shadow"] }, { value = "OUTLINE", label = L["Thin outline"] },
+				{ value = "THICKOUTLINE", label = L["Thick outline"] },
+			}, tags = true, placement = true })
+		end
+		additions[#additions + 1] = { type = "header", label = label .. ": " .. L["icons"] }
+		local index
+		for i, row in ipairs(schema) do if row.key == kind .. ".healthTextPlace" then index = i; break end end
+		for i, row in ipairs(additions) do
+			table.insert(schema, index + i, row)
+			if rows and row.key then rows[row.key] = row end
+		end
+	end
+end
+
+function Settings.Schema(includeText)
+	if Settings.schema then
+		if includeText then TextSlotRows(Settings.schema) end
+		return Settings.schema
+	end
 	local function Options(list)
 		local out = {}
 		for i, item in ipairs(list) do
@@ -353,6 +387,7 @@ function Settings.Schema()
 
 	local schema = BuildSchema()
 	Settings.schema = schema
+	if includeText then TextSlotRows(schema) end
 
 	rows = {}
 	for _, row in ipairs(schema) do
@@ -437,9 +472,17 @@ CHECK.texture = function(_, v)
 end
 
 function Settings.Get(key)
+	if key:match("%.extra[12]$") then
+		local value = Saved(key)
+		return type(value) == "table" and value or Default(key)
+	end
 	if not rows then Settings.Schema() end
 	if key == "blizzard.manager" then return not Settings.Get("blizzard.keepManager") end
 	local row = rows[key]
+	if not row then
+		Settings.Schema(true)
+		row = rows[key]
+	end
 	if not row then
 		error("KstyleUI_GroupFrames: unknown setting " .. tostring(key), 2)
 	end
@@ -479,9 +522,19 @@ end
 Settings.current = current
 
 function Settings.Refresh()
+	local stored = K.Store.IsLoaded() and K.Store.Module(MODULE) or Settings.defaults
 	for section, out in pairs(current) do
-		for name in pairs(Settings.defaults[section]) do
-			out[name] = Settings.Get(section .. "." .. name)
+		local own = stored[section]
+		for name, default in pairs(Settings.defaults[section]) do
+			local value = type(own) == "table" and own[name]
+			if not (section == "blizzard" and name == "manager") and type(default) ~= "table" and not (issecretvalue and issecretvalue(value)) and value == default then
+				out[name] = value
+			elseif type(default) == "table" then
+				if default.textFormat then out[name] = type(value) == "table" and value or default
+				else out[name] = CHECK.color(nil, value) or default end
+			else
+				out[name] = Settings.Get(section .. "." .. name)
+			end
 		end
 	end
 	return current

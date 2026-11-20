@@ -77,10 +77,16 @@ end
 
 local COMPACT_TEXT = { 12, 12, 9, 10 }
 
+local function ExtraText()
+	return { font = "", size = 12, outline = "OUTLINE", colorMode = "", color = Color("textEmphasis"),
+		textFormat = "", position = "CENTER", x = 0, y = 0 }
+end
+
 local function Kind(full, overrides, castHeight, castFont, aura, text)
 	text = text or COMPACT_TEXT
 	local d = {
 		enabled = true,
+		extra1 = ExtraText(), extra2 = ExtraText(),
 		style = "lumen",
 		portrait = full,
 		portraitStyle = "portrait",
@@ -495,8 +501,8 @@ end
 
 function Settings.Snapshot(kind)
 	local fonts = {}
+	local own, d = Kinds(kind)
 	for _, element in ipairs(Settings.TEXTS) do
-		local own, d = Kinds(kind)
 		local style = type(own.fonts) == "table" and type(own.fonts[element]) == "table" and own.fonts[element] or d.fonts[element]
 		fonts[element] = { size = Settings.FontSize(kind, element) / K.Theme.FontScale(),
 			colorMode = style.colorMode or "", color = style.color or d.fonts[element].color,
@@ -889,6 +895,12 @@ local function KindRows(schema, kind)
 	schema[#schema + 1] = Header(kind, L["text"])
 	for _, element in ipairs(Settings.TEXTS) do
 		TextRows(schema, kind, element)
+	end
+	for i = 1, 2 do
+		local key = "extra" .. i
+		schema[#schema + 1] = Header(kind, L["Extra text"] .. " " .. i)
+		K.Widgets.TextRows(schema, key, { outlines = CHOICES.outline, tags = true, placement = true,
+			row = function(row) return Row(kind, row) end })
 	end
 	IconRows(schema, kind)
 	if Settings.CASTBAR[kind] then

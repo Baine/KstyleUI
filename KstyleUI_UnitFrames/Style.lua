@@ -570,6 +570,13 @@ function Style.PlaceName(view, rect)
 	end
 end
 
+local function ExtraTexts(view, s)
+	for i = 1, 2 do
+		local key = "extra" .. i
+		view[key] = Widgets.PlaceText(view[key], s[key], view.top, view.parent)
+	end
+end
+
 function Style.Layout(view, s, width, height)
 	local g = Geometry.Frame(s, width, height, K.Theme.FontScale())
 	view.geometry = g
@@ -581,6 +588,7 @@ function Style.Layout(view, s, width, height)
 		for _, key in ipairs({ "name", "caption", "healthText", "healthSub", "capLabel" }) do
 			Widgets.TextScrim(view[key], g.form ~= "slab" and view[key]:IsShown())
 		end
+		ExtraTexts(view, s)
 		return g
 	end
 	ns.Slab.Layout(view, g)
@@ -634,6 +642,7 @@ function Style.Layout(view, s, width, height)
 	PlaceText(view, view.healthSub, g.healthSub)
 	PlaceText(view, view.powerText, g.powerText)
 	Indicators.Layout(view, g, s)
+	ExtraTexts(view, s)
 	return g
 end
 

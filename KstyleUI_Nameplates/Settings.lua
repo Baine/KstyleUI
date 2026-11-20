@@ -17,8 +17,14 @@ end
 
 local BAR_TEXTURE = Tokens.Texture("barFlat")
 
+local function ExtraText()
+	return { font = "", size = 12, outline = "OUTLINE", colorMode = "", color = Color("textEmphasis"),
+		textFormat = "", position = "CENTER", x = 0, y = 0 }
+end
+
 Settings.defaults = {
 	preset = "lumen",
+	extra1 = ExtraText(), extra2 = ExtraText(),
 	personalResource = false,
 	offsetY = 0,
 	shrinkDistant = false,
@@ -270,11 +276,16 @@ function Settings.Schema()
 		options = HEALTH_FORMATS, disableWhen = Off("healthText.show"),
 	}
 
+	for i = 1, 2 do
+		schema[#schema + 1] = { type = "header", label = L["Extra text"] .. " " .. i }
+		K.Widgets.TextRows(schema, "extra" .. i, { max = TEXT_MAX, outlines = OUTLINES, tags = true, placement = true })
+	end
+
 	local rest = {
 		{ type = "header", label = L["Cast bar"] },
 		{ type = "toggle", key = "cast.spark", label = L["Cast spark"], help = L["Shows the current style's bright cast progress edge."] },
 		{ type = "toggle", key = "cast.hideUnitName", label = L["Hide unit name while casting"], help = L["Hides the unit name for the duration of its cast."] },
-		{ type = "toggle", key = "cast.fullOpacity", label = L["Full opacity while casting"], help = L["Keeps casting units visible when other plates are dimmed."] },
+		{ type = "toggle", key = "cast.fullOpacity", label = L["Keep casting units at full opacity"], help = L["Keeps casting units visible when other plates are dimmed."] },
 		{ type = "toggle", key = "cast.shieldBadge", label = L["Interrupt shield"], help = L["Adds a shield beside casts you cannot interrupt. Off keeps the usual cast bar."] },
 		{
 			type = "toggle", key = "cast.combatCues", label = L["Combat cast cues"],
@@ -642,6 +653,7 @@ local function Read(key)
 	end
 	local stored = Lookup(Store.Module(MODULE), key)
 	if not ns.Logic.IsSecret(stored) and stored == default then return stored end
+	if type(default) == "table" and default.textFormat then return type(stored) == "table" and stored or default end
 	if not rows then Settings.Schema() end
 	local row = rows[key]
 	if row then
