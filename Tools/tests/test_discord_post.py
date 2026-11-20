@@ -1,12 +1,108 @@
-"""Discord release formatting and webhook operations, without network access."""
+"""Discord release and roadmap formatting and webhook operations, without network access."""
 
 import contextlib
+import datetime
 import io
 import json
+import re
 import unittest
 from unittest.mock import patch
 
 from Tools.release import discord_post as discord
+
+HEAD = '# Roadmap\n\nIntro.\n\n'
+SECTION = '## v1.0.0 — first\n\nEstimated: soon.\n\nSummary.\n\nHighlights:\n\n- One\n- Two\n\n'
+LATER = '## Later\n\n- Maybe\n\nBye.\n'
+
+
+class RoadmapTests(unittest.TestCase):
+    text = (discord.ROOT / 'docs/ROADMAP.md').read_text(encoding='utf-8')
+
+    def test_roadmap_is_one_branded_message_within_discord_limits(self):
+        payload = discord.roadmap_payload(self.text, '2026-11-20')
+        embeds = payload['embeds']
+        releases = re.findall(r'^## (v[\d.]+ — .+)$', self.text, re.M)
+        self.assertTrue(releases)
+        self.assertEqual([e['title'] for e in embeds], ['KstyleUI ' + name for name in releases] + ['Later'])
+        self.assertLessEqual(len(embeds), 10)
+        self.assertLessEqual(discord.character_totals(payload)['total'], 6000)
+        self.assertEqual((payload['flags'], payload['allowed_mentions']), (4096, {'parse': []}))
+        logo = f'{discord.RAW}/main/Media/Logo/Logo256.png'
+        for embed in embeds:
+            self.assertEqual(embed['color'], int('d3b574', 16))
+            self.assertEqual(embed['author'], {'name': 'KstyleUI roadmap', 'url': discord.GITHUB, 'icon_url': logo})
+            self.assertNotIn('url', embed, 'Discord merges embeds that share a URL')
+            self.assertLessEqual(discord.characters(embed['description']), 4096)
+        intro = self.text.split('\n\n')[1]
+        first = embeds[0]['description']
+        self.assertTrue(first.startswith(intro + '\n\n**Estimated:** '), first)
+        for description in [first.removeprefix(intro + '\n\n')] + [e['description'] for e in embeds[1:-1]]:
+            self.assertRegex(description, r'^\*\*Estimated:\*\* .+\n\n.+\n\n\*\*Highlights\*\*\n(- .+\n)*- .+$')
+        self.assertEqual([('image' in e, 'footer' in e) for e in embeds], [(False, False)] * len(releases) + [(True, True)])
+        self.assertEqual(embeds[-1]['image']['url'], f'{discord.RAW}/main/docs/media/marketing/banner.jpg')
+        self.assertTrue((discord.ROOT / 'docs/media/marketing/banner.jpg').is_file())
+        self.assertEqual(embeds[-1]['footer']['text'], 'KstyleUI for WoW Forever · Roadmap · 2026-11-20')
+        self.assertTrue(embeds[-1]['description'].endswith('\n\n' + self.text.strip().splitlines()[-1]))
+
+    def test_roadmap_highlights_are_short_and_whole(self):
+        for line in re.findall(r'^- (.+)$', self.text, re.M):
+            self.assertLessEqual(discord.characters(line), 120, 'shorten this roadmap highlight: ' + line)
+            self.assertNotIn('…', line)
+        discord.roadmap_payload(HEAD + SECTION.replace('- One', '- ' + 'x' * 120) + LATER, 'D')
+        for line in ('x' * 121, 'A cut-off highlight…', 'Wait...'):
+            for text in (HEAD + SECTION.replace('- One', '- ' + line) + LATER, HEAD + SECTION + LATER.replace('Maybe', line)):
+                with self.assertRaisesRegex(ValueError, '120 characters or fewer, without an ellipsis'):
+                    discord.roadmap_payload(text, 'D')
+
+    def test_roadmap_sections_parse_or_fail_loudly(self):
+        embeds = discord.roadmap_payload(HEAD + SECTION + LATER, 'D')['embeds']
+        self.assertEqual([(e['title'], e['description']) for e in embeds], [
+            ('KstyleUI v1.0.0 — first', 'Intro.\n\n**Estimated:** soon.\n\nSummary.\n\n**Highlights**\n- One\n- Two'),
+            ('Later', '- Maybe\n\nBye.')])
+        self.assertEqual(discord.roadmap_payload(HEAD + LATER, 'D')['embeds'][0]['description'], 'Intro.\n\n- Maybe\n\nBye.')
+        for text in (HEAD + SECTION.replace('Estimated: ', 'ETA: ') + LATER, HEAD + SECTION.replace('Highlights:\n\n', '') + LATER,
+                     HEAD + SECTION + LATER.replace('Later', 'Someday'), HEAD + SECTION, HEAD, SECTION + LATER,
+                     HEAD + SECTION.replace('v1.0.0', 'v...') + LATER, HEAD + SECTION.replace('v1.0.0', 'v1.0') + LATER,
+                     HEAD + SECTION + LATER.replace('\n\nBye.', '\n- Bye.'), HEAD + SECTION + LATER.replace('Bye.', '- Bye.')):
+            with self.assertRaisesRegex(ValueError, 'Unexpected roadmap section'):
+                discord.roadmap_payload(text, 'D')
+
+    def test_each_discord_limit_fails_on_its_own(self):
+        self.assertEqual(len(discord.roadmap_payload(HEAD + SECTION * 9 + LATER, 'D')['embeds']), 10)
+        first = discord.roadmap_payload(HEAD + SECTION + LATER, 'D')['embeds'][0]
+        for name, text in {'11 embeds': HEAD + SECTION * 10 + LATER,
+                           'total over 6000': HEAD + SECTION.replace('Summary.', 'x' * 3000) * 2 + LATER,
+                           '4097-character description': HEAD + SECTION.replace('Summary.', 'x' * (4105 - len(first['description']))) + LATER,
+                           '257-character title': HEAD + SECTION.replace('first', 'x' * (262 - len(first['title']))) + LATER,
+                           '257-character author': HEAD.replace('Roadmap', 'A' * 257) + SECTION + LATER}.items():
+            with self.subTest(name), self.assertRaisesRegex(ValueError, 'Discord message limits'):
+                discord.roadmap_payload(text, 'D')
+
+    @patch('Tools.release.discord_post.urllib.request.urlopen')
+    def test_roadmap_posts_edits_in_place_and_dry_runs(self, opener):
+        expected = discord.roadmap_payload(self.text, datetime.date.today().isoformat())
+        with patch.dict('os.environ', {'DISCORD_RELEASE_WEBHOOK': 'https://discord.com/api/webhooks/1/token'}):
+            for argv in (['--roadmap'], ['--roadmap', '--edit', '123']):
+                opener.reset_mock()
+                with patch('sys.argv', ['discord_post.py'] + argv):
+                    discord.main()
+                request = opener.call_args.args[0]
+                self.assertEqual(opener.call_count, 1)
+                if '--edit' in argv:
+                    self.assertEqual((request.method, request.full_url), ('PATCH', 'https://discord.com/api/webhooks/1/token/messages/123'))
+                    self.assertEqual(json.loads(request.data), dict(expected, content='', flags=0))
+                else:
+                    self.assertEqual((request.method, json.loads(request.data)), ('POST', expected))
+            opener.reset_mock()
+            with patch('sys.argv', ['discord_post.py', '--roadmap', '--edit', '123', '--dry-run']), contextlib.redirect_stdout(io.StringIO()) as output:
+                discord.main()
+            self.assertEqual(json.loads(output.getvalue().split('Character totals: ')[0]), json.loads(request.data))
+            for argv in (['--roadmap', 'v0.2.8', '123'], ['--roadmap', '--notes'], ['--roadmap', '123'], ['--edit', '--dry-run'],
+                         ['--roadmap', '--edit', '123,456']):
+                with patch('sys.argv', ['discord_post.py'] + argv), contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit, msg=argv):
+                        discord.main()
+        opener.assert_not_called()
 
 
 class DiscordPostTests(unittest.TestCase):
@@ -117,7 +213,7 @@ class DiscordPostTests(unittest.TestCase):
         self.assertEqual([r.full_url for r in requests],
                          [f'https://discord.com/api/webhooks/1/token/messages/{mid}?thread_id=9'
                           for mid in ('123', '456', '789')])
-        self.assertEqual(json.loads(requests[0].data), dict(payload, content="", flags=0))
+        self.assertEqual(json.loads(requests[0].data), payload)
 
     @patch('Tools.release.discord_post.urllib.request.urlopen')
     def test_failed_edit_never_deletes_and_bad_ids_never_send(self, opener):
@@ -137,7 +233,7 @@ class DiscordPostTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()) as output:
                 discord.main()
         payload, totals = output.getvalue().split('Character totals: ')
-        self.assertEqual(json.loads(payload)['flags'], 4096)
+        self.assertEqual((json.loads(payload)['flags'], json.loads(payload)['content']), (0, ''))
         self.assert_valid(json.loads(payload))
         self.assertEqual(json.loads(totals), discord.character_totals(json.loads(payload)))
         opener.assert_not_called()
