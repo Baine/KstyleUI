@@ -11,9 +11,32 @@ for _, screen in ipairs({ {1920,1080}, {2560,1440}, {5120,1440}, {3840,2160} }) 
 	env.RunTimers()
 	local s, view = ns.Settings().strip, ns.Strip.view
 	assert(table.concat(view.order, ",") == "fps,latency,gold,durability,time", "the Medallions dock defaults to the original five readouts")
+	local function captionSeparator()
+		Scene.Build(env)
+		for _, entry in ipairs(s.dockModules) do
+			local item = view.items[entry.id]
+			if entry.zone == "right" and item and item.button:IsShown() then
+				assert(item.dot:IsShown() == view.slab.text:IsVisible(), "join the dock readouts to the visible XP caption with one middle dot")
+				if item.dot:IsShown() then
+					local _, size = item.dot:GetFont()
+					local step = K.Scale.Pixel(1) / K.Widgets.ScaleFactor(view.frame)
+					local gap = K.Widgets.DotGap(size, step, ns.Strip.DOT_GAP_EM)
+					local dx, _, dw = Scene.Rect(env, item.dot)
+					local cx = Scene.Rect(env, view.slab.text)
+					local _, _, width = Scene.Rect(env, view.frame)
+					local scale = width / view.frame:GetWidth()
+					local expected = cx - (K.Widgets.TextWidth(item.dot) / 2 + gap) * scale
+					assert(math.abs(dx + dw / 2 - expected) <= step * scale, "the XP separator must use the same DotGap as the other readouts")
+				end
+				return
+			end
+		end
+	end
+	captionSeparator()
 	for _, entry in ipairs(s.dockModules) do entry.shown = true end
 	K.Options.Write("DataBars", "strip.dockModules", s.dockModules)
 	local function check()
+		captionSeparator()
 		Scene.Build(env)
 		local x, _, width = Scene.Rect(env, view.frame)
 		local scale = width / view.frame:GetWidth()
@@ -35,7 +58,8 @@ for _, screen in ipairs({ {1920,1080}, {2560,1440}, {5120,1440}, {3840,2160} }) 
 				for _, text in ipairs({ item.value, item.label, item.dot }) do
 					if text:IsShown() then
 						local tx, _, tw = Scene.Rect(env, text)
-						assert(tx >= bounds[zone][1] - 0.01 and tx + tw <= bounds[zone][2] + 0.01, "dock " .. id .. " text crossed the " .. zone .. " wing: " .. tx .. "+" .. tw .. " outside " .. bounds[zone][1] .. ".." .. bounds[zone][2] .. "; drop whole items instead of drawing behind the crest or past the wing")
+						local edge = zone == "right" and text == item.dot and view.slab.text:IsVisible() and captionX or bounds[zone][2]
+						assert(tx >= bounds[zone][1] - 0.01 and tx + tw <= edge + 0.01, "dock " .. id .. " text crossed the " .. zone .. " wing: " .. tx .. "+" .. tw .. " outside " .. bounds[zone][1] .. ".." .. edge .. "; drop whole items instead of drawing behind the crest or past the wing")
 						assert(not text:IsTruncated(), "never truncate a dock readout mid-item")
 					end
 				end
@@ -58,6 +82,10 @@ for _, screen in ipairs({ {1920,1080}, {2560,1440}, {5120,1440}, {3840,2160} }) 
 	end
 	check()
 	ns.Strip.Refresh()
+	check()
+	K.Options.Write("DataBars", "xp.text", "none")
+	check()
+	K.Options.Write("DataBars", "xp.text", "percent")
 	check()
 	K.Options.Write("DataBars", "xp.fontSize", 20)
 	K.Options.Write("DataBars", "xp.instrumentText", false)
