@@ -1,9 +1,9 @@
--- Reskin.lua: Blizzard's own Cooldown Manager items restyled in place with the Skin helpers, their text set against the item scale Edit Mode's IconSize gives them, the tracked buff row stopped at the grid by Cap.
+-- Reskin.lua: Blizzard's own Cooldown Manager items restyled in place with the Skin helpers, their text set against the item scale Edit Mode's IconSize gives them and moved by the text offsets from their own anchors, tracked buffs shaded and counted by the spell rules, the tracked buff row stopped at the grid by Cap.
 local _, ns = ...
 
 local K = KstyleUI
 local Skin, Widgets = K.Skin, K.Widgets
-local Cap, Settings, Style, Viewers = ns.Cap, ns.Settings, ns.Style, ns.Viewers
+local Cap, Settings, Style, Viewers, Rules = ns.Cap, ns.Settings, ns.Style, ns.Viewers, ns.Rules
 
 local Reskin = {}
 ns.Reskin = Reskin
@@ -47,6 +47,65 @@ local function Text(text, font, size, outline, role, shown)
 		Style.Font(text, font, size, outline, role)
 		Widgets.TextColor(text, "textEmphasis")
 		if shown ~= nil then text:SetAlpha(shown == false and 0 or 1) end
+	end
+end
+
+local function Native(text, item, moved, x, y)
+	if type(text) ~= "table" or type(text.GetPoint) ~= "function" or not Widgets.MayMove(item) then return false end
+	local side = K.Safe.Side(text)
+	local base = side.base
+	if not base then
+		if not moved then return false end
+		base = { justify = text:GetJustifyH() }
+		local count = text:GetNumPoints()
+		if ns.IsSecret(base.justify) or ns.IsSecret(count) then return false end
+		for i = 1, count do
+			local anchor = { text:GetPoint(i) }
+			for j = 1, 5 do
+				if ns.IsSecret(anchor[j]) then return false end
+			end
+			base[i] = anchor
+		end
+		side.base = base
+	end
+	x, y = Widgets.Snap(item, x), Widgets.Snap(item, y)
+	text:ClearAllPoints()
+	for _, anchor in ipairs(base) do
+		text:SetPoint(anchor[1], anchor[2], anchor[3], anchor[4] + x, anchor[5] + y)
+	end
+	text:SetJustifyH(base.justify)
+	if not moved then side.base = nil end
+	return moved
+end
+
+local function Spell(item)
+	if type(item.GetSpellID) ~= "function" then return nil end
+	local ok, spell = pcall(item.GetSpellID, item)
+	return ok and spell or nil
+end
+
+function Reskin.Buff(item)
+	if not active.buffs then return end
+	local cfg, rule = Settings.current.buffs, Rules.ForSpell(Spell(item))
+	local applications = type(item.Applications) == "table" and item.Applications.Applications
+	if type(applications) == "table" and type(applications.SetAlpha) == "function" then
+		local alpha, counted = cfg.showCount and not rule.noCount and 1 or 0, K.Safe.Side(applications)
+		if counted.alpha ~= alpha then
+			counted.alpha = alpha
+			applications:SetAlpha(alpha)
+		end
+	end
+	local icon, side, grey = item.Icon, K.Safe.Side(item), false
+	if not IsTexture(icon) then return end
+	if (rule.grey and "grey" or rule.colour and "colour" or cfg.inactiveShade) == "grey" then
+		local ok, on = false, nil
+		if type(item.IsActive) == "function" then ok, on = pcall(item.IsActive, item) end
+		if not ok or ns.IsSecret(on) then return end
+		grey = on ~= true
+	end
+	if grey ~= (side.greyed or false) then
+		side.greyed = grey or nil
+		icon:SetDesaturated(grey)
 	end
 end
 
@@ -144,11 +203,20 @@ local function SkinIcon(group, item)
 				Style.PlaceEssential(text, item, scale)
 			end
 		end
+		local x, y = cfg.timerX / scale, cfg.timerY / scale
+		if text and (group ~= "utility" or Native(text, item, cfg.timerPosition ~= "" or x ~= 0 or y ~= 0, x, y) and cfg.timerPosition ~= "") then
+			Style.MoveText(text, item, cfg.timerPosition, x, y)
+		end
 	end
-	local charges = item.ChargeCount
-	Text(type(charges) == "table" and charges.Current, current.countFont, cfg.countSize / scale, current.countOutline, nil, cfg.showCount)
-	local applications = item.Applications
-	Text(type(applications) == "table" and applications.Applications, current.countFont, cfg.countSize / scale, current.countOutline, nil, cfg.showCount)
+	local charges = type(item.ChargeCount) == "table" and item.ChargeCount.Current
+	local x, y, shown = cfg.countX / scale, cfg.countY / scale, cfg.showCount
+	Text(charges, current.countFont, cfg.countSize / scale, current.countOutline, nil, shown)
+	Native(charges, item, x ~= 0 or y ~= 0, x, y)
+	local applications = type(item.Applications) == "table" and item.Applications.Applications
+	if group == "buffs" then shown = nil end
+	Text(applications, current.countFont, cfg.countSize / scale, current.countOutline, nil, shown)
+	Native(applications, item, x ~= 0 or y ~= 0, x, y)
+	if group == "buffs" then Reskin.Buff(item) end
 end
 
 local function SkinBar(item)
@@ -255,7 +323,19 @@ function Reskin.Refresh()
 end
 
 local function Restore(_, item)
+	local side = K.Safe.Side(item)
+	if side.greyed and IsTexture(item.Icon) then
+		side.greyed = nil
+		item.Icon:SetDesaturated(false)
+	end
+	local applications = type(item.Applications) == "table" and item.Applications.Applications
+	local counted = type(applications) == "table" and K.Safe.Side(applications)
+	if counted and counted.alpha == 0 then applications:SetAlpha(1) end
+	if counted then counted.alpha = nil end
 	local cooldown = item.Cooldown
+	Native(type(cooldown) == "table" and type(cooldown.GetCountdownFontString) == "function" and cooldown:GetCountdownFontString(), item, false, 0, 0)
+	Native(type(item.ChargeCount) == "table" and item.ChargeCount.Current, item, false, 0, 0)
+	Native(applications, item, false, 0, 0)
 	local state = type(cooldown) == "table" and K.Safe.Side(cooldown).SetDrawEdge
 	if state and state.disabled then
 		state.busy, state.disabled = true, nil
