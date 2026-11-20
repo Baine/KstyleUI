@@ -30,6 +30,7 @@ function Row:StyleIcon(icon)
 	icon.opts.readableCountdown = ns.Settings.current.readableCountdown
 	icon:StyleCooldown()
 	local cfg, current = self.cfg, ns.Settings.current
+	icon.icon:SetTexCoord(cfg.iconZoom, 1 - cfg.iconZoom, cfg.iconZoom, 1 - cfg.iconZoom)
 	if icon.opts.size ~= cfg.size then
 		icon.opts.size = cfg.size
 		icon:Restyle()
