@@ -3,7 +3,7 @@ local Lib = dofile("Tools/regression/hud_material_lib.lua")
 
 local scene = Lib.Build("DPS", "ForgedBrackets")
 local cards = Lib.Audit(scene, "ForgedBrackets", Lib.ROLES.DPS)
-assert(#cards == 6, "DPS draws its guide, quest, chat, loot, damage and action bar tray cards, got " .. #cards)
+assert(#cards == 7, "DPS draws its guide, quest, chat, loot, damage, data bar and action bar tray cards, got " .. #cards)
 
 local function fails(mutate, reason, role)
 	local card
@@ -39,6 +39,17 @@ for _, role in ipairs({ "story", "skins.quests", "meters.damage", "chat.main", "
 			chrome.ownFill, chrome.fillColor = fill, color
 		end
 	end, "its own fill colour", role)
+end
+
+for _, card in ipairs(cards) do
+	if card.role == "databars.strip" then
+		local grain = card.drawn.grain[1].rect
+		local width = grain[3]
+		grain[3] = width / 2
+		local ok, message = pcall(Lib.AuditCard, card, "ForgedBrackets")
+		grain[3] = width
+		assert(not ok and tostring(message):find("grain covers a fraction of the card", 1, true), "a cropped top-bar grain must fail the material audit")
+	end
 end
 
 local chrome = cards[1].chrome

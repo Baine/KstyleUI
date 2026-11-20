@@ -67,6 +67,7 @@ defaults.rep = BarDefaults("reaction", "friendly", "labelPercent")
 defaults.honor = BarDefaults("custom", "epic", "labelPercent")
 defaults.honor.show = "pvp"
 defaults.strip = {
+	enabled = true, placement = "top", height = 20, background = 85, artwork = "forged",
 	dockMeter = true,
 	line = true, labels = "inline", menus = false, valueColor = "plain", accentEdge = false, backdrop = false, separators = false,
 	spacing = STRIP_SPACING, orientation = "HORIZONTAL",
@@ -206,7 +207,18 @@ function ns.Schema()
 		{ value = "realm", label = L["Realm time"] },
 	}
 
-	local stripRows = { { type = "header", label = L["Data strip"] } }
+	local stripRows = {
+		{ type = "header", label = L["Data bar"] },
+		{ type = "toggle", key = "strip.enabled", label = L["Show the data bar"], help = L["Show the data bar and its readouts."] },
+		{ type = "dropdown", key = "strip.placement", label = L["Position"], help = L["The top of the screen in Frames and Orbs, or the original right rail. Move either in Layout Mode."], options = {
+			{ value = "top", label = L["Top"] }, { value = "rail", label = L["Right rail"] },
+		} },
+		{ type = "slider", key = "strip.height", label = L["Height"], help = L["The height of the top data bar."], min = 12, max = 32, step = 1 },
+		{ type = "dropdown", key = "strip.artwork", label = L["Data bar artwork"], help = L["Forged trim and a crest gem, or a plain glass plate."], options = {
+			{ value = "forged", label = L["Forged"] }, { value = "plain", label = L["Plain"] },
+		} },
+		{ type = "slider", key = "strip.background", label = L["Background"], help = L["The opacity of the top data bar's background."], min = 0, max = 100, step = 1 },
+	}
 	stripRows[#stripRows + 1] = { type = "toggle", key = "strip.dockMeter", label = L["Dock readouts to the meter"], help = L["Place the data strip beside the damage meter title. Off returns it to its own position."] }
 	for i = 1, Strip.SLOTS do
 		stripRows[#stripRows + 1] = {
@@ -342,7 +354,7 @@ function ns.Preview(...)
 		end
 		local caption = Widgets.Text(frame, "caption", "text")
 		Widgets.Point(caption, "TOPLEFT", frame, "TOPLEFT", 0, -(y - PREVIEW_TOP))
-		Widgets.SetText(caption, L["Data strip"])
+		Widgets.SetText(caption, L["Data bar"])
 		local strip = Strip.NewView(frame)
 		strip.top = y
 		frame.strip, frame.captions.strip = strip, caption
@@ -353,14 +365,15 @@ function ns.Preview(...)
 			end
 			local s = setmetatable({ orientation = "HORIZONTAL" }, { __index = settings.strip })
 			local sample, samples = self.strip, StripSamples(s)
+			local height = s.placement == "top" and not Widgets.Medallions() and s.height or PREVIEW_STRIP
 			local available = Width(self) or Width(parent) or PREVIEW_FALLBACK_WIDTH
 			sample.frame:SetScale(1)
-			sample.frame:SetSize(available, PREVIEW_STRIP)
+			sample.frame:SetSize(available, height)
 			Strip.Paint(sample, s, samples)
 			local needed = Widgets.Snap(sample.frame, (sample.contentWidth or 0) + 2 * PREVIEW_STRIP_PAD)
 			local scale = needed > available and available / needed or 1
 			sample.frame:SetScale(scale)
-			sample.frame:SetSize(max(needed, available / scale), PREVIEW_STRIP)
+			sample.frame:SetSize(max(needed, available / scale), height)
 			sample.frame:ClearAllPoints()
 			Widgets.Point(sample.frame, "TOPLEFT", self, "TOPLEFT", 0, -sample.top / scale)
 			Strip.Paint(sample, s, samples)

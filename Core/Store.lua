@@ -8,7 +8,7 @@ local L = ns.L
 local Codec = ns.Codec
 local format, sub, floor = string.format, string.sub, math.floor
 
-Store.DB_VERSION = 40
+Store.DB_VERSION = 41
 Store.migrations = {}
 
 Store.migrations[38] = function(data)
@@ -979,6 +979,34 @@ Store.migrations[40] = function(data)
 			profile.Skins.restedXP.boxes = true
 		end
 	end
+end
+
+Store.migrations[41] = function(data)
+	local moved = false
+	for name, profile in pairs(data.profiles) do
+		if type(profile) == "table" then
+			profile.DataBars = type(profile.DataBars) == "table" and profile.DataBars or {}
+			profile.DataBars.strip = type(profile.DataBars.strip) == "table" and profile.DataBars.strip or {}
+			profile.DataBars.strip.enabled = true
+			profile.DataBars.strip.placement = "top"
+			local layout = data.layouts[name]
+			local entry = type(layout) == "table" and layout["databars.strip"]
+			if type(entry) == "table" and not layout["medallions:databars.strip"] then
+				layout["medallions:databars.strip"] = {}
+				for field, value in pairs(entry) do layout["medallions:databars.strip"][field] = value end
+			end
+			for _, key in ipairs({ "databars.strip", "orbs:databars.strip" }) do
+				local old = type(layout) == "table" and layout[key]
+				if type(old) == "table" then
+					local default = ns.Setup.Layouts.Default("databars.strip")
+					if (old.anchor and old.anchor ~= default.anchor) or (old.x and old.x ~= default.x) or (old.y and old.y ~= default.y) then moved = true end
+					old.anchor, old.x, old.y, old.width, old.height = nil, nil, nil, nil, nil
+					if next(old) == nil then layout[key] = nil end
+				end
+			end
+		end
+	end
+	if moved then ns.Print(L["the data strip is now a top bar; move it in Layout Mode."]) end
 end
 
 local PREFIX = "KSUI1:"

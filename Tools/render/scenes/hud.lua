@@ -142,6 +142,10 @@ local function saved(opts, module, settings, more)
 	merge(section, opts.settings and opts.settings[module])
 	merge(section, settings)
 	local profile = { [module] = section }
+	if opts.dataBar then
+		profile.DataBars = merge(merge({}, opts.dataBar), opts.settings and opts.settings.DataBars)
+		if module == "DataBars" then merge(profile.DataBars, section) end
+	end
 	local style = Hud.Style()
 	if style then
 		assert(style == "Orbs" or style == "Frames" or style == "Medallions", "RENDER_HUD_STYLE must be Frames, Orbs or Medallions")
@@ -236,9 +240,11 @@ end
 -- With opts.combat the environment enters combat first and runs half a second, so the combat calm has faded the
 -- slow cards.
 local function build(env, opts, extra, beforeDraw)
-	applyPreset(env, opts)
 	local K = env.KstyleUI
+	applyPreset(env, opts)
 	dofile("Tools/render/scenes/_audit.lua").Apply(K)
+	local artwork = os.getenv("RENDER_DATABAR_ARTWORK")
+	if artwork and K.Options.Row("DataBars", "strip.artwork") then K.Options.Write("DataBars", "strip.artwork", artwork) end
 	local previewed = {}
 	for key, size in pairs(opts.sizes or {}) do
 		local el = K and K.Layout and K.Layout.Element and K.Layout.Element(key)
@@ -1051,6 +1057,8 @@ function modules.minimap(opts)
 	-- zone, the clock and the player's map position the module reads.
 	local env, K, ns = M.New({
 		enabled = true,
+		boot = not opts.dataBar,
+		saved = opts.dataBar and saved(opts, "Minimap", Common.PreviousFinish() and { clearPlaques = false } or nil) or nil,
 		settings = { frame = os.getenv("RENDER_MINIMAP_FRAME"), clearPlaques = not Common.PreviousFinish() },
 		zone = opts.zone or "Riverglades",
 		position = opts.position,
@@ -1063,11 +1071,16 @@ function modules.minimap(opts)
 			end
 		end,
 	})
+	if opts.dataBar then
+		local D = dofile("Tools/regression/databars_env.lua")
+		dofile("Tools/regression/load_files.lua")(D.Files(), env)
+		M.CoreEnv.Boot(env)
+	end
 	M.Settle(env)
 	-- The Minimap frame draws the world in the game; the mockup's map, or a flat tone, stands in, clipped as the
 	-- game clips the frame.
 	local _, note = Hud.Terrain(env)
-	local scene = build(env, opts)
+	local scene = build(env, opts, { roots = { ns.Map.holder } })
 	scene.log[#scene.log + 1] = note
 	return finish(env, K, scene, "minimap"), ns
 end

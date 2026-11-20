@@ -540,6 +540,14 @@ local function StyleDefault(el)
 		end
 		Aspect(el, d, style)
 	end
+	if el.key == "databars.strip" then
+		local setup = ns.Setup and ns.Setup.Layouts
+		local height = setup and setup.DataBarHeight()
+		if height then
+			d.anchor, d.x, d.y, d.width, d.height = "TOP", 0, 0, Layout.RootSize(), height
+			el.limits.maxWidth = math.max(el.limits.maxWidth, d.width)
+		end
+	end
 	el.default = Band(el, d)
 end
 
@@ -579,6 +587,7 @@ local function Resolve(el)
 		s.width, s.height = FrameSize(el.frame)
 	end
 	links[el.key] = s.attachTo ~= "" and el or nil
+	if el.key == "databars.strip" and Store.IsLoaded() and (Store.Module("DataBars").strip or {}).enabled == false then s.shown = "never" end
 	return s
 end
 
@@ -591,6 +600,9 @@ function Layout.Clamp(key, left, bottom, w, h)
 	end
 	local layouts = ns.Setup and ns.Setup.Layouts
 	local element = layouts and layouts.Element(key)
+	if el and key == "databars.strip" and layouts.DataBarHeight() then
+		return Clamp(left, 0, max(0, rw - w)), Clamp(bottom, 0, max(0, rh - h))
+	end
 	if el and element then
 		local f, margin, origin = Factor(el.frame), Tokens.Size("screenMargin"), Scale.Origin()
 		local l, r, b, t = layouts.DisplayInsets(key, h / f, el.default.anchor)
@@ -606,6 +618,7 @@ end
 
 local function Place(el, anchor, x, y, w, h, f, pixel)
 	local rw, rh = Layout.RootSize()
+	if state.topInset and state.topInset ~= 0 and el.key ~= "databars.strip" and anchor:match("^TOP") then y = y - state.topInset end
 	local left, bottom = G.Rect(anchor, x, y, w, h, rw, rh)
 	local linkedLeft, linkedBottom = LinkedRect(el, w, h)
 	left, bottom = linkedLeft or left, linkedBottom or bottom
@@ -993,7 +1006,13 @@ local function ResolveAll()
 	end
 end
 
+local function TopInset()
+	local setup = ns.Setup and ns.Setup.Layouts
+	return setup and setup.TopInset() or 0
+end
+
 local function ApplyAll(instant)
+	state.topInset = TopInset()
 	for i = 1, #order do
 		ns.Call(Apply, elements[order[i]], instant)
 	end
@@ -1086,6 +1105,7 @@ local function Changed(el)
 	Resolve(el)
 	UpdateEvents()
 	Apply(el)
+	if el.key == "databars.strip" and TopInset() ~= state.topInset then ApplyAll() end
 	ns.Callbacks.Fire("LayoutChanged", el.key)
 	if state.active then
 		Mode("Changed", el.key)
@@ -1505,7 +1525,8 @@ function Layout.Rect(key)
 	local rw, rh = Layout.RootSize()
 	local pixel = Scale.Pixel(1)
 	local s = el.settings
-	local left, bottom = G.Rect(s.anchor, s.x, s.y, w, h, rw, rh)
+	local inset = state.topInset and key ~= "databars.strip" and s.anchor:match("^TOP") and state.topInset or 0
+	local left, bottom = G.Rect(s.anchor, s.x, s.y - inset, w, h, rw, rh)
 	local linkedLeft, linkedBottom = LinkedRect(el, w, h)
 	left, bottom = linkedLeft or left, linkedBottom or bottom
 	left, bottom = Layout.Clamp(key, left, bottom, w, h)
@@ -1724,6 +1745,8 @@ ns.Callbacks.Register("ScaleChanged", SECTION, function()
 			end
 		end
 		UpdateEvents()
+	elseif elements["databars.strip"] then
+		Resolve(elements["databars.strip"])
 	end
 	ApplyAll(true)
 	for i = 1, #changed do
@@ -1790,6 +1813,9 @@ ns.Callbacks.Register("HudStyleChanged", SECTION, function()
 end)
 
 ns.Callbacks.Register("ModuleChanged", SECTION, function(_, name)
+	if name == "DataBars" then
+		if TopInset() ~= state.topInset then ApplyAll(true) end
+	end
 	for i = 1, #order do
 		local el = elements[order[i]]
 		if el.module == name then
@@ -1809,6 +1835,9 @@ ns.Callbacks.Register("SettingChanged", SECTION, function(_, module, key)
 		else
 			Restyle()
 		end
+	end
+	if module == "DataBars" and (key == "strip.placement" or key == "strip.height" or key == "strip.enabled") then
+		Restyle()
 	end
 	if module == SECTION and state.active then
 		Mode("Refresh")

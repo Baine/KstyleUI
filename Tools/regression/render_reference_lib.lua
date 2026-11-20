@@ -4,6 +4,7 @@ local Reference = dofile("Tools/render/scenes/_reference.lua")
 local CoreEnv = dofile("Tools/regression/core_env.lua")
 local env, K = CoreEnv.New({ width = 3456, height = 2234, size = 16 / 19 })
 CoreEnv.Boot(env)
+K.Store.Module("DataBars").enabled = true
 local Layouts = K.Setup.Layouts
 local Guard = dofile("Tools/render/guard.lua")
 
@@ -33,6 +34,7 @@ return function(preset, built)
 	for key, element in pairs(built.elements) do
 		local position = positions[key]
 		if position then
+			element.key = key
 			local left, bottom = Layouts.Rect(element, position, rw, rh)
 			if key == "databars.xp" or key == "databars.rep" or key == "databars.honor" then bottom = math.max(bottom, K.Tokens.Size("screenMargin") + Layouts.Element(key).insets[3]) end
 			assert(math.abs(left - element.left) * 2234 / rh <= 1, preset .. " did not Apply " .. key .. " horizontally")
