@@ -420,18 +420,19 @@ function Face:SyncPlaques()
 		return
 	end
 	plaques[1].chrome:SetShown(Settings.Get("zone.shown") == true)
-	plaques[2].chrome:SetShown(Settings.Get("clock.shown") == true or self.coordsText ~= nil and Settings.Get("coords.shown") == true)
+	plaques[2].chrome:SetShown(Settings.Get("clock.shown") == true or self.coordsText ~= nil and Settings.Get("coords.shown") == true and (not Settings.Get("coords.hover") or self.revealed))
 end
 
 function Face:SetCoords(text)
 	self.coordsText = text
 	self.coords:SetText(text or "")
-	self.coords:SetShown(text ~= nil and Settings.Get("coords.shown"))
+	self.coords:SetShown(text ~= nil and Settings.Get("coords.shown") and (not Settings.Get("coords.hover") or self.revealed))
 	self:SyncPlaques()
 end
 
 function Face:SetRevealed(on)
 	self.revealed = on == true
+	if Settings.Get("coords.hover") then self:SetCoords(self.coordsText) end
 	local reveal = self.reveal
 	if self.revealed then
 		if not reveal:IsShown() or reveal:GetAlpha() < 1 then
