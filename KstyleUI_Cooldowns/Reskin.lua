@@ -131,6 +131,7 @@ local function SkinIcon(group, item)
 	if type(cooldown) == "table" and type(cooldown.GetCountdownFontString) == "function" then
 		Toggle(cooldown, group, "SetHideCountdownNumbers", "timer", true, not Viewers.Frame(group).timerShown)
 		Toggle(cooldown, group, "SetDrawSwipe", "swipe", false, item.cooldownShowSwipe)
+		if group ~= "buffs" then Toggle(cooldown, group, "SetDrawEdge", "edge", false, item.cooldownShowDrawEdge) end
 		local text = cooldown:GetCountdownFontString()
 		Text(text, current.timerFont, cfg.timerSize / scale, current.timerOutline, group ~= "essential" and "timer" or nil)
 		Style.Countdown(cooldown, group == "essential")
@@ -253,9 +254,20 @@ function Reskin.Refresh()
 	end
 end
 
+local function Restore(_, item)
+	local cooldown = item.Cooldown
+	local state = type(cooldown) == "table" and K.Safe.Side(cooldown).SetDrawEdge
+	if state and state.disabled then
+		state.busy, state.disabled = true, nil
+		cooldown:SetDrawEdge(state.native)
+		state.busy = nil
+	end
+end
+
 function Reskin.Stop()
 	local capped, bars = active.buffs, active.bars
 	for group in pairs(active) do
+		Viewers.EachItem(group, Restore)
 		active[group] = nil
 	end
 	for item, native in pairs(nativeBars) do
