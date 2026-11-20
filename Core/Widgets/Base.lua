@@ -59,6 +59,11 @@ local function IsSecret(v)
 end
 Widgets.IsSecret = IsSecret
 
+function Widgets.WholePercent(value)
+	if IsSecret(value) then return value end
+	return ceil(value)
+end
+
 local function Point(breakpoint, abbreviation, significand, fraction)
 	return { breakpoint = breakpoint, abbreviation = abbreviation, significandDivisor = significand, fractionDivisor = fraction, abbreviationIsGlobal = false }
 end

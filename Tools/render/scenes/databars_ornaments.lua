@@ -9,11 +9,15 @@ local STATES = {
 	rep = { xp = 0, rested = 0, level = 60 },
 	cap = { xp = 0, rested = 0, level = 60, faction = false },
 	hover = { xp = 16000, rested = 0, level = 38 },
+	accuracy = { xp = 12345, rested = 57300, level = 38 },
+	paragon = { xp = 12345, rested = 57300, level = 38,
+		faction = { factionID = 72, name = "Stormwind", reaction = 8, currentStanding = 42000, currentReactionThreshold = 42000, nextReactionThreshold = 42000 },
+		paragon = { [72] = { value = 12500, threshold = 10000, rewardPending = true } } },
 }
 
 return Common.Run(function()
 	local name = rawget(_G, "RENDER_STATE") or os.getenv("RENDER_STATE") or "rested"
-	local state = assert(STATES[name], "RENDER_STATE must be one of empty, partial, rested, full, rep, cap, hover, not " .. name)
+	local state = assert(STATES[name], "RENDER_STATE must be one of empty, partial, rested, full, rep, cap, hover, accuracy, paragon, not " .. name)
 	local D = dofile("Tools/regression/databars_env.lua")
 	local game = { xpMax = 50000, maxLevel = 60 }
 	for k, v in pairs(state) do game[k] = v end
@@ -40,7 +44,7 @@ return Common.Run(function()
 	})
 	env.RunTimers()
 	D.W.Settle(env)
-	if name == "hover" then
+	if name == "hover" or name == "accuracy" or name == "paragon" then
 		local rep = ns.Bars.views.rep
 		rep.holder:GetScript("OnEnter")(rep.holder)
 		D.W.Settle(env)

@@ -150,7 +150,7 @@ local function Paragon(api, id, info)
 	info.rewardPending = pending == true
 	info.current, info.max = value % threshold, threshold
 	if info.rewardPending then
-		info.current = threshold
+		info.current = info.current + threshold
 	end
 	return info
 end
