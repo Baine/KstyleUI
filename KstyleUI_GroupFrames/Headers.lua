@@ -350,7 +350,31 @@ function Headers.FitRaid(members, groups, now)
 	end
 	card.members, card.groups = members, groups
 	local width, height = Geometry.Card(RaidShown(s, members, groups), K.Widgets.SECTION_CAP_HEIGHT)
-	Fit(card, Headers.holders.raid, Px("raid", width), Px("raid", height), now, Geometry.IsVertical(Separate(s) and s.groupGrowth or Geometry.Perpendicular(s.growth, s.groupGrowth)))
+	Fit(card, Headers.holders.raid, Px("raid", width), Px("raid", height) + s.numberRoom, now, Geometry.IsVertical(Separate(s) and s.groupGrowth or Geometry.Perpendicular(s.growth, s.groupGrowth)))
+end
+
+function Headers.Numbers()
+	local cfg, card = ns.Settings.current.numbers, Headers.cards.raid
+	if not (cfg.show or Headers.numbered) then return end
+	Headers.numbered = cfg.show
+	local sizes, grouped = card and card.groups, card and card.settings and Separate(card.settings)
+	local shown = ShownGroups()
+	for g, header in ipairs(Headers.raid) do
+		local group = shown[g]
+		local on = cfg.show and grouped and group ~= nil and (not sizes or (sizes[group] or 0) > 0) or false
+		local label = header.kstyleNumber
+		if on and not label then
+			label = K.Widgets.FontString(header, "OVERLAY")
+			label:SetPoint("BOTTOM", header, "TOP", 0, Px("raid", 1))
+			header.kstyleNumber = label
+		end
+		if label then
+			label:SetShown(on)
+			Style.SetFont(label, ns.Settings.current.text.healthFont, cfg.size, "OUTLINE")
+			label:SetTextColor(K.Tokens.Color("text"))
+			label:SetText(group or "")
+		end
+	end
 end
 
 function Headers.SetRaidCount(count, groups)
@@ -358,6 +382,7 @@ function Headers.SetRaidCount(count, groups)
 	if card then
 		card.cap:SetAside(count and count > 0 and tostring(count) or nil)
 		Headers.FitRaid(count, groups)
+		Headers.Numbers()
 	end
 end
 
@@ -374,8 +399,12 @@ end
 
 function Headers.ApplyRaid(s)
 	s = OnGrid("raid", s)
+	local numbers = ns.Settings.current.numbers
+	s.numberRoom = numbers.show and Separate(s) and Px("raid", numbers.size + 2) or 0
+	s.groupSpacing = s.groupSpacing + s.numberRoom
 	local holder, card = Headers.holders.raid, Headers.cards.raid
 	local geo = Separate(s) and Geometry.RaidGroups(s) or Geometry.RaidFlow(s)
+	geo.height = geo.height + s.numberRoom
 	local width, height, left, top = Seat(card, s, geo, "raid")
 	holder:SetSize(width, height)
 	card.shiftX, card.shiftY = Px("raid", ns.AutoLayout.shiftX), Px("raid", ns.AutoLayout.shiftY)
@@ -392,12 +421,14 @@ function Headers.ApplyRaid(s)
 			Columns(header, nil, nil, nil, nil)
 			Grow(header, geo, "raid")
 			local slot = geo.slots[g]
-			header:SetPoint(geo.corner, holder, geo.corner, slot.x + x, slot.y + y)
+			header:SetPoint(geo.corner, holder, geo.corner, slot.x + x, slot.y + y - (geo.corner:find("TOP", 1, true) and s.numberRoom or 0))
 			Precreate(header, GROUP_BUTTONS)
 			Driver(header, shown[g] and not hidden and DRIVER_RAID or DRIVER_HIDE)
 		end
+		Headers.Numbers()
 		return geo
 	end
+	Headers.Numbers()
 	for g, header in ipairs(Headers.raid) do
 		RaidHeader(header, holder, s)
 		if g == 1 then

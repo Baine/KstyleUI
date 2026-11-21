@@ -216,8 +216,10 @@ function Preview.Build(...)
 			gw, gh = Geometry.Line(size, raid.width, raid.spacing), raid.height
 		end
 		local groupsWide = not Geometry.IsVertical(Geometry.Perpendicular(raid.growth, raid.groupGrowth))
-		local rw = groupsWide and Geometry.Line(shownGroups, gw, raid.groupSpacing) or gw
-		local rh = groupsWide and gh or Geometry.Line(shownGroups, gh, raid.groupSpacing)
+		local numberRoom = cfg.numbers.show and raid.sortBy == "GROUP" and not raid.merge and cfg.numbers.size + 2 or 0
+		local groupSpacing = raid.groupSpacing + numberRoom
+		local rw = groupsWide and Geometry.Line(shownGroups, gw, groupSpacing) or gw
+		local rh = (groupsWide and gh or Geometry.Line(shownGroups, gh, groupSpacing)) + numberRoom
 		preview.raid:SetSize(rw, rh)
 		preview.raid:ClearAllPoints()
 		preview.raid:SetPoint("TOPLEFT", preview.raidCanvas, "TOPLEFT", 0, 0)
@@ -227,15 +229,30 @@ function Preview.Build(...)
 			for m = 1, math.min(size, total - (g - 1) * size) do
 				frames[m] = preview.raidFrames[(g - 1) * size + m]
 			end
-			local ox, oy = Geometry.Offset(Geometry.Perpendicular(raid.growth, raid.groupGrowth), (g - 1) * ((groupsWide and gw or gh) + raid.groupSpacing))
-			PlaceRun(frames, preview.raid, raid, raid.growth, #frames, ox, oy, corner)
+			local ox, oy = Geometry.Offset(Geometry.Perpendicular(raid.growth, raid.groupGrowth), (g - 1) * ((groupsWide and gw or gh) + groupSpacing))
+			PlaceRun(frames, preview.raid, raid, raid.growth, #frames, ox, oy - (corner:find("TOP", 1, true) and numberRoom or 0), corner)
+			local number = preview.numbers[g]
+			if cfg.numbers.show and not number then
+				number = K.Widgets.FontString(preview.raid, "OVERLAY")
+				preview.numbers[g] = number
+			end
+			if number then
+				number:SetShown(cfg.numbers.show and raid.sortBy == "GROUP" and not raid.merge)
+				Style.SetFont(number, cfg.text.healthFont, cfg.numbers.size, "OUTLINE")
+				number:SetTextColor(Tokens.Color("text"))
+				number:SetText(g)
+				number:ClearAllPoints()
+				number:SetPoint("BOTTOM", frames[raid.growth == "UP" and #frames or 1], "TOP", 0, 1)
+			end
 		end
 		preview.canvas:SetSize(pw, ph)
 		preview.raidCanvas:SetSize(rw, rh)
 		local top = math.min(Tokens.Size("gapTiny"), availH / 4)
 		local gap = math.min(SECTION_GAP, availH / 4)
 		local showClick = availH > top + ns.ClickCast.HEIGHT + 2 * gap
-		local room = availH - top - gap - (showClick and ns.ClickCast.HEIGHT + gap or 0)
+		local manaHeight, labelHeight = ns.Readouts.Sample(preview.mana, preview.label)
+		local readouts = (manaHeight > 0 and manaHeight + gap / 2 or 0) + (labelHeight > 0 and labelHeight + gap / 2 or 0)
+		local room = availH - top - gap - readouts - (showClick and ns.ClickCast.HEIGHT + gap or 0)
 		local raidScale = math.min(1, availW / rw)
 		local scale = math.min(1, availW / pw)
 		if room <= rh * raidScale then
@@ -264,6 +281,13 @@ function Preview.Build(...)
 			Paint(f, f.sample)
 		end
 		local height = raidTop + rh * raidScale
+		for _, part in ipairs({ { preview.mana, manaHeight }, { preview.label, labelHeight } }) do
+			if part[2] > 0 then
+				part[1]:ClearAllPoints()
+				part[1]:SetPoint("TOPLEFT", preview, "TOPLEFT", 0, -(height + gap / 2))
+				height = height + gap / 2 + part[2]
+			end
+		end
 		preview.clickCast:ClearAllPoints()
 		preview.clickCast:SetPoint("TOPLEFT", preview, "TOPLEFT", 0, -(height + gap))
 		preview.clickCast:SetPoint("RIGHT", preview, "RIGHT", 0, 0)
@@ -279,7 +303,8 @@ function Preview.Build(...)
 		preview.raidCanvas = K.Widgets.MarkPreview(CreateFrame("Frame", nil, preview))
 		preview.party = CreateFrame("Frame", nil, preview.canvas)
 		preview.raid = CreateFrame("Frame", nil, preview.raidCanvas)
-		preview.partyFrames, preview.raidFrames = {}, {}
+		preview.partyFrames, preview.raidFrames, preview.numbers = {}, {}, {}
+		preview.mana, preview.label = CreateFrame("Frame", nil, preview), CreateFrame("Frame", nil, preview)
 		for i = 1, PARTY_SHOWN do
 			preview.partyFrames[i] = Sample(preview.party, "party", i)
 			preview.partyFrames[i].nameGroup = preview.partyFrames

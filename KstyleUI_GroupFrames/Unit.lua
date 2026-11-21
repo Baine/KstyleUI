@@ -36,6 +36,11 @@ local function IsSecret(v)
 end
 Unit.IsSecret = IsSecret
 
+function Unit.Plain(value, kind)
+	if IsSecret(value) or type(value) ~= kind then return nil end
+	return value
+end
+
 local percentCurve, fullCurve
 local function Curves()
 	if percentCurve ~= nil then
@@ -69,6 +74,7 @@ local function Curves()
 	end
 	return percentCurve or nil, fullCurve or nil
 end
+Unit.Curves = Curves
 
 local Abbreviate = K.Widgets.ShortNumber
 function Unit.Abbreviate(value)
@@ -91,6 +97,7 @@ local function Status(f)
 	if f.status ~= status then
 		f.status = status
 		Style.PlaceRowEnd(f)
+		if Unit.OnStatus then Unit.OnStatus(f) end
 	end
 end
 
@@ -454,9 +461,9 @@ local TAG_EVENTS = { UNIT_HEALTH = "Health", UNIT_MAXHEALTH = "Health", UNIT_NAM
 	UNIT_POWER_UPDATE = "Power", UNIT_MAXPOWER = "Power", UNIT_DISPLAYPOWER = "Power", UNIT_LEVEL = "Level",
 	UNIT_ABSORB_AMOUNT_CHANGED = "Prediction", UNIT_TARGET = "Target" }
 
-function Unit.OnEvent(f, event)
+function Unit.OnEvent(f, event, ...)
 	local handler = HANDLERS[event]
-	if handler and f.unit then handler(f) end
+	if handler and f.unit then handler(f, ...) end
 	local field = TAG_EVENTS[event]
 	if not field then return end
 	if f.unit and (f.extra1 or f.extra2) then Unit.TextSlots(f, field) end
