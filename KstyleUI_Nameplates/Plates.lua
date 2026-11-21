@@ -469,6 +469,9 @@ end
 local function OnCombat(event)
 	ns.state.inCombat = event == "PLAYER_REGEN_DISABLED"
 	ns.Resource.Update()
+	if not ns.state.inCombat and Settings.Get("markers.questText") then
+		for _, plate in pairs(byUnit) do plate:UpdateQuest() end
+	end
 end
 
 local function OnWorld()
@@ -479,6 +482,7 @@ local function OnWorld()
 	for _, plate in pairs(byUnit) do
 		plate:UpdateLevel()
 		plate:RefreshType()
+		plate:UpdateQuest()
 	end
 end
 
@@ -570,6 +574,14 @@ function Plates.SyncOptions()
 	end
 end
 
+local function QuestChanged()
+	Plate.QuestChanged()
+	for _, plate in pairs(byUnit) do
+		plate:RefreshType()
+		plate:UpdateQuest()
+	end
+end
+
 local GLOBAL_EVENTS = {
 	NAME_PLATE_UNIT_ADDED = function(_, unit)
 		UpdateTokens()
@@ -580,8 +592,8 @@ local GLOBAL_EVENTS = {
 		UpdateTokens()
 	end,
 	RAID_TARGET_UPDATE = ForAll("UpdateRaid"),
-	QUEST_LOG_UPDATE = ForAll("RefreshType"),
-	UNIT_QUEST_LOG_CHANGED = ForAll("RefreshType"),
+	QUEST_LOG_UPDATE = QuestChanged,
+	UNIT_QUEST_LOG_CHANGED = QuestChanged,
 	PLAYER_LEVEL_UP = function()
 		for _, plate in pairs(byUnit) do
 			plate:UpdateLevel()
