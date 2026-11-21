@@ -23,6 +23,10 @@ local function Log(message)
 	K.DevTest.Log(MODULE, "zygor: " .. message)
 end
 
+local function T(name, fn)
+	return K.DevTest.Timed("Zygor " .. name, fn)
+end
+
 local function IsTable(value)
 	return type(value) == "table"
 end
@@ -136,6 +140,8 @@ local function Assert(keepHeight)
 	end
 end
 
+Assert = T("Assert", Assert)
+
 function Fit()
 	local placed, frame = state.placed, state.frame
 	if state.busy or not (placed and frame) then
@@ -162,6 +168,8 @@ function Fit()
 	end
 end
 
+Fit = T("Fit", Fit)
+
 local function Follow()
 	local z = state.z
 	local bar = IsTable(z) and IsTable(z.ActionBar) and z.ActionBar.Frame
@@ -178,7 +186,7 @@ local function Settle()
 		return
 	end
 	state.settle = true
-	C_Timer.After(0.002, function()
+	C_Timer.After(0.002, T("Settle", function()
 		state.settle = false
 		local z = state.z
 		if state.placed and IsTable(z) and type(z.ResizeFrame) == "function" then
@@ -187,7 +195,7 @@ local function Settle()
 		Fit()
 		Follow()
 		Text(state.frame)
-	end)
+	end))
 end
 
 local function Live()
@@ -212,6 +220,12 @@ local function Strayed(master, frame)
 	return Plain(width) and math.abs(width - placed.width) > MOVED
 end
 
+local vias = {}
+local function Via(name)
+	vias[name] = vias[name] or T("Schedule via " .. name, function() Schedule() end)
+	return vias[name]
+end
+
 function Schedule()
 	if state.queued or not On() then
 		return
@@ -228,7 +242,8 @@ local function Holder(spec)
 		holder:EnableMouse(false)
 		state.holder = holder
 	end
-	if spec then
+	if spec and (spec.width ~= state.width or spec.height ~= state.height) then
+		state.width, state.height = spec.width, spec.height
 		state.holder:SetSize(spec.width, spec.height)
 	end
 	return state.holder
@@ -275,13 +290,19 @@ function Place()
 		return false
 	end
 	state.why = nil
+	local scale = Widgets.ScaleFactor(master)
+	local resizeup = IsTable(z.db) and IsTable(z.db.profile) and z.db.profile.resizeup
+	local key = table.concat({ band.left, band.top, band.bottom, band.right, scale, tostring(resizeup), spec.key }, " ")
+	if state.placed and state.key == key and state.frame == frame then
+		Follow()
+		return true
+	end
+	state.key = key
 	Remember(master, frame)
 	Hold(true)
 	state.z, state.frame, state.master = z, frame, master
 	Holder(spec)
 	Register(spec)
-	local scale = Widgets.ScaleFactor(master)
-	local resizeup = IsTable(z.db) and IsTable(z.db.profile) and z.db.profile.resizeup
 	state.placed = {
 		left = band.left / scale + Origin(master),
 		top = band.top / scale,
@@ -303,8 +324,10 @@ function Place()
 	return true
 end
 
+Place = T("Place", Place)
+
 function Restore()
-	state.placed = nil
+	state.placed, state.key = nil, nil
 	local z, master, frame, original = state.z, state.master, state.frame, state.original
 	Hold(false)
 	if not (z and master and frame) then
@@ -362,26 +385,26 @@ local function Patch(z)
 		end
 	end
 	if type(z.ResizeFrame) == "function" then
-		hooksecurefunc(z, "ResizeFrame", function()
+		hooksecurefunc(z, "ResizeFrame", T("ResizeFrame", function()
 			Fit()
-		end)
+		end))
 	end
 	if type(z.ReanchorFrame) == "function" then
-		hooksecurefunc(z, "ReanchorFrame", function()
+		hooksecurefunc(z, "ReanchorFrame", T("ReanchorFrame", function()
 			if not state.busy then
 				Assert(true)
 			end
-		end)
+		end))
 	end
 	if type(z.SetFrameScale) == "function" then
-		hooksecurefunc(z, "SetFrameScale", function()
-			Schedule()
-		end)
+		hooksecurefunc(z, "SetFrameScale", T("SetFrameScale", function()
+			Via("SetFrameScale")()
+		end))
 	end
 	if type(z.ApplySkin) == "function" then
-		hooksecurefunc(z, "ApplySkin", function()
+		hooksecurefunc(z, "ApplySkin", T("ApplySkin", function()
 			Text(state.frame)
-		end)
+		end))
 	end
 end
 
@@ -398,14 +421,21 @@ local function Clear()
 	return { 0, 0, 0, 0 }
 end
 
+local function Face(text)
+	if not (IsTable(text) and type(text.GetFont) == "function") then
+		return
+	end
+	local path = ns.Style.Font("body")
+	local current, size, flags = text:GetFont()
+	if type(path) == "string" and current ~= path and Plain(size) then
+		text:SetFont(path, size, flags)
+	end
+end
+
 function Text(frame)
 	local controls = frame and frame.Controls
 	local container = IsTable(controls) and controls.StepContainer
 	if not (container and type(container.GetChildren) == "function") then
-		return
-	end
-	local path, size, flags = ns.Style.Font("body")
-	if type(path) ~= "string" then
 		return
 	end
 	local children = { container:GetChildren() }
@@ -413,13 +443,7 @@ function Text(frame)
 		local lines = children[i].lines
 		if IsTable(lines) then
 			for j = 1, #lines do
-				local label = lines[j].label
-				if IsTable(label) and type(label.GetText) == "function" then
-					local current, height = label:GetFont()
-					if current ~= path or not Plain(height) or math.abs(height - size) > 0.5 then
-						Widgets.ApplyFont(label, path, size, flags)
-					end
-				end
+				Face(lines[j].label)
 			end
 		end
 	end
@@ -459,11 +483,11 @@ local function Steps(frame)
 	for _, step in ipairs(steps) do
 		if not hookedSteps[step] and type(step.SetBackgroundForStep) == "function" then
 			hookedSteps[step] = true
-			hooksecurefunc(step, "SetBackgroundForStep", QuietStep)
+			hooksecurefunc(step, "SetBackgroundForStep", T("SetBackgroundForStep", QuietStep))
 			for _, line in ipairs(IsTable(step.lines) and step.lines or {}) do
 				local back = line.back
 				if IsTable(back) and type(back.SetBackdropColor) == "function" and type(back.GetBackdropColor) == "function" then
-					hooksecurefunc(back, "SetBackdropColor", QuietBack)
+					hooksecurefunc(back, "SetBackdropColor", T("SetBackdropColor", QuietBack))
 					QuietBack(back, back:GetBackdropColor())
 				end
 			end
@@ -508,17 +532,11 @@ local function Fonts(z)
 	if not state.saved then
 		return
 	end
-	local Style = ns.Style
 	local controls = IsTable(z.Frame) and z.Frame.Controls
-	local num = IsTable(controls) and IsTable(controls.StepNum) and controls.StepNum.Step
-	if IsTable(num) and type(num.SetFont) == "function" then
-		Style.ApplyFont(num, "body")
-	end
+	Face(IsTable(controls) and IsTable(controls.StepNum) and controls.StepNum.Step)
 	local pool = IsTable(z.Tabs) and z.Tabs.Pool
 	for _, tab in pairs(IsTable(pool) and pool or {}) do
-		if IsTable(tab) and IsTable(tab.Text) and type(tab.Text.SetFont) == "function" then
-			Style.ApplyFont(tab.Text, "body")
-		end
+		Face(IsTable(tab) and tab.Text)
 	end
 end
 
@@ -559,7 +577,7 @@ local function Controls(z)
 				ns.Parts.Glyph(button, "glyphChevron", { rotation = role })
 			end
 			if type(button.AssignTextures) == "function" then
-				hooksecurefunc(button, "AssignTextures", Ink)
+				hooksecurefunc(button, "AssignTextures", T("AssignTextures", Ink))
 			end
 			Ink(button)
 		end
@@ -570,15 +588,11 @@ local function ArrowText(arrow)
 	if not (state.saved and IsTable(arrow)) then
 		return
 	end
-	local path = ns.Style.Font("body")
 	local offset = Tokens.Size("textShadowOffset")
 	for _, key in ipairs({ "title", "desc" }) do
 		local text = arrow[key]
 		if IsTable(text) and type(text.GetFont) == "function" then
-			local _, size, flags = text:GetFont()
-			if type(path) == "string" and Plain(size) then
-				Widgets.ApplyFont(text, path, size, flags)
-			end
+			Face(text)
 			text:SetTextColor(Tokens.Color("textEmphasis"))
 			text:SetShadowColor(Tokens.Color("textShadow"))
 			text:SetShadowOffset(offset, -offset)
@@ -605,12 +619,12 @@ local function Arrow(z)
 	if frame ~= state.arrow then
 		state.arrow = frame
 		if type(frame.ShowTraveling) == "function" then
-			hooksecurefunc(frame, "ShowTraveling", FlatArrow)
+			hooksecurefunc(frame, "ShowTraveling", T("ShowTraveling", FlatArrow))
 		end
 	end
 	if not state.arrowFonts and type(pointer.SetFontSize) == "function" then
 		state.arrowFonts = true
-		hooksecurefunc(pointer, "SetFontSize", function() ArrowText(state.arrow) end)
+		hooksecurefunc(pointer, "SetFontSize", T("SetFontSize", function() ArrowText(state.arrow) end))
 	end
 	ArrowText(frame)
 	FlatArrow(frame)
@@ -673,16 +687,16 @@ local function Paint(z)
 	Arrow(z)
 	if not state.steps and IsTable(z.Frame) and type(z.Frame.AddStep) == "function" then
 		state.steps = true
-		hooksecurefunc(z.Frame, "AddStep", Steps)
+		hooksecurefunc(z.Frame, "AddStep", T("AddStep", Steps))
 		if type(z.Frame.ApplySkin) == "function" then
-			hooksecurefunc(z.Frame, "ApplySkin", function() Fonts(z) end)
+			hooksecurefunc(z.Frame, "ApplySkin", T("ApplySkin", function() Fonts(z) end))
 		end
 		if IsTable(z.Tabs) and type(z.Tabs.ReanchorTabs) == "function" then
-			hooksecurefunc(z.Tabs, "ReanchorTabs", function() Fonts(z) end)
+			hooksecurefunc(z.Tabs, "ReanchorTabs", T("ReanchorTabs", function() Fonts(z) end))
 		end
 		local bar = z.ProgressBar
 		if IsTable(bar) and type(bar.SetColor) == "function" then
-			hooksecurefunc(bar, "SetColor", AccentBar)
+			hooksecurefunc(bar, "SetColor", T("SetColor", AccentBar))
 			if IsTable(bar.Texture) and type(bar.Texture.GetVertexColor) == "function" then
 				AccentBar(bar, bar.Texture:GetVertexColor())
 			end
@@ -730,30 +744,30 @@ local function Hook(z)
 			local live = Zygor()
 			local panel = live and state.saved and IsTable(live.Frame.Border) and K.Skin.Parts(live.Frame.Border).backdrop
 			if panel then Caption(live, panel) end
-			Schedule()
+			Via("ZGV_GUIDE_LOADED")()
 		end)
 		z:AddMessageHandler("ZGV_STEP_CHANGED", function()
 			local live = Zygor()
 			if live then Arrow(live) end
-			Schedule()
+			Via("ZGV_STEP_CHANGED")()
 		end)
 		z:AddMessageHandler("SKIN_UPDATED", function()
 			K.Combat.Queue(function()
 				local live = Zygor()
 				if live then Paint(live) end
-				Schedule()
+				Via("SKIN_UPDATED")()
 			end)
 		end)
 	end
-	K.Events.Register(OWNER, "PLAYER_ENTERING_WORLD", Schedule)
-	K.Callbacks.Register("LayoutChanged", OWNER, Schedule)
+	K.Events.Register(OWNER, "PLAYER_ENTERING_WORLD", Via("PLAYER_ENTERING_WORLD"))
+	K.Callbacks.Register("LayoutChanged", OWNER, Via("LayoutChanged"))
 	K.Callbacks.Register("SettingChanged", OWNER, function(_, module, key)
 		if module == "Layout" and key == "preset" then
-			Schedule()
+			Via("preset")()
 		end
 	end)
 	if not state.tracked then
-		state.tracked = { Restyle = Schedule }
+		state.tracked = { Restyle = Via("Restyle") }
 		Widgets.Track(state.tracked)
 	end
 end
@@ -772,7 +786,7 @@ ns.Guide.Add(KEY, {
 	Visible = function()
 		return Shown()
 	end,
-	Schedule = Schedule,
+	Schedule = function() Via("Guide")() end,
 })
 
 ns.Skins.Add({
@@ -797,12 +811,12 @@ ns.Skins.Add({
 		local raw = rawget(_G, "ZygorGuidesViewer")
 		if IsTable(raw) and type(raw.SetSkin) == "function" and not state.waiting then
 			state.waiting = true
-			hooksecurefunc(raw, "SetSkin", function()
+			hooksecurefunc(raw, "SetSkin", T("SetSkin", function()
 				local live = Zygor()
 				if live and not state.z and ns.Skins.IsOn(KEY) then
 					Start(live)
 				end
-			end)
+			end))
 		end
 	end,
 	OnSwitch = function(_, on)

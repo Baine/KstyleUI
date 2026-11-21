@@ -14,7 +14,7 @@ local function Boot(opts)
 		characters = {}, layouts = {}, account = { setupSeen = true }, devlog = {},
 	}
 	local env, K, ns = S.New({
-		width = 1920, height = 1080, saved = saved,
+		width = opts.width or 1920, height = opts.height or 1080, size = opts.size, saved = saved,
 		setup = function(e)
 			e._textWidth = Measure.TextWidth
 			Quests.Install(e, Quests.List(8))
@@ -133,14 +133,14 @@ do
 	assert(#env._errors == 0 and K.ErrorCount() == 0, tostring(env._errors[1]))
 end
 
--- The step text is in KstyleUI's face at KstyleUI's size; Zygor's own name colours stay, as RestedXP's do.
+-- The step text is in KstyleUI's face at Zygor's own size, so neither fights the other on Zygor's redraws; name colours stay, as RestedXP's do.
 do
 	local env, K, ns, zygor = Boot({})
 	local label = zygor.label
-	local path, size = ns.Style.Font("body")
+	local path = ns.Style.Font("body")
 	local font, height = label:GetFont()
 	assert(font == path, string.format("the step text takes KstyleUI's face, %s", tostring(font)))
-	assert(math.abs(height - size) <= 0.5, string.format("the step text takes KstyleUI's size, %s instead of %s", tostring(height), tostring(size)))
+	assert(math.abs(height - 16) <= 0.5, string.format("the step text keeps Zygor's size, %s", tostring(height)))
 	-- A repaint sets nothing already set: Zygor applies its skin whenever it resizes.
 	local fonts, texts = zygor.writes.font, zygor.writes.text
 	for _ = 1, 3 do
@@ -149,6 +149,15 @@ do
 	env.RunTimers()
 	assert(zygor.writes.font == fonts, string.format("a repaint sets no font again, %d new", zygor.writes.font - fonts))
 	assert(zygor.writes.text == texts, string.format("a repaint rewrites no text, %d new", zygor.writes.text - texts))
+	-- Zygor re-anchors its tabs on a 0.01 s timer (Tabs.lua:19): a hundred passes write no font.
+	local tab = env.ZygorGuidesViewer.Tabs.Pool[1].Text
+	local tabFont = tab:GetFont()
+	assert(tabFont == path, "a guide tab takes KstyleUI's face")
+	local before = tab._fontWrites
+	for _ = 1, 100 do
+		env.ZygorGuidesViewer.Tabs:ReanchorTabs()
+	end
+	assert(tab._fontWrites == before, string.format("Zygor's tab timer causes no font writes, %d new", tab._fontWrites - before))
 	assert(#env._errors == 0 and K.ErrorCount() == 0, tostring(env._errors[1]))
 end
 
@@ -158,6 +167,30 @@ do
 	local card = K.Skin.Parts(zygor.frame.Border).backdrop
 	assert(card and card:IsShown(), "a window Zygor makes late still wears the KstyleUI card")
 	assert(zygor.style.WindowBackdropColor[4] == 0, "a window Zygor makes late is still painted")
+	assert(#env._errors == 0 and K.ErrorCount() == 0, tostring(env._errors[1]))
+end
+
+-- The rail settles: placing the guide does not queue another placement. Before, the holder took its unsnapped size on
+-- every Place, Layout snapped it and queued a scoped restyle, whose tracked Restyle scheduled Place again, forever
+-- (904 placements in 30 s in game, 38 ms of Lua a second). At 1600x900 and size 0.53 the stub's timer guard caught it.
+do
+	local env, K, ns, zygor = Boot({ width = 1600, height = 900, size = 0.53 })
+	local z, resized = env.ZygorGuidesViewer, 0
+	local resize = z.ResizeFrame
+	z.ResizeFrame = function(...)
+		resized = resized + 1
+		return resize(...)
+	end
+	for _ = 1, 30 do
+		env.RunTimers()
+	end
+	assert(resized == 0, string.format("an idle rail re-places the guide: %d Zygor resizes in 30 timer passes", resized))
+	-- Another module's scoped restyles reach the rail's region-less tracked Restyle; with nothing moved, none resizes Zygor.
+	for _ = 1, 30 do
+		K.Widgets.RestyleUnder({ [K.Scale.Root()] = true })
+		env.RunTimers()
+	end
+	assert(resized == 0, string.format("other modules' restyles re-place the guide: %d Zygor resizes", resized))
 	assert(#env._errors == 0 and K.ErrorCount() == 0, tostring(env._errors[1]))
 end
 
