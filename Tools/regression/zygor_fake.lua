@@ -11,7 +11,7 @@ function Fake.Install(env, opts)
 	local frame = env.CreateFrame("Frame", "ZygorGuidesViewerFrame", master)
 	frame:SetSize(320, 100)
 	frame:SetPoint("TOPLEFT", master, "TOPLEFT", 0, 0)
-	local profile = { resizeup = opts.resizeup == true, fixedheight = false, showcountsteps = 1, framescale = 1, frame_anchor = { "CENTER", "CENTER", 0, 0 } }
+	local profile = { resizeup = opts.resizeup == true, fixedheight = false, showcountsteps = opts.allsteps and 0 or 1, framescale = 1, frame_anchor = { "CENTER", "CENTER", 0, 0 } }
 	local handlers = {}
 	local style = { WindowBackdropColor = { 1, 0, 0, 1 }, StepFontSizeMod = 1 }
 	local fake = { master = master, frame = frame, profile = profile, style = style, natural = opts.natural or 240, applied = 0, saves = 0, sets = 0 }
@@ -44,12 +44,42 @@ function Fake.Install(env, opts)
 		region:SetPoint(data[1], env.UIParent, data[2], data[3], data[4])
 	end
 
+	-- Zygor bounds the window's height on every resize; the client clamps a size to those bounds.
+	local setHeight = frame.SetHeight
+	frame.SetHeight = function(self, height)
+		local bounds = self._resizeBounds
+		if bounds then
+			if bounds[2] and bounds[2] > 0 and height < bounds[2] then
+				height = bounds[2]
+			end
+			if bounds[4] and bounds[4] > 0 and height > bounds[4] then
+				height = bounds[4]
+			end
+		end
+		return setHeight(self, height)
+	end
+
 	-- The window sizes itself to its steps unless the player pinned the height (ZygorGuidesViewer.lua 2970-2971).
 	function z:ResizeFrame()
+		if fake.resizing then
+			return
+		end
+		fake.resizing = true
+		env.C_Timer.After(0.001, function()
+			fake.resizing = false
+		end)
+		local controls = 91.5
+		local autoresize = not profile.fixedheight and profile.showcountsteps ~= 0
+		frame:SetResizeBounds(120, controls + (autoresize and 0 or 80), 600, controls + 600)
 		if profile.fixedheight then
 			return
 		end
-		frame:SetHeight(fake.natural + 91.5)
+		frame:SetHeight(fake.natural + controls)
+	end
+
+	-- ZGV:UpdateFrame ends by resizing the window (ZygorGuidesViewer.lua 2808).
+	function z:UpdateFrame()
+		z:ResizeFrame()
 	end
 
 	function z:ReanchorFrame()
@@ -77,8 +107,16 @@ function Fake.Install(env, opts)
 		end
 	end
 
-	-- The client's own behaviour the rail must survive: any size change saves the height, and every show resaves the anchor.
+	-- The client's own behaviour the rail must survive: a size change updates the window (which resizes it again), and the height is saved in the pinned modes.
 	frame:SetScript("OnSizeChanged", function(self, width, height)
+		if fake.resizing then
+			return
+		end
+		fake.resizing = true
+		env.C_Timer.After(0.001, function()
+			fake.resizing = false
+		end)
+		z:UpdateFrame()
 		if profile.fixedheight or profile.showcountsteps == 0 then
 			profile.fullheight = height
 		end
@@ -98,6 +136,7 @@ function Fake.Install(env, opts)
 	end
 
 	function fake.Step()
+		z:ResizeFrame()
 		z:SendMessage("ZGV_STEP_CHANGED")
 	end
 

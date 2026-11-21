@@ -109,7 +109,11 @@ local function Anchor(region, point, relativePoint, x, y)
 	end
 end
 
-local function Assert()
+local function Near(a, b)
+	return Plain(a) and Plain(b) and math.abs(a - b) < 0.5
+end
+
+local function Assert(keepHeight)
 	local placed, master, frame = state.placed, state.master, state.frame
 	if not (placed and master and frame) then
 		return
@@ -124,31 +128,56 @@ local function Assert()
 	frame:SetClampRectInsets(0, 0, 0, 0)
 	frame:ClearAllPoints()
 	frame:SetPoint(placed.up and "BOTTOMLEFT" or "TOPLEFT", master, placed.up and "BOTTOMLEFT" or "TOPLEFT")
-	frame:SetWidth(placed.width)
-	frame:SetHeight(placed.height)
+	if not Near(frame:GetWidth(), placed.width) then
+		frame:SetWidth(placed.width)
+	end
+	if not keepHeight and not Near(frame:GetHeight(), placed.height) then
+		frame:SetHeight(placed.height)
+	end
 end
 
 function Fit()
 	local placed, frame = state.placed, state.frame
-	if not (placed and frame) then
+	if state.busy or not (placed and frame) then
 		return
 	end
 	local height = placed.room
 	if ns.Skins.Setting(KEY, FIT) == true then
 		local natural = frame:GetHeight()
-		if Plain(natural) and natural < height then
+		if Plain(natural) and natural > 1 and natural < height then
 			height = natural
 		end
 	end
-	if Plain(height) and height > 0 then
+	if Plain(height) and height > 0 and not Near(frame:GetHeight(), height) then
 		local z = state.z
 		local profile = IsTable(z) and IsTable(z.db) and z.db.profile
 		local full = IsTable(profile) and profile.fullheight
+		if frame.SetResizeBounds then
+			frame:SetResizeBounds(0, 0, 0, 0)
+		end
+		local script = frame:GetScript("OnSizeChanged")
+		frame:SetScript("OnSizeChanged", nil)
 		frame:SetHeight(height)
+		frame:SetScript("OnSizeChanged", script)
 		if IsTable(profile) then
 			profile.fullheight = full
 		end
 	end
+end
+
+local function Settle()
+	if state.settle then
+		return
+	end
+	state.settle = true
+	C_Timer.After(0.002, function()
+		state.settle = false
+		local z = state.z
+		if state.placed and IsTable(z) and type(z.ResizeFrame) == "function" then
+			K.Call(z.ResizeFrame, z)
+		end
+		Fit()
+	end)
 end
 
 local function Live()
@@ -243,11 +272,14 @@ function Place()
 		height = (band.top - band.bottom) / scale,
 		up = resizeup == true,
 	}
-	Assert()
+	state.busy = true
+	Assert(true)
 	if z.ResizeFrame then
 		K.Call(z.ResizeFrame, z)
 	end
+	state.busy = false
 	Fit()
+	Settle()
 	Live()
 	return true
 end
@@ -314,7 +346,9 @@ local function Patch(z)
 	end
 	if type(z.ReanchorFrame) == "function" then
 		hooksecurefunc(z, "ReanchorFrame", function()
-			Assert()
+			if not state.busy then
+				Assert(true)
+			end
 		end)
 	end
 	if type(z.SetFrameScale) == "function" then
