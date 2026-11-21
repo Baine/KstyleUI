@@ -393,11 +393,15 @@ local function Clear()
 	return { 0, 0, 0, 0 }
 end
 
+local function Esc(r, g, b)
+	return string.format("|cff%02x%02x%02x", r, g, b)
+end
+
 local TINT = {
-	["|cffffaaaa"] = "nameHostile",
-	["|cffaaeeff"] = "magic",
-	["|cffaaffaa"] = "friend",
-	["|cffffee77"] = "quest",
+	[Esc(255, 170, 170)] = "nameHostile",
+	[Esc(170, 238, 255)] = "magic",
+	[Esc(170, 255, 170)] = "friend",
+	[Esc(255, 238, 119)] = "quest",
 }
 
 local function Hex(name, cache)
