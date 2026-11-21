@@ -2,7 +2,7 @@
 local _, ns = ...
 
 local K = KstyleUI
-local Settings, Data, Path, Row, BarRow, Style, Viewers, Auras, Reskin, Rules, Grid = ns.Settings, ns.Data, ns.Path, ns.Row, ns.BarRow, ns.Style, ns.Viewers, ns.Auras, ns.Reskin, ns.Rules, ns.Grid
+local Settings, Data, Path, Row, BarRow, Style, Viewers, Auras, Reskin, Rules, Grid, Focus = ns.Settings, ns.Data, ns.Path, ns.Row, ns.BarRow, ns.Style, ns.Viewers, ns.Auras, ns.Reskin, ns.Rules, ns.Grid, ns.Focus
 
 local Mirror = {}
 ns.Mirror = Mirror
@@ -18,7 +18,7 @@ local OTHER = { essential = "utility", utility = "essential" }
 local EMPTY = Rules.EMPTY
 
 local rows = {}
-local lists, scratch, shown, sources = {}, {}, {}, {}
+local lists, scratch, shown, sources, fresh = {}, {}, {}, {}, {}
 local running = false
 local pending = false
 local retries = 0
@@ -27,6 +27,8 @@ local auraUnits
 local trackedSpells, foundAuras = {}, { player = {}, target = {} }
 local merged = { essential = {}, utility = {} }
 local fighting = false
+local trinkets = { { equipSlot = 13 }, { equipSlot = 14 } }
+local swingStart, swingDuration, swingLate, swingStamp = nil, 0, false, 0
 
 local pcall = pcall
 
@@ -143,12 +145,15 @@ local function Cooling(row, icon, cooling, trusted)
 	if icon.onCooldown ~= cooling then
 		if not cooling and icon.onCooldown and icon.coolingTrusted and icon.coolingEntry == icon.entry and icon.FlashReady then
 			icon:FlashReady()
+			local kit = (icon.rule or EMPTY).sound and SOUNDKIT and SOUNDKIT[Settings.SOUNDS[Settings.current.readySound]]
+			if kit and type(PlaySound) == "function" then pcall(PlaySound, kit, "Master") end
 		end
 		if not cooling then
 			icon.coolingEntry, icon.coolingTrusted = nil, false
 		end
 		icon.onCooldown = cooling
 		icon:Paint()
+		row:Recharge(icon)
 		row:Visible(icon)
 	end
 	Ready(row, icon)
@@ -333,6 +338,7 @@ local function Charges(icon)
 					local okDuration, duration = pcall(getter, spell)
 					if okDuration and Present(duration) then
 						pcall(icon.SetChargeCooldownFromDuration, icon, duration)
+						icon.cooldownsRow:Recharge(icon)
 					else
 						icon:ClearChargeCooldown()
 					end
@@ -348,6 +354,8 @@ local function Charges(icon)
 		icon:SetCount(nil)
 		return
 	end
+	local row = icon.cooldownsRow
+	local shows = not (entry and (entry.categoryID or entry.equipSlot)) or row.cfg.itemCount
 	if Present(countSpell) and api and type(api.GetSpellCastCount) == "function" then
 		local ok, count = pcall(api.GetSpellCastCount, countSpell)
 		if ok and ns.IsSecret(count) then
@@ -355,15 +363,21 @@ local function Charges(icon)
 			if type(format) == "function" then
 				local formatted, text = pcall(format, count)
 				if formatted and (ns.IsSecret(text) or type(text) == "string") then
-					icon:SetCount(text)
+					if shows then icon:SetCount(text) else icon:SetCount(nil) end
 					return
 				end
 			end
-			Fail(icon.cooldownsRow.group, "secret cast count cannot be formatted")
+			Fail(row.group, "secret cast count cannot be formatted")
 			return
-		elseif ok and Finite(count) and count > 0 then
-			icon:SetCount(count)
-			return
+		elseif ok and Finite(count) then
+			if entry.categoryID and (icon.missing or false) ~= (count <= 0) then
+				icon.missing = count <= 0
+				row:Visible(icon)
+			end
+			if count > 0 then
+				icon:SetCount(shows and count or nil)
+				return
+			end
 		end
 	end
 	icon:SetCount(nil)
@@ -450,6 +464,26 @@ local function Range(icon)
 	Tint(icon, out, true)
 end
 
+local function Queued(entry)
+	local api = C_Spell
+	if not (entry and entry.spell and api and type(api.IsCurrentSpell) == "function") then return false end
+	local ok, on = pcall(api.IsCurrentSpell, entry.spell)
+	return ok and not ns.IsSecret(on) and on == true
+end
+
+local function SwingGlow(_, icon)
+	local glow = (icon.rule or EMPTY).swingGlow
+	if glow and swingLate and not Queued(icon.entry) then
+		Style.Glow(icon, icon, "lateGlow", true, Rules.Colour(glow, "glow"))
+	elseif icon.lateGlow then
+		icon.lateGlow:Stop()
+	end
+end
+
+local function Sweep(row, icon)
+	row:Swing(icon, (icon.rule or EMPTY).swing and swingStart, swingDuration)
+end
+
 local function Rule(row, icon, entry)
 	local rule = Rules.For(entry)
 	if icon.rule ~= rule then
@@ -462,6 +496,8 @@ local function Match(row, icon)
 	Rule(row, icon, icon.entry)
 	RefreshCooldownIcon(row, icon)
 	Range(icon)
+	if icon.rule.swing or icon.swingSweep then Sweep(row, icon) end
+	if icon.rule.swingGlow or icon.lateGlow then SwingGlow(row, icon) end
 	row:Visible(icon)
 end
 
@@ -473,7 +509,7 @@ local function AssignCooldowns(row, list)
 			icon.cooldownsRow = row
 			icon.cooldown:HookScript("OnCooldownDone", OnCooldownDone)
 		end
-		icon.entry = list[i]
+		if icon.entry ~= list[i] then icon.entry, icon.missing = list[i], nil end
 		Match(row, icon)
 	end
 	row:Settle()
@@ -836,8 +872,20 @@ local function Rebuild(group)
 		sources[group] = source
 		ns.Log(group .. ": " .. #list .. " entries from the " .. source)
 	end
-	Assign(group)
+	fresh[group] = true
 	return source == "dirty"
+end
+
+local function Trinkets(group)
+	if not (COOLDOWN_GROUPS[group] and Settings.current[group].trinkets and type(GetInventoryItemID) == "function") then return end
+	local list = lists[group]
+	for _, trinket in ipairs(trinkets) do
+		local ok, item = pcall(GetInventoryItemID, "player", trinket.equipSlot)
+		local listed = not (ok and Finite(item))
+		for _, entry in ipairs(list) do listed = listed or entry.equipSlot == trinket.equipSlot end
+		for _, entry in ipairs(lists[OTHER[group]] or EMPTY) do listed = listed or entry.equipSlot == trinket.equipSlot end
+		if not listed then list[#list + 1] = trinket end
+	end
 end
 
 local function Refill()
@@ -850,6 +898,13 @@ local function RebuildAll()
 	local dirty = false
 	for _, group in ipairs(GROUPS) do
 		dirty = Rebuild(group) or dirty
+	end
+	for _, group in ipairs(GROUPS) do
+		if fresh[group] then
+			fresh[group] = nil
+			Trinkets(group)
+			Assign(group)
+		end
 	end
 	Refill()
 	if dirty and retries < MAX_RETRIES then
@@ -881,8 +936,11 @@ local function OnDataChanged()
 	Mirror.Schedule()
 end
 
-local function ApplySettings()
+local ListenRules
+
+local function ApplySettings(key)
 	Settings.Read()
+	ListenRules()
 	for _, group in ipairs(GROUPS) do
 		local row = rows[group]
 		if row then
@@ -897,6 +955,7 @@ local function ApplySettings()
 	end
 	Index()
 	Reskin.Refresh()
+	Focus.Apply(key)
 end
 Mirror.ApplySettings = ApplySettings
 
@@ -1006,12 +1065,71 @@ local function RetextureAll()
 	RequestAuras()
 end
 
+local function ReadForm()
+	ns.form = nil
+	local count = type(GetNumShapeshiftForms) == "function" and GetNumShapeshiftForms()
+	if not Finite(count) or type(GetShapeshiftFormInfo) ~= "function" then return end
+	local form = false
+	for i = 1, count do
+		local ok, _, active, _, spell = pcall(GetShapeshiftFormInfo, i)
+		if not ok or ns.IsSecret(active) or ns.IsSecret(spell) then return end
+		if active then
+			local got, name = pcall(C_Spell.GetSpellName, spell)
+			form = got and type(name) == "string" and not ns.IsSecret(name) and name or nil
+			break
+		end
+	end
+	ns.form = form
+end
+
+local function OnForm()
+	ReadForm()
+	EachCooldownIcon(Row.Visible)
+end
+
+local function Late(on)
+	swingLate = on
+	EachCooldownIcon(SwingGlow)
+end
+
+local function OnSwing(_, duration, kind)
+	local rules, kinds = Settings.current.rules, Enum and Enum.PlayerSwingType
+	if not Finite(duration) or duration <= 0 or ns.IsSecret(kind) or kind ~= (kinds and kinds.MainHand or 0) then return end
+	swingStart, swingDuration = GetTime(), duration
+	EachCooldownIcon(Sweep)
+	swingStamp = swingStamp + 1
+	if rules.swingGlow == "" then return end
+	local stamp = swingStamp
+	Late(false)
+	C_Timer.After(math.max(0, duration - Settings.current.swingWindow), function() if stamp == swingStamp then Late(true) end end)
+	C_Timer.After(duration, function() if stamp == swingStamp then Late(false) end end)
+end
+
+local function OnQueue()
+	if swingLate then EachCooldownIcon(SwingGlow) end
+end
+
+local function Listen(event, fn, on)
+	if on then K.Events.Register(MODULE, event, fn) else K.Events.Unregister(MODULE, event) end
+end
+
+function ListenRules()
+	local rules, mirrored = Settings.current.rules, Live("essential") or Live("utility")
+	local form, glow = mirrored and rules.form ~= "", mirrored and rules.swingGlow ~= ""
+	Listen("UPDATE_SHAPESHIFT_FORM", OnForm, form)
+	Listen("UPDATE_SHAPESHIFT_FORMS", OnForm, form)
+	Listen("PLAYER_SWING", OnSwing, glow or mirrored and rules.swing ~= "")
+	Listen("CURRENT_SPELL_CAST_CHANGED", OnQueue, glow)
+	if form then ReadForm() end
+end
+
 local EVENTS = {
 	BAG_UPDATE_COOLDOWN = function()
 		EachCooldownIcon(ItemIcon)
 	end,
 	PLAYER_EQUIPMENT_CHANGED = function()
 		EachCooldownIcon(ItemIcon)
+		if Settings.current.essential.trinkets or Settings.current.utility.trinkets then Mirror.Schedule() end
 	end,
 	SPELL_UPDATE_USES = function()
 		EachCooldownIcon(UsesIcon)
@@ -1069,7 +1187,8 @@ local function OnSetting(_, module, key)
 		Mirror.Stop()
 		Mirror.Start()
 	else
-		ApplySettings()
+		ApplySettings(key)
+		if type(key) == "string" and key:find("trinkets$") then Mirror.Schedule() end
 	end
 end
 
@@ -1146,13 +1265,16 @@ function Mirror.Start()
 	K.Callbacks.Register("HudStyleChanged", MODULE, OnTheme)
 	K.Callbacks.Register("ScaleChanged", MODULE, OnScale)
 	K.Callbacks.Register("LayoutChanged", MODULE, OnLayout)
+	ListenRules()
 	RebuildAll()
+	Focus.Apply()
 	return true
 end
 
 function Mirror.Stop()
 	running = false
 	pending = false
+	swingStart, swingLate, swingStamp = nil, false, swingStamp + 1
 	auraUnits = nil
 	K.Events.UnregisterAll(MODULE)
 	if EventRegistry and EventRegistry.UnregisterCallback then
@@ -1168,6 +1290,7 @@ function Mirror.Stop()
 		sources[group] = nil
 	end
 	Reskin.Stop()
+	Focus.Stop()
 	Path.Reset()
 end
 
