@@ -19,7 +19,7 @@ local KEYS = {
 	"actionbars.bar2", "actionbars.bar3", "actionbars.bar4", "actionbars.bar5", "actionbars.bar6", "actionbars.pet",
 	"actionbars.stance", "consumables.bar", "actionbars.possess", "cooldowns.essential", "cooldowns.utility", "cooldowns.buffs", "cooldowns.bars",
 	"auras.buffs", "auras.debuffs", "auras.extraBuffs", "auras.extraDebuffs", "minimap.main", "chat.main", "databars.xp", "databars.rep", "databars.honor",
-	"databars.strip", "databars.micro", "databars.bags", "meters.damage", "meters.threat", "meters.swing",
+	"databars.strip", "databars.strip2", "databars.micro", "databars.bags", "meters.damage", "meters.threat", "meters.swing",
 	"combattext.player",
 	"qol.lootfeed",
 	"tooltips.anchor",
@@ -250,13 +250,13 @@ local CLEAR = { half = 260, bottom = 664 + LIFT, top = HEIGHT - 28 }
 local EDGE_RIGHT = set({ "unitframes.boss" })
 local RAIL_KEYS = {
 	DPS = set({ "groupframes.party", "groupframes.raid", "chat.main", "qol.lootfeed", "minimap.main", "auras.buffs", "auras.debuffs", "auras.extraBuffs", "auras.extraDebuffs",
-		"meters.damage", "databars.strip", "databars.micro", "databars.bags", "tooltips.anchor",
+		"meters.damage", "databars.strip", "databars.strip2", "databars.micro", "databars.bags", "tooltips.anchor",
 		"actionbars.bar4", "actionbars.bar5", "actionbars.bar6", "meters.threat" }),
 	Tank = set({ "groupframes.party", "groupframes.raid", "chat.main", "qol.lootfeed", "minimap.main", "auras.buffs", "auras.debuffs", "auras.extraBuffs", "auras.extraDebuffs",
-		"meters.damage", "databars.strip", "databars.micro", "databars.bags", "tooltips.anchor",
+		"meters.damage", "databars.strip", "databars.strip2", "databars.micro", "databars.bags", "tooltips.anchor",
 		"actionbars.bar4", "actionbars.bar5", "actionbars.bar6", "meters.threat" }),
 	Healer = set({ "groupframes.party", "groupframes.raid", "chat.main", "qol.lootfeed", "minimap.main", "auras.buffs", "auras.debuffs", "auras.extraBuffs", "auras.extraDebuffs",
-		"meters.damage", "databars.strip", "databars.micro", "databars.bags", "tooltips.anchor",
+		"meters.damage", "databars.strip", "databars.strip2", "databars.micro", "databars.bags", "tooltips.anchor",
 		"actionbars.bar4", "actionbars.bar5", "actionbars.bar6", "meters.threat" }),
 }
 -- The optional focus target and Tank threat card retain their four-unit gaps.
