@@ -264,8 +264,9 @@ end
 
 function Auras.PlaceTimer(timer, skin, kind, badge, style)
 	timer:ClearAllPoints()
-	local below = TimerBelow(kind)
 	style = style or TextStyle({ kind = kind })
+	local below = style.below
+	if below == nil then below = TimerBelow(kind) end
 	local dx, dy = Off(skin, style.auraTimerX), Off(skin, style.auraTimerY)
 	if below then
 		local gap = Settings.Form(kind) == "column" and COLUMN_TIMER_GAP or TIMER_BELOW_GAP
@@ -357,7 +358,8 @@ end
 
 local function StyleButton(view, entry, style)
 	style = style or TextStyle(view)
-	local size = Snap(view, Value(view, "auraSize"))
+	if style.below == nil then style.below, style.timer, style.size = TimerBelow(view.kind), Value(view, "auraTimer"), Value(view, "auraSize") end
+	local size = Snap(view, style.size)
 	entry.button:SetSize(size, size)
 	Dispel(entry, style)
 	Auras.LayoutTile(entry)
@@ -365,8 +367,8 @@ local function StyleButton(view, entry, style)
 	PlaceCount(entry.count, entry.skin, style)
 	StyleTexts(entry.count, entry.timer, style)
 	Auras.PlaceTimer(entry.timer, entry.skin, view.kind, entry.badge, style)
-	entry.timer:SetShown(Value(view, "auraTimer"))
-	entry.badge:SetShown(not TimerBelow(view.kind) and Value(view, "auraTimer") == true)
+	entry.timer:SetShown(style.timer)
+	entry.badge:SetShown(not style.below and style.timer == true)
 end
 
 local formatters = {}
@@ -690,7 +692,8 @@ end
 
 local function Assist(view)
 	local ok = type(UnitCanAssist) == "function" and UnitCanAssist("player", view.unit, true, true)
-	return not issecretvalue(ok) and ok == true
+	if type(UnitCanAssist) ~= "function" or issecretvalue(ok) then return "unknown" end
+	return ok == true
 end
 
 local tracking = false
@@ -705,7 +708,7 @@ local function Retrack()
 		local a = view.auras
 		if a and a.assist ~= nil then
 			any = true
-			if Wanted(view) and a.assist ~= Assist(view) then K.Call(Auras.Apply, view) end
+			if Active(view) and a.assist ~= Assist(view) then K.Call(Auras.Apply, view) end
 		end
 	end
 	if not any then Untrack() end
@@ -735,11 +738,13 @@ function Auras.Candidates(view, key)
 		c = c or {}
 		c.isStealable = steal == "only"
 	end
-	local tracked = buffs and Value(view, "auraTrackedOnly") and Value(view, "auraTracked") or ""
-	if tracked ~= "" and not FIXED_UNIT[view.kind] then
+	local tracked = Value(view, buffs and "auraTrackedOnly" or "auraTrackedDebuffs") and Value(view, "auraTracked") or ""
+	if tracked ~= "" and FIXED_UNIT[view.kind] then
+		if not buffs then tracked = "" end
+	elseif tracked ~= "" then
 		view.auras.assist = Assist(view)
 		Track()
-		if not view.auras.assist then tracked = "" end
+		if view.auras.assist ~= buffs then tracked = "" end
 	end
 	c = K.Options.AuraCandidates({ allowSpells = tracked, blockSpells = Value(view, "auraHidden") }, c)
 	if not buffs and Value(view, "auraHideLockout") then
