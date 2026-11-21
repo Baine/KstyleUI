@@ -944,7 +944,7 @@ function List:Fit()
 	end
 	height = max(1, min(height, holderHeight))
 	self.fitHeight = height
-	local other = self.key and ns.Threat.paired and (self.section == "damage" and ns.Threat.list or self.section == "threat" and ns.Damage.list)
+	local other = self.key and ns.Threat.paired and (self == ns.Damage.list and ns.Threat.list or self.section == "threat" and ns.Damage.list)
 	if other then
 		height = min(holderHeight, other.holder:GetHeight(), max(height, other.fitHeight or height))
 		if other.panel:GetHeight() ~= height then other.panel:SetHeight(height) end

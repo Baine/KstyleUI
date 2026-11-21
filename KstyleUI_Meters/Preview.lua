@@ -22,11 +22,11 @@ function Preview.Build(...)
 	local CASTS = {}
 	for i = 1, 10 do CASTS[i] = SPELLS[(i - 1) % #SPELLS + 1][1] end
 	local SAMPLE = {
-		{ class = "WARRIOR", damage = 28400, threat = 100, raw = 3240000 },
-		{ class = "MAGE", damage = 24700, threat = 88, raw = 2851000, player = true },
-		{ class = "PRIEST", damage = 20100, threat = 61, raw = 1977000 },
-		{ class = "ROGUE", damage = 17600, threat = 42, raw = 1361000 },
-		{ class = "HUNTER", damage = 14200, threat = 23, raw = 745000 },
+		{ class = "WARRIOR", damage = 28400, threat = 100, raw = 3240000, died = 67 },
+		{ class = "MAGE", damage = 24700, threat = 88, raw = 2851000, player = true, died = 102 },
+		{ class = "PRIEST", damage = 20100, threat = 61, raw = 1977000, died = 131 },
+		{ class = "ROGUE", damage = 17600, threat = 42, raw = 1361000, died = 158 },
+		{ class = "HUNTER", damage = 14200, threat = 23, raw = 745000, died = 204 },
 	}
 
 	local function Name(classFile)
@@ -65,28 +65,53 @@ function Preview.Build(...)
 		return ns.Get("damage.icons") == true
 	end
 
+	local function Units()
+		return ns.Get("damage.englishUnits") and Logic.Abbreviate or Logic.GameUnits
+	end
+
+	local function Rate(list, key)
+		local info = ns.MeterInfo(key)
+		list:SetTitle(info.cap or info.label)
+		return info.rate and Logic.FormatRate(DAMAGE_SAMPLE_RATE, info.rate, Units()) or ""
+	end
+
 	local function FillDamage(list)
 		local total = 0
 		for _, spell in ipairs(SPELLS) do
 			total = total + spell[2]
 		end
 		local count = math.min(#SPELLS, list.capacity or 0)
-		local percent = ns.Get("damage.percent")
+		local percent, units = ns.Get("damage.percent"), Units()
 		for i = 1, count do
 			local id, amount = SPELLS[i][1], SPELLS[i][2]
-			list:SetRow(i, SpellLabel(id), Theme.Class(), "friendly", amount, SPELLS[1][2], Logic.Abbreviate(amount),
+			list:SetRow(i, SpellLabel(id), Theme.Class(), "friendly", amount, SPELLS[1][2], units(amount),
 				percent and Logic.FormatPercent(Logic.Percent(amount, total)) or "", nil, Logic.SchoolToken(id))
 			list:SetRowIcon(i, SpellIcon(id))
 		end
 		list:Finish(count)
-		local info = ns.METER_TYPES[1]
-		for _, entry in ipairs(ns.METER_TYPES) do
-			if entry.value == ns.Get("damage.meter") then
-				info = entry
-			end
+		list:SetColumn(Rate(list, "damage.meter"))
+	end
+
+	local function FillSecond(list)
+		local count, total = math.min(#SAMPLE, list.capacity or 0), 0
+		for _, sample in ipairs(SAMPLE) do
+			total = total + sample.damage
 		end
-		list:SetTitle(info.cap or info.label)
-		list:SetColumn(info.rate and Logic.FormatRate(DAMAGE_SAMPLE_RATE, info.rate) or "")
+		local percent, units, deaths = ns.Get("damage.percent"), Units(), ns.MeterInfo("damage2.meter").deaths
+		for i = 1, count do
+			local sample = SAMPLE[i]
+			if deaths then
+				list:SetRow(i, Name(sample.class), sample.class, "friendly", 1, 1, ns.DeathText(sample.died), "")
+			else
+				list:SetRow(i, Name(sample.class), sample.class, "friendly", sample.damage, SAMPLE[1].damage, units(sample.damage),
+					percent and Logic.FormatPercent(Logic.Percent(sample.damage, total)) or "")
+			end
+			ns.SetClassIcon(list, i, sample.class)
+			list:SetMarker(i, sample.player)
+		end
+		list:Finish(count)
+		list:SetRest(Rate(list, "damage2.meter"))
+		ns.FightSwitch(list, "damage2.session")
 	end
 
 	local function FillThreat(list)
@@ -121,8 +146,15 @@ function Preview.Build(...)
 		list:Finish(count)
 	end
 
+	local function Nothing() end
+
 	local function Lists(frame)
-		local lists = { frame.damage, frame.threat }
+		local second = ns.Get("damage2.shown")
+		if second and not frame.second then
+			frame.second = ns.BarList.New(frame, "damage", { width = FALLBACK_WIDTH / 2, height = FALLBACK_HEIGHT, columns = Columns("damage"), block = true, icons = Icons, onReset = Nothing, onSwitch = Nothing })
+		end
+		if frame.second then frame.second.holder:SetShown(second) end
+		local lists = second and { frame.damage, frame.second, frame.threat } or { frame.damage, frame.threat }
 		local on = ns.Get("history.bars") and not ns.History.Hidden()
 		if on and not frame.history then
 			frame.history = ns.BarList.New(frame, "history", { width = FALLBACK_WIDTH / 2, height = FALLBACK_HEIGHT, block = true,
@@ -130,7 +162,7 @@ function Preview.Build(...)
 			frame.history:SetTitle(L["Spell history"])
 		end
 		if frame.history then frame.history.holder:SetShown(on) end
-		if on then lists[3] = frame.history end
+		if on then lists[#lists + 1] = frame.history end
 		return lists
 	end
 
@@ -233,6 +265,10 @@ function Preview.Build(...)
 		frame.threat.holder:SetShown(ns.MeterShown("threat"))
 		FillDamage(frame.damage)
 		FillThreat(frame.threat)
+		if frame.second and frame.second.holder:IsShown() then
+			frame.second:Restyle()
+			FillSecond(frame.second)
+		end
 		if frame.history and frame.history.holder:IsShown() then
 			frame.history:Restyle()
 			FillHistory(frame.history)
@@ -243,7 +279,7 @@ function Preview.Build(...)
 	build = function(parent)
 		local frame = CreateFrame("Frame", nil, parent)
 		Widgets.Fill(frame, parent, 0, 0, 0, 0)
-		frame.damage = ns.BarList.New(frame, "damage", { width = FALLBACK_WIDTH / 2, height = FALLBACK_HEIGHT, columns = Columns("damage"), block = true, icons = Icons, onReset = function() end })
+		frame.damage = ns.BarList.New(frame, "damage", { width = FALLBACK_WIDTH / 2, height = FALLBACK_HEIGHT, columns = Columns("damage"), block = true, icons = Icons, onReset = Nothing })
 		frame.threat = ns.BarList.New(frame, "threat", { width = FALLBACK_WIDTH / 2, height = FALLBACK_HEIGHT, columns = Columns("threat"), icons = Icons })
 		frame.swing = Widgets.StatusBar(frame, {
 			texture = ns.Get("swing.texture"), background = "track", border = true, min = 0, max = 1, value = SWING_FILL,

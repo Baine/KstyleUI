@@ -4,7 +4,7 @@ local _, ns = ...
 local K = KstyleUI
 local MODULE = ns.MODULE
 
-local parts = { ns.Damage, ns.Threat, ns.Swing, ns.Timer, ns.History }
+local parts = { ns.Damage, ns.Damage2, ns.Threat, ns.Swing, ns.Timer, ns.History }
 local watchers = {}
 local running = false
 
@@ -106,7 +106,7 @@ local function OnSetting(_, module, key)
 		return
 	end
 	local section = type(key) == "string" and key:match("^(%w+)%.") or nil
-	if section == "roles" or section == "damage" then
+	if section == "roles" or section == "damage" or section == "damage2" then
 		section = nil
 	end
 	for _, part in ipairs(parts) do

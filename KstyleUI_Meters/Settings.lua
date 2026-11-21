@@ -76,6 +76,7 @@ ns.defaults = {
 		alwaysPlayer = true,
 		hover = true,
 		format = "short",
+		englishUnits = true,
 		refresh = 0.5,
 		hoverSpells = 3,
 		hideRank = false,
@@ -89,10 +90,13 @@ ns.defaults = {
 		resetButton = false,
 		resetHover = false,
 		resetSize = 12,
+		report = false,
+		reportTo = "auto",
 		nameScale = 1,
 		valueScale = 1,
 		playerMarker = false,
 	}),
+	damage2 = { shown = false, meter = "HealingDone", session = "Current" },
 	threat = Merge(Bars("left"), Text(12), {
 		followGuide = true,
 		shown = true,
@@ -186,14 +190,28 @@ function ns.Schema()
 		end
 	end
 
-	local function WindowStyle(settings)
+	local function Windows()
+		return ns.ResolveMode("auto") == "window"
+	end
+
+	local function MainWindow(settings)
 		local node = settings.damage
 		local mode = type(node) == "table" and node.mode or nil
 		return ns.ResolveMode(mode) == "window"
 	end
 
+	local function WindowStyle(settings)
+		return MainWindow(settings) or (ns.Get("damage2.shown") and Windows())
+	end
+
+	local SESSIONS = {
+		{ value = "Current", label = L["Current fight"] },
+		{ value = "Previous", label = L["Previous fight"] },
+		{ value = "Overall", label = L["Overall"] },
+	}
+
 	local function StyleOptions()
-		local auto = ns.ResolveMode("auto") == "window" and L["Automatic: KstyleUI window"] or L["Automatic: Blizzard's, restyled"]
+		local auto = Windows() and L["Automatic: KstyleUI window"] or L["Automatic: Blizzard's, restyled"]
 		return {
 			{ value = "auto", label = auto },
 			{ value = "window", label = L["KstyleUI window"] },
@@ -203,7 +221,7 @@ function ns.Schema()
 
 	local function Off(section)
 		return function(settings)
-			if section == "damage" then return not ns.MeterShown("damage") and not ns.MeterShown("threat") end
+			if section == "damage" then return not ns.MeterShown("damage") and not ns.MeterShown("threat") and not ns.Get("damage2.shown") end
 			if section == "threat" then return not ns.MeterShown(section) end
 			return type(settings[section]) == "table" and settings[section].shown == false
 		end
@@ -305,17 +323,19 @@ function ns.Schema()
 			options = StyleOptions,
 		},
 		{
-			type = "dropdown", key = "damage.meter", label = L["Show"], disableWhen = Off("damage"), showWhen = WindowStyle,
+			type = "dropdown", key = "damage.meter", label = L["Show"], disableWhen = Off("damage"), showWhen = MainWindow,
 			help = L["What the window measures. Click its title to switch between damage and healing in game."], options = ns.METER_TYPES,
 		},
 		{
-			type = "dropdown", key = "damage.session", label = L["Fight"], disableWhen = Off("damage"), showWhen = WindowStyle,
-			help = L["The current fight, the one before it, or every fight. Right-click the meter to switch."], options = {
-				{ value = "Current", label = L["Current fight"] },
-				{ value = "Previous", label = L["Previous fight"] },
-				{ value = "Overall", label = L["Overall"] },
-			},
+			type = "dropdown", key = "damage.session", label = L["Fight"], disableWhen = Off("damage"), showWhen = MainWindow,
+			help = L["The current fight, the one before it, or every fight. Right-click the meter to switch."], options = SESSIONS,
 		},
+		{ type = "toggle", key = "damage2.shown", label = L["Second damage window"], showWhen = Windows,
+			help = L["Shows another damage meter with its own Show and Fight. Move it in Layout Mode."] },
+		{ type = "dropdown", key = "damage2.meter", label = L["Show"], disableWhen = Is("damage2.shown", false), showWhen = Windows,
+			help = L["What the window measures. Click its title to switch between damage and healing in game."], options = ns.METER_TYPES },
+		{ type = "dropdown", key = "damage2.session", label = L["Fight"], disableWhen = Is("damage2.shown", false), showWhen = Windows,
+			help = L["The current fight, the one before it, or every fight. Right-click the meter to switch."], options = SESSIONS },
 		{
 			type = "toggle", key = "damage.group", label = L["Only in a group"], disableWhen = Off("damage"),
 			help = L["Hides the damage meter while you play alone, in either style."],
@@ -350,6 +370,8 @@ function ns.Schema()
 		help = L["Use short or full numbers for damage and healing amounts."], options = {
 		{ value = "short", label = L["Short, such as 12.3K"] }, { value = "full", label = L["Full, such as 12,345"] },
 	} }
+	schema[#schema + 1] = { type = "toggle", key = "damage.englishUnits", label = L["English number units"], disableWhen = Off("damage"), showWhen = WindowStyle,
+		help = L["Writes K, M and B in every language. Off uses the game's own number units."] }
 	local meters = Off("damage")
 	local function cards(settings) return meters(settings) and not settings.history.bars end
 	local function Slider(key, label, help, low, high, step, extra)
@@ -372,6 +394,14 @@ function ns.Schema()
 	schema[#schema + 1] = { type = "toggle", key = "damage.resetHover", label = L["Reset button on mouseover"], disableWhen = noReset, showWhen = WindowStyle,
 		help = L["Shows the reset button only while you point at the meter."] }
 	Slider("damage.resetSize", L["Reset button size"], L["How large the reset button is."], 8, 20, 1, { disableWhen = noReset, showWhen = WindowStyle })
+	schema[#schema + 1] = { type = "toggle", key = "damage.report", label = L["Report with Shift-click"], disableWhen = meters, showWhen = WindowStyle,
+		help = L["Shift-click a damage meter to send the rows it shows to chat, out of combat."] }
+	schema[#schema + 1] = { type = "dropdown", key = "damage.reportTo", label = L["Report to"], showWhen = WindowStyle,
+		disableWhen = function(settings) return meters(settings) or not settings.damage.report end,
+		help = L["Automatic uses your instance, raid or party chat. Without that chat, only you see the report."], options = {
+		{ value = "auto", label = L["Automatic"] }, { value = "PARTY", label = L["Party"] }, { value = "RAID", label = L["Raid"] },
+		{ value = "INSTANCE_CHAT", label = L["Instance"] }, { value = "GUILD", label = L["Guild"] },
+	} }
 
 	schema[#schema + 1] = { type = "header", label = L["Threat meter"] }
 	schema[#schema + 1] = { type = "toggle", key = "threat.followGuide", label = L["Follow the guide card"], help = L["Place threat below the guide and its controls. Off keeps the threat card's own position."] }
