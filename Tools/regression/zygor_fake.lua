@@ -28,17 +28,61 @@ function Fake.Install(env, opts)
 	end
 	step.lines = { { label = label } }
 	frame.Controls = { StepContainer = container }
-	local profile = { resizeup = opts.resizeup == true, fixedheight = false, showcountsteps = opts.allsteps and 0 or 1, framescale = 1, frame_anchor = { "CENTER", "CENTER", 0, 0 } }
+	local profile = { skin = "default", skinstyle = "starlight", resizeup = opts.resizeup == true, fixedheight = false, showcountsteps = opts.allsteps and 0 or 1, framescale = 1, frame_anchor = { "CENTER", "CENTER", 0, 0 } }
 	local handlers = {}
-	local style = { WindowBackdropColor = { 1, 0, 0, 1 }, StepFontSizeMod = 1 }
-	local fake = { master = master, frame = frame, profile = profile, style = style, natural = opts.natural or 240, applied = 0, saves = 0, sets = 0, label = label, writes = writes }
+	local styles = { starlight = { id = "starlight", name = "Starlight", WindowBackdropColor = { 1, 0, 0, 1 }, StepFontSizeMod = 1 } }
+	local skin = { id = "default", styles = styles }
+	styles.starlight.skin = skin
+	function styles.starlight.GetDir(self)
+		return self.skin:GetDir() .. (self.id or "") .. "\\"
+	end
+	function skin:AddStyle(id, name, inherit)
+		local style = { id = id, name = name, skin = self, inheritedStyle = self.styles[inherit] }
+		setmetatable(style, { __index = function(t, key)
+			local base = rawget(t, "inheritedStyle")
+			return base and base[key]
+		end })
+		self.styles[id] = style
+		return style
+	end
+	function skin:GetStyle(id)
+		return self.styles[id or "default"]
+	end
+	function skin:GetDir()
+		return "Interface\\AddOns\\ZygorGuidesViewerForever\\Skins\\" .. self.id .. "\\"
+	end
+	function skin:CreateFrame()
+		return frame
+	end
+	local style = styles.starlight
+	local fake = { master = master, frame = frame, profile = profile, style = style, styles = styles, skin = skin, natural = opts.natural or 240, applied = 0, saves = 0, sets = 0, label = label, writes = writes }
 	local z = {
 		Frame = frame,
 		db = { profile = profile },
 		Font = "Fonts\\FRIZQT__.TTF",
 		CurrentSkinStyle = style,
+		Skins = { skins = { default = skin } },
 		F = {},
 	}
+	function z.Skins:GetSkin(id)
+		return self.skins[id or "default"]
+	end
+	function z:SetSkin(id, styleid)
+		local skinfound = self.Skins:GetSkin(id)
+		local chosen = skinfound and skinfound:GetStyle(styleid)
+		if not chosen then
+			return
+		end
+		profile.skin = id
+		profile.skinstyle = styleid
+		fake.skinid = id
+		fake.skinstyle = styleid
+		self.CurrentSkinStyle = chosen
+		if type(self.SendMessage) == "function" then
+			self:SendMessage("SKIN_UPDATED")
+		end
+		self:ApplySkin()
+	end
 	env.ZygorGuidesViewer = z
 
 	function z.F.SaveFrameAnchor(region, name, context)

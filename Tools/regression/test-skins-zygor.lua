@@ -85,7 +85,11 @@ do
 	assert(not zygor.master._clamped, "the card's window is not clamped to the screen")
 	assert(zygor.profile.frame_anchor[1] == "CENTER", "the rail writes no anchor of its own into Zygor's settings")
 	assert(zygor.saves == 0, string.format("the rail holds the window, so Zygors own anchor save stays quiet, got %d", zygor.saves))
-	assert(zygor.style.WindowBackdropColor[1] ~= 1, "the window is painted in KstyleUI's colours")
+	assert(zygor.profile.skinstyle == "kstyleui", "the window switches to the KstyleUI style")
+	assert(zygor.styles.kstyleui.WindowBackdropColor[1] ~= 1, "the KstyleUI style carries the theme's colours")
+	assert(zygor.styles["kstyleui-glass"] ~= nil, "the transparency toggle's KstyleUI style exists")
+	assert(zygor.styles["kstyleui-glass"].Accent == zygor.styles.kstyleui.Accent, "the glass style inherits the theme's accent")
+	assert(zygor.styles.kstyleui:GetDir() == zygor.skin:GetDir() .. "starlight\\", "the style keeps Starlight's art folder")
 	assert(zygor.applied >= 1, "Zygors skin is applied after the rail's colours go in")
 	assert(zygor.profile.fullheight == nil, "the window's own height save is not written while the rail holds it")
 	-- Every step change brings the window back to the card, whatever Zygor's resize did to it.
@@ -94,6 +98,13 @@ do
 	S.W.Settle(env)
 	local again = Rect(K, zygor.frame)
 	assert(math.abs((again.top - again.bottom) - steps) <= 2 * px, string.format("after a step the window is its steps tall again, %s", Describe(again)))
+	-- Turning the skin off hands Zygor's own style, and its font, back.
+	K.Options.Write("Skins", "zygor.enabled", false)
+	env.RunTimers()
+	S.W.Settle(env)
+	env.RunTimers()
+	assert(zygor.profile.skinstyle == "starlight", string.format("the skin hands Zygor's own style back, got %s", tostring(zygor.profile.skinstyle)))
+	assert(env.ZygorGuidesViewer.Font == "Fonts\\FRIZQT__.TTF", "the skin hands Zygor's own font back")
 	assert(#env._errors == 0 and K.ErrorCount() == 0, tostring(env._errors[1]))
 end
 

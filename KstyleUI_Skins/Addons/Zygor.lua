@@ -15,8 +15,12 @@ local DEFAULT_PRESET = "DPS"
 local MOVED = 1
 local MIN_WIDTH = 120
 local WHITE = "Interface\\Buttons\\WHITE8X8"
+local STYLE_ID = "kstyleui"
+local GLASS_ID = "kstyleui-glass"
+local BASE_STYLE = "starlight"
+local BASE_SKIN = "default"
 
-local state = { z = nil, frame = nil, master = nil, holder = nil, placed = nil, original = nil, queued = false, hooked = false, held = false, patched = false, saved = nil }
+local state = { z = nil, frame = nil, master = nil, holder = nil, placed = nil, original = nil, queued = false, hooked = false, held = false, patched = false, style = nil, skin = nil, font = nil }
 local Place, Schedule, Restore, Fit, Text
 
 local function Log(message)
@@ -473,65 +477,112 @@ function Text(frame)
 	end
 end
 
-local function Paint(z)
-	local style = z.CurrentSkinStyle
+local function Skins(z)
+	local registry = IsTable(z) and z.Skins
+	if not (IsTable(registry) and type(registry.GetSkin) == "function") then
+		return nil
+	end
+	local skin = registry:GetSkin(BASE_SKIN) or registry:GetSkin()
+	return IsTable(skin) and skin or nil
+end
+
+local function Chosen(z)
+	local profile = IsTable(z.db) and z.db.profile
+	local style = IsTable(profile) and profile.skinstyle
+	return style == STYLE_ID or style == GLASS_ID
+end
+
+local function Style(z)
+	local skin = Skins(z)
+	if not (skin and type(skin.AddStyle) == "function" and type(skin.GetStyle) == "function") then
+		return nil
+	end
+	local base = skin:GetStyle(BASE_STYLE)
+	if not IsTable(base) then
+		return nil
+	end
+	local made = skin:GetStyle(STYLE_ID)
+	if IsTable(made) then
+		return made
+	end
+	local style = skin:AddStyle(STYLE_ID, "KstyleUI", BASE_STYLE)
 	if not IsTable(style) then
+		return nil
+	end
+	skin:AddStyle(GLASS_ID, "KstyleUI", STYLE_ID)
+	if type(base.GetDir) == "function" then
+		style.GetDir = function()
+			return base:GetDir()
+		end
+	end
+	state.style = style
+	return style
+end
+
+local function Paint(z)
+	local style = Style(z)
+	if not style then
 		return
 	end
-	state.saved = state.saved or {}
-	local function Set(name, value)
-		if state.saved[name] == nil then
-			state.saved[name] = { style[name] }
-		end
-		style[name] = value
-	end
-	Set("WindowBackdrop", Card())
-	Set("WindowBackdropFlipped", Card())
-	Set("WindowBackdropColor", Color("surface"))
-	Set("WindowBackdropBorderColor", Color("edgeInner"))
-	Set("WindowBottomBackdrop", Card())
-	Set("WindowBottomBackdropColor", Color("surface"))
-	Set("WindowBottomBackdropBorderColor", Color("edgeInner"))
-	Set("TabBackdrop", Flat())
-	Set("TabBackdropColor", Clear())
-	Set("SystemBarBackdropColor", Clear())
-	Set("SystemBarBackdropBorderColor", Clear())
-	Set("StepBackdropColor", Clear())
-	Set("StepBackdropBorderColor", Clear())
-	Set("StepBackdropPersistentBorder", false)
-	Set("ProgressBarBackdrop", Flat())
-	Set("ProgressBarBackdropColor", Color("surface"))
-	Set("ProgressBarBackdropBorderColor", Clear())
-	Set("ProgressBarTextureFile", WHITE)
-	Set("ProgressBarTextureColor", Color("accent"))
-	Set("ProgressBarDecorUse", 0)
-	Set("StepFontSizeMod", 1)
-	Set("Accent", Color("accent"))
-	Set("ScrollBarTexture", WHITE)
-	Set("ScrollBarColor", Color("muted"))
-	Set("TabsTextColor", Color("text"))
-	Set("TabsBackdropActive", Clear())
-	Set("TabsBackdropInactive", Clear())
-	Set("TabsBorderColor", Clear())
+	style.WindowBackdrop = Card()
+	style.WindowBackdropFlipped = Card()
+	style.WindowBackdropColor = Color("surface")
+	style.WindowBackdropBorderColor = Color("edgeInner")
+	style.WindowBottomBackdrop = Card()
+	style.WindowBottomBackdropColor = Color("surface")
+	style.WindowBottomBackdropBorderColor = Color("edgeInner")
+	style.TabBackdrop = Flat()
+	style.TabBackdropColor = Clear()
+	style.SystemBarBackdropColor = Clear()
+	style.SystemBarBackdropBorderColor = Clear()
+	style.StepBackdropColor = Clear()
+	style.StepBackdropBorderColor = Clear()
+	style.StepBackdropPersistentBorder = false
+	style.ProgressBarBackdrop = Flat()
+	style.ProgressBarBackdropColor = Color("surface")
+	style.ProgressBarBackdropBorderColor = Clear()
+	style.ProgressBarTextureFile = WHITE
+	style.ProgressBarTextureColor = Color("accent")
+	style.ProgressBarDecorUse = 0
+	style.StepFontSizeMod = 1
+	style.Accent = Color("accent")
+	style.ScrollBarTexture = WHITE
+	style.ScrollBarColor = Color("muted")
+	style.TabsTextColor = Color("text")
+	style.TabsBackdropActive = Clear()
+	style.TabsBackdropInactive = Clear()
+	style.TabsBorderColor = Clear()
 	local path = ns.Style.Font("body")
 	if type(path) == "string" then
+		if state.font == nil then
+			state.font = z.Font
+		end
 		z.Font = path
 	end
-	if type(z.ApplySkin) == "function" then
+	local profile = IsTable(z.db) and z.db.profile
+	local switch = not Chosen(z) and IsTable(profile)
+	if switch then
+		state.skin = { skin = profile.skin, style = profile.skinstyle }
+	end
+	if switch and type(z.SetSkin) == "function" then
+		K.Call(z.SetSkin, z, style.skin and style.skin.id or BASE_SKIN, STYLE_ID)
+	elseif type(z.ApplySkin) == "function" then
 		K.Call(z.ApplySkin, z)
 	end
 	Text(z.Frame)
 end
 
 local function Unpaint(z)
-	local style, saved = z.CurrentSkinStyle, state.saved
-	if not (IsTable(style) and saved) then
+	local saved = state.skin
+	state.skin = nil
+	if state.font ~= nil then
+		z.Font = state.font
+		state.font = nil
+	end
+	if saved and type(z.SetSkin) == "function" and (saved.skin or saved.style) then
+		K.Call(z.SetSkin, z, saved.skin or BASE_SKIN, saved.style or BASE_STYLE)
 		return
 	end
-	for name, value in pairs(saved) do
-		style[name] = value[1]
-	end
-	state.saved = nil
 	if type(z.ApplySkin) == "function" then
 		K.Call(z.ApplySkin, z)
 	end
@@ -556,7 +607,11 @@ local function Hook(z)
 		z:AddMessageHandler("SKIN_UPDATED", function()
 			K.Combat.Queue(function()
 				local live = Zygor()
-				if live then Paint(live) end
+				if live and Chosen(live) then
+					Paint(live)
+				elseif live then
+					state.skin = nil
+				end
 				Schedule()
 			end)
 		end)
