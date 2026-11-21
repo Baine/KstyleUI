@@ -1,6 +1,6 @@
 # KstyleUI_Skins
 
-Character sheet, spellbook and talents, quest log and objective tracker, world map, game menu, group finder, mail, merchant, trainer, professions, social windows, Legacy, loot, popups and ready check, and the windows of RestedXP Guides.
+Character sheet, spellbook and talents, quest log and objective tracker, world map, game menu, group finder, mail, merchant, trainer, professions, social windows, Legacy, loot, popups and ready check, the windows of RestedXP Guides and the guide window of Zygor Guides Viewer.
 
 | Field | Value |
 | --- | --- |
@@ -477,6 +477,20 @@ It anchors to `UIParent` (offset by the HUD canvas, `Scale.Origin`), never to a 
 `Tools/regression/test-skins-restedxp-leases.lua` is the state matrix for these rules: each leased window and dialog, crossed with each event the reviews of pull request #244 found (KstyleUI's text size changed, hidden and shown again, handed to another owner from the pool, shown again while another owner holds one of its widgets, made narrower and wider, a text hidden by its library, a control disabled and enabled, RestedXP redrawing its theme open and hidden), in two orders. After each step it checks that no label is shorter than its words, that nothing of KstyleUI's shows over a hidden source or after the lease, and that nothing raised; and it compares every object RestedXP or AceGUI made under a widget that was given back with its twin in a second game where the Skins module never ran, through everything the next owner does with it. Add a row to its `SURFACES` for a new lease, and an entry to its `EVENTS` for a state a review or the game finds.
 
 Tests: `Tools/regression/test-skins-restedxp-theme.lua`, `test-skins-restedxp-windows.lua`, `test-skins-restedxp-leases.lua` and `test-skins-restedxp-rail.lua`, through `Tools/regression/restedxp_fake.lua`, a stand-in RestedXP written from those names and anchored as RestedXP's `GuideWindow.lua` anchors its frames. The fake runs `OnShow` and `OnHide` as the game does, only when a frame's visibility changes, and models AceGUI's pool for the Labels, Headings, frames and edit boxes RestedXP takes from it.
+
+### Zygor Guides Viewer (`Addons/Zygor.lua`, key `zygor`)
+
+Zygor Guides Viewer (folder `ZygorGuidesViewerForever`) is a third-party addon. The skin reads its public shape only, the global `ZygorGuidesViewer` with its `Frame` and the `db.profile` keys it reads, and copies none of its code or art. The switch, **Zygor**, is on by default. It reads `_G.ZygorGuidesViewer` through `rawget`, so nothing happens when Zygor is not installed or is off, and every call sits behind a type check on that table and its functions.
+
+The guide window sits on the story rail: the master frame `ZygorGuidesViewerFrameMaster` is anchored to the card's top-left at the card's width, its clamping and clamp insets cleared, and the inner `ZygorGuidesViewerFrame`, which Zygor points at the master, takes the card's width and one of two heights. **Fit guide to its steps** (on) lets Zygor size the window to its steps first and keeps that height when it is shorter than the card; off, the window fills the card. Zygor's own resize, re-anchor and scale entry points are hooked, so its resize handle, Ctrl+wheel scaling and step changes come back to the card instead of drifting away from it.
+
+**No settings are written.** While the rail holds the window, `ZygorGuidesViewer.SetFrameAnchor` and `ZygorGuidesViewer.SaveFrameAnchor` are wrapped to skip `frame_anchor` and to do nothing, so Zygor's saved anchor, `fullheight`, `skin`, `skinstyle`, `opacity` and its window options keep the values the player last chose; the frame's `fullheight` is put back after each height set, in case a size change writes it. Dragging the window away is the player's answer: the rail hands the window back, keeps Zygor's own clamping, and writes `Skins/zygor.rail` off for that character, with a printed line naming the setting. Turning **Story rail** back on puts it back on the card.
+
+**Skin.** `Zygor.CurrentSkinStyle` is Zygor's live style table, so the skin assigns its props (`WindowBackdrop`, `WindowBackdropColor`, `WindowBackdropBorderColor`, `WindowBottomBackdrop*`, `TabBackdrop*`, `SystemBar*`, `StepBackdrop*`, `ProgressBar*`, `StepFontSizeMod`, `Zygor.Font`) and calls `ApplySkin`; `Unpaint` puts each one back before applying again. `SKIN_UPDATED` repaints, because a style switch replaces the table. The window never changes `skin`, `skinstyle`, `skin` or `db.profile.fontsize`; the face is Zygor's own `Font` field, set from `ns.Style.Font("body")`.
+
+**Whichever guide is shown last owns the card.** `KstyleUI_Skins/Guide.lua` (`ns.Guide`) lists the providers, RestedXP's and Zygor's, each answering `Enabled`, `Visible` and `Schedule`; `Guide.Touch(key)` records the guide that just appeared, and the provider with the latest stamp among those on screen holds the card. `Quests.Place` and the quest card ask `ns.Guide` instead of RestedXP, and a provider that loses the card restores its window. With neither guide on screen the first enabled provider keeps the card's place, so the card's geometry never depends on which guide is installed.
+
+Tests: `Tools/regression/test-skins-zygor.lua` through `Tools/regression/zygor_fake.lua`, a stand-in Zygor written from the names above, with the frame hierarchy Zygor builds, its save and restore of `frame_anchor`, its resize and re-anchor entry points, its message bus and an `OnSizeChanged` that writes `fullheight` as Zygor's does; the test covers the arbitration with both fakes loaded, placement and fit, the paint, the untouched settings, the step change and a drag that turns the rail off.
 
 ## Pixel-grid exceptions
 
