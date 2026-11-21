@@ -94,9 +94,26 @@ local function ClassFile(unit)
 	return file
 end
 
-function Unit.ReactionColor(reaction)
-	if not IsSecret(reaction) and type(reaction) == "number" and reaction <= HOSTILE_MAX then
-		return K.ColorVision.Color(2, Tokens.Color("healthHostile"))
+local function Custom(key, ...)
+	local m = ns.Settings.Module()
+	local c = m.reactionColors == true and m[key]
+	if type(c) == "table" and type(c.r) == "number" and type(c.g) == "number" and type(c.b) == "number" then
+		return c.r, c.g, c.b
+	end
+	return ...
+end
+
+local function Tapped(tapped, ...)
+	if IsSecret(tapped) or tapped ~= true then return ... end
+	return Custom("tappedColor", ...)
+end
+
+function Unit.ReactionColor(reaction, plain)
+	local known = not IsSecret(reaction) and type(reaction) == "number"
+	if known and reaction <= HOSTILE_MAX then
+		return Custom(not plain and "hostileColor", K.ColorVision.Color(2, Tokens.Color("healthHostile")))
+	elseif known then
+		return Custom(not plain and (reaction == 4 and "neutralColor" or "friendlyColor"), K.ColorVision.ReactionColor(reaction))
 	end
 	return K.ColorVision.ReactionColor(reaction)
 end
@@ -132,11 +149,13 @@ end
 function Unit.HealthColor(view, unit)
 	local s = view.s
 	local r, g, b
-	local grey = UnitIsConnected and not UnitIsConnected(unit) or UnitIsTapDenied and UnitIsTapDenied(unit)
+	local tapped = UnitIsTapDenied and UnitIsTapDenied(unit)
+	local grey = UnitIsConnected and not UnitIsConnected(unit) or tapped
 	view.health:SetHealthUnit(nil)
 	view.healthByShare = false
 	if grey then
 		r, g, b = Tokens.Color("textDisabled")
+		if s.healthColor == "reaction" or s.healthColor == "class" then r, g, b = Tapped(tapped, r, g, b) end
 	elseif s.healthColor == "custom" then
 		local c = s.healthCustom
 		r, g, b = c.r, c.g, c.b
@@ -198,6 +217,8 @@ function Unit.PowerColor(view, unit)
 		ns.Style.PowerTint(view, c.r, c.g, c.b)
 	elseif source == "power" then
 		ns.Style.PowerTint(view, view.typeR, view.typeG, view.typeB)
+	elseif ns.Settings.Module().reactionColors == true and UnitIsTapDenied then
+		ns.Style.PowerTint(view, Tapped(UnitIsTapDenied(unit), UnitColor(unit, source)))
 	else
 		ns.Style.PowerTint(view, UnitColor(unit, source))
 	end
@@ -467,7 +488,7 @@ function Unit.Power(view, unit, instant)
 	end
 	bar:SetBarRange(0, max)
 	SetValue(bar, UnitPower(unit, shown), instant)
-	Format.Power(view.powerText, unit, view.s.powerText, shown)
+	Format.Power(view.powerText, unit, view.s.powerText, shown, not view.s.powerPercentSign)
 end
 
 local function CostOf(spellID, powerType)
@@ -844,8 +865,8 @@ function Unit.Level(view, unit)
 	text:SetTextColor(LevelColor(unit, nil, nil, view.s.levelDifficulty and view.s.levelFriendly))
 end
 
-function Unit.Crop(texture, s, l, r, t, b)
-	local zoom = s.portraitZoom
+function Unit.Crop(texture, s, l, r, t, b, zoom)
+	zoom = zoom or s.portraitZoom
 	if zoom <= 0 and not s.portraitMirror then
 		return
 	end
@@ -862,9 +883,9 @@ function Unit.ClassArt(texture, file, s)
 		texture:SetTexCoord(0, 1, 0, 1)
 		local atlas = GetClassAtlas(file)
 		texture:SetAtlas(atlas)
-		local info = (s.portraitMirror or s.portraitZoom > 0) and not IsSecret(atlas) and type(atlas) == "string" and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas)
+		local info = (s.portraitMirror or s.classZoom > 0) and not IsSecret(atlas) and type(atlas) == "string" and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas)
 		if info then
-			Unit.Crop(texture, s, info.leftTexCoord, info.rightTexCoord, info.topTexCoord, info.bottomTexCoord)
+			Unit.Crop(texture, s, info.leftTexCoord, info.rightTexCoord, info.topTexCoord, info.bottomTexCoord, s.classZoom)
 		end
 		return true
 	end
@@ -872,7 +893,7 @@ function Unit.ClassArt(texture, file, s)
 	if coords then
 		texture:SetTexture(CLASS_CIRCLES)
 		texture:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
-		Unit.Crop(texture, s, coords[1], coords[2], coords[3], coords[4])
+		Unit.Crop(texture, s, coords[1], coords[2], coords[3], coords[4], s.classZoom)
 		return true
 	end
 	return false

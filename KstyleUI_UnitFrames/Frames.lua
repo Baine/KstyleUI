@@ -128,6 +128,7 @@ local HANDLERS = {
 	Colors = function(view, unit)
 		Unit.HealthColor(view, unit)
 		Unit.Health(view, unit)
+		if view.s.powerColor == "reaction" or view.s.powerColor == "class" then Unit.PowerColor(view, unit) end
 		Indicators.Combat(view, unit)
 		Indicators.PvP(view, unit)
 	end,
@@ -915,6 +916,8 @@ local function ForEach(fn)
 	end
 end
 
+local REACTION_KEYS = { reactionColors = true, hostileColor = true, neutralColor = true, friendlyColor = true, tappedColor = true }
+
 local function OnSettingChanged(_, module, key)
 	if module ~= MODULE then
 		return
@@ -947,7 +950,9 @@ local function OnSettingChanged(_, module, key)
 	end
 	if kind == "resource" then
 		ns.Resource.Restyle()
-	elseif key == "auraLayout" or key == "stableSlabNames" or key == "singleSlabLevel" or key == "healthDecimal" then
+	elseif REACTION_KEYS[key:match("^%a+")] then
+		ForEach(function(each) RefreshKind(each.kind, true) end)
+	elseif key == "auraLayout" or key == "stableSlabNames" or key == "singleSlabLevel" or key == "healthDecimal" or key == "healthDecimalBoss" then
 		K.Combat.Queue(function()
 			ForEach(function(each)
 				if each.active then Frames.Restyle(each) end
@@ -1025,20 +1030,21 @@ local function OnLayoutChanged(_, key, reason)
 	end)
 end
 
-local function RefreshIdentity()
+local function RefreshRestricted()
 	if K.HudStyle.Current() == "medallions" then
 		EachShown(ns.Slab.Refresh)
 	end
+	EachShown(Indicators.Threat)
 end
 
 local function OnRestriction(_, _, state)
 	local states = Enum and Enum.AddOnRestrictionState
 	local activating = states and states.Activating
 	if activating ~= nil and not (issecretvalue and issecretvalue(state)) and state == activating and C_Timer and C_Timer.After then
-		C_Timer.After(0, RefreshIdentity)
+		C_Timer.After(0, RefreshRestricted)
 		return
 	end
-	RefreshIdentity()
+	RefreshRestricted()
 end
 
 local function RegisterEvents()
@@ -1048,6 +1054,7 @@ local function RegisterEvents()
 		RefreshKind("targettarget", true)
 		Frames.MarkTargets()
 		EachShown(Frames.Edge)
+		ns.Blizzard.TargetSound()
 	end)
 	Events.Register(MODULE, "PLAYER_FOCUS_CHANGED", function()
 		RefreshKind("focus", true)
@@ -1081,9 +1088,13 @@ local function RegisterEvents()
 		Events.Register(MODULE, event, function()
 			EachShown(Indicators.Status)
 			EachShown(function(view, unit) Unit.TextTags(view, unit, "Group") end)
+			OnPlayer(Indicators.Threat)
 		end)
 	end
 	Events.Register(MODULE, "ADDON_RESTRICTION_STATE_CHANGED", OnRestriction)
+	Events.Register(MODULE, "PVP_TIMER_UPDATE", function()
+		OnPlayer(Indicators.PvP)
+	end)
 	Events.Register(MODULE, "UNIT_THREAT_SITUATION_UPDATE", OnThreat)
 	Events.Register(MODULE, "UNIT_THREAT_LIST_UPDATE", OnThreat)
 	Events.Register(MODULE, "PLAYER_REGEN_DISABLED", function()
