@@ -11,10 +11,27 @@ function Fake.Install(env, opts)
 	local frame = env.CreateFrame("Frame", "ZygorGuidesViewerFrame", master)
 	frame:SetSize(320, 100)
 	frame:SetPoint("TOPLEFT", master, "TOPLEFT", 0, 0)
+	local container = env.CreateFrame("Frame", nil, frame)
+	local step = env.CreateFrame("Frame", nil, container)
+	local label = step:CreateFontString(nil, "OVERLAY")
+	label:SetFont("Fonts\\FRIZQT__.TTF", 16)
+	label:SetText("Kill |cffffaaaapygmy crawlers|r and loot |cffaaeeffmucus|r.")
+	local writes = { font = 0, text = 0 }
+	local setFont, setText = label.SetFont, label.SetText
+	label.SetFont = function(self, ...)
+		writes.font = writes.font + 1
+		return setFont(self, ...)
+	end
+	label.SetText = function(self, ...)
+		writes.text = writes.text + 1
+		return setText(self, ...)
+	end
+	step.lines = { { label = label } }
+	frame.Controls = { StepContainer = container }
 	local profile = { resizeup = opts.resizeup == true, fixedheight = false, showcountsteps = opts.allsteps and 0 or 1, framescale = 1, frame_anchor = { "CENTER", "CENTER", 0, 0 } }
 	local handlers = {}
 	local style = { WindowBackdropColor = { 1, 0, 0, 1 }, StepFontSizeMod = 1 }
-	local fake = { master = master, frame = frame, profile = profile, style = style, natural = opts.natural or 240, applied = 0, saves = 0, sets = 0 }
+	local fake = { master = master, frame = frame, profile = profile, style = style, natural = opts.natural or 240, applied = 0, saves = 0, sets = 0, label = label, writes = writes }
 	local z = {
 		Frame = frame,
 		db = { profile = profile },

@@ -17,7 +17,7 @@ local MIN_WIDTH = 120
 local WHITE = "Interface\\Buttons\\WHITE8X8"
 
 local state = { z = nil, frame = nil, master = nil, holder = nil, placed = nil, original = nil, queued = false, hooked = false, held = false, patched = false, saved = nil }
-local Place, Schedule, Restore, Fit, Dress
+local Place, Schedule, Restore, Fit, Text
 
 local function Log(message)
 	K.DevTest.Log(MODULE, "zygor: " .. message)
@@ -186,6 +186,7 @@ local function Settle()
 		end
 		Fit()
 		Follow()
+		Text(state.frame)
 	end)
 end
 
@@ -370,7 +371,7 @@ local function Patch(z)
 	end
 	if type(z.ApplySkin) == "function" then
 		hooksecurefunc(z, "ApplySkin", function()
-			Dress(z)
+			Text(state.frame)
 		end)
 	end
 end
@@ -392,12 +393,80 @@ local function Clear()
 	return { 0, 0, 0, 0 }
 end
 
-function Dress(z)
-	local frame, Skins = z.Frame, K.Skin
-	if not (frame and IsTable(Skins) and type(Skins.Backdrop) == "function") then
+local TINT = {
+	["|cffffaaaa"] = "nameHostile",
+	["|cffaaeeff"] = "magic",
+	["|cffaaffaa"] = "friend",
+	["|cffffee77"] = "quest",
+}
+
+local function Hex(name, cache)
+	local hex = cache[name]
+	if hex then
+		return hex
+	end
+	local r, g, b = Tokens.Color(name)
+	if not (Plain(r) and Plain(g) and Plain(b)) then
+		return nil
+	end
+	hex = string.format("|cff%02x%02x%02x", r * 255, g * 255, b * 255)
+	cache[name] = hex
+	return hex
+end
+
+local function Tinted(text, cache)
+	if type(text) ~= "string" or (issecretvalue and issecretvalue(text)) or not text:find("|c", 1, true) then
+		return nil
+	end
+	local changed = false
+	local out = text:gsub("|c%x%x%x%x%x%x%x%x", function(code)
+		local name = TINT[code]
+		local hex = name and Hex(name, cache)
+		if not hex then
+			return code
+		end
+		changed = true
+		return hex
+	end)
+	return changed and out or nil
+end
+
+function Text(frame)
+	local controls = frame and frame.Controls
+	local container = IsTable(controls) and controls.StepContainer
+	if not (container and type(container.GetChildren) == "function") then
 		return
 	end
-	K.Call(Skins.Backdrop, frame, { shape = "window", fill = "surface", shadow = true, target = frame })
+	local path, size, flags = ns.Style.Font("body")
+	if type(path) ~= "string" then
+		return
+	end
+	local cache = {}
+	local children = { container:GetChildren() }
+	for i = 1, #children do
+		local lines = children[i].lines
+		if IsTable(lines) then
+			for j = 1, #lines do
+				local label = lines[j].label
+				if IsTable(label) and type(label.GetText) == "function" then
+					local current, height = label:GetFont()
+					if current ~= path or not Plain(height) or math.abs(height - size) > 0.5 then
+						Widgets.ApplyFont(label, path, size, flags)
+					end
+					local text = label:GetText()
+					if type(text) == "string" and not (issecretvalue and issecretvalue(text)) and text ~= label.__kstyleui then
+						local tinted = Tinted(text, cache)
+						if tinted and type(label.SetText) == "function" then
+							label.__kstyleui = tinted
+							label:SetText(tinted)
+						else
+							label.__kstyleui = text
+						end
+					end
+				end
+			end
+		end
+	end
 end
 
 local function Paint(z)
@@ -447,7 +516,7 @@ local function Paint(z)
 	if type(z.ApplySkin) == "function" then
 		K.Call(z.ApplySkin, z)
 	end
-	Dress(z)
+	Text(z.Frame)
 end
 
 local function Unpaint(z)

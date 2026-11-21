@@ -97,6 +97,34 @@ do
 	assert(#env._errors == 0 and K.ErrorCount() == 0, tostring(env._errors[1]))
 end
 
+-- The step text is in KstyleUI's face at KstyleUI's size, and Zygor's own goal colours said in the theme's hues.
+do
+	local env, K, ns, zygor = Boot({})
+	local label = zygor.label
+	local path, size = ns.Style.Font("body")
+	local font, height = label:GetFont()
+	assert(font == path, string.format("the step text takes KstyleUI's face, %s", tostring(font)))
+	assert(math.abs(height - size) <= 0.5, string.format("the step text takes KstyleUI's size, %s instead of %s", tostring(height), tostring(size)))
+	local function Hex(name)
+		local r, g, b = K.Tokens.Color(name)
+		return string.format("|cff%02x%02x%02x", r * 255, g * 255, b * 255)
+	end
+	local text = label:GetText()
+	assert(type(text) == "string", "the step text is left readable")
+	assert(text:find(Hex("nameHostile"), 1, true) ~= nil, "the monster in the step is the theme's hostile hue: " .. tostring(text))
+	assert(text:find(Hex("magic"), 1, true) ~= nil, "the item in the step is the theme's magic hue: " .. tostring(text))
+	assert(text:find("|cffffaaaa", 1, true) == nil, "no raw monster colour is left: " .. tostring(text))
+	-- A repaint sets nothing already set: Zygor applies its skin whenever it resizes.
+	local fonts, texts = zygor.writes.font, zygor.writes.text
+	for _ = 1, 3 do
+		env.ZygorGuidesViewer:ApplySkin()
+	end
+	env.RunTimers()
+	assert(zygor.writes.font == fonts, string.format("a repaint sets no font again, %d new", zygor.writes.font - fonts))
+	assert(zygor.writes.text == texts, string.format("a repaint rewrites no text, %d new", zygor.writes.text - texts))
+	assert(#env._errors == 0 and K.ErrorCount() == 0, tostring(env._errors[1]))
+end
+
 -- A step taller than the card grows the window below it rather than clipping the step.
 do
 	local env, K, ns, zygor = Boot({ natural = 600 })
@@ -115,7 +143,8 @@ do
 		local again = Rect(K, zygor.frame)
 		assert(math.abs((again.top - again.bottom) - steps) <= 2 * px, string.format("after step %d the window is still the whole step tall, %s", i, Describe(again)))
 	end
-	assert(K.Skin.Parts(zygor.frame).backdrop, "the guide window wears the theme's own window panel")
+	local parts = K.Skin.Parts(zygor.frame)
+	assert(not (parts and parts.backdrop), "the rail draws no panel of its own over Zygor's border")
 	assert(zygor.frame:GetScript("OnSizeChanged"), "Zygors own size script goes back after the rail sizes the window")
 	assert(zygor.profile.fullheight == nil, "the tall step writes no height into Zygors settings")
 	assert(#env._errors == 0 and K.ErrorCount() == 0, tostring(env._errors[1]))

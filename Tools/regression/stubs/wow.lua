@@ -993,6 +993,11 @@ for _, method in ipairs({ "SetText", "SetFormattedText" }) do
 		self._lastText = self._state[field]
 	end
 end
+-- The text last given, as the game answers it: the first argument, formatting arguments and all.
+function Object:GetText()
+	local stored = self._state.Text
+	return stored and stored[1]
+end
 -- SetFontObject hands the object's font to the string, over a font SetFont gave it before; SetFont gives it a font of
 -- its own, over the object's. GetFont answers the string's own font, else its font object's, as the game does.
 for _, method in ipairs({ "SetFont", "SetFontObject" }) do

@@ -357,7 +357,7 @@ Needs RestedXP Guides installed and on. Before you start, note your RestedXP the
 
 Needs Zygor Guides Viewer installed. Before you start, note where the guide window sits and its size (drag it and resize it once if it has never been moved).
 
-- [ ] Load a guide. The window has no Zygor artwork: dark glass with a KstyleUI edge, the tab bar and title bar on the same glass, the step text in KstyleUI's font, and the progress bar in your class colour.
+- [ ] Load a guide. The window has no Zygor artwork: dark glass with a KstyleUI edge, the tab bar and title bar on the same glass, the step text in KstyleUI's face and body size with monsters and items in the theme's hues rather than Zygor's red and blue, and the progress bar in your class colour.
 - [ ] The window sits in the story rail's tall card beside the quest card: the same width, hanging from the card's top, with the quest card keeping its own height.
 - [ ] With **Fit guide to its steps** on, the window is as tall as its steps, and a step with more lines than the card has runs past the card's foot rather than clipping; turn Fit off in **Skins** and the window fills the card.
 - [ ] The window's action bar (`ZygorGuidesViewer_ActionBar`) still sits above it and still takes its icons from the current step; drag it, and it keeps the place you drop it.
