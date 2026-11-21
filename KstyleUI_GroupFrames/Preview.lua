@@ -1,4 +1,4 @@
--- Preview.lua: the settings window's live preview: sample party frames scaled to fit the pane and four raid tiles at true scale, drawn with the same look as the real ones, stacked over the click casting panel and refitted whenever the pane's size resolves or changes.
+-- Preview.lua: the settings window's live preview: sample party frames scaled to fit the pane and four raid tiles at true scale, with pet, tank and friendly boss samples under them while those groups are on, drawn with the same look as the real ones, stacked over the click casting panel and refitted whenever the pane's size resolves or changes.
 local _, ns = ...
 
 local K = KstyleUI
@@ -34,6 +34,11 @@ function Preview.Build(...)
 		{ name = "Maela", class = "HUNTER", health = 0.68, power = 0.7 },
 		{ name = "Durn", class = "WARLOCK", health = 0.81, power = 0.4, offline = true },
 		{ name = "Ysra", class = "PRIEST", health = 0.33, power = 0.6 },
+	}
+	local EXTRAS = {
+		pets = { { name = "Grawl", class = "HUNTER", health = 0.76, power = 0.5 }, { name = "Imp", class = "WARLOCK", health = 0.58, power = 0.9 } },
+		tanks = { { name = "Thaldren", class = "WARRIOR", role = "TANK", health = 0.72, power = 0.35 }, { name = "Brannoc", class = "PALADIN", role = "TANK", health = 0.64, power = 0.4 } },
+		boss = { { name = "Valithria", class = "DRUID", health = 0.62, power = 0.8 } },
 	}
 
 	local function Low(sample)
@@ -93,7 +98,7 @@ function Preview.Build(...)
 		local cr, cg, cb = Theme.ClassColor(sample.class)
 		f.health:SetBarRange(0, 1)
 		f.health:SetBarValue(f.missingFill and 1 - sample.health or sample.health)
-		local alpha, source = cfg.health.alpha, cfg.health.colorSource
+		local alpha, source = cfg.health.alpha, Unit.ColorSources(f)
 		local r, g, b
 		if sample.dead or sample.offline then
 			r, g, b = Unit.StatusColor(sample.offline and "offline" or "dead")
@@ -129,6 +134,7 @@ function Preview.Build(...)
 		elseif cfg.text.nameColorSource == "class" then
 			f.name:SetTextColor(Unit.NameColor(sample.class))
 		end
+		Unit.NameColored(f, sample.class)
 		if f.showPortrait or f.showRoleRing then
 			f.ring:SetVertexColor(cr, cg, cb, cfg[f.kind].portraitRingAlpha or 1)
 		end
@@ -158,11 +164,11 @@ function Preview.Build(...)
 		SAMPLE_NAMES[i] = sample.name
 	end
 
-	local function Sample(parent, kind, index)
+	local function Sample(parent, kind, index, sample)
 		local f = CreateFrame("Frame", nil, parent)
 		Style.Build(f, kind)
 		local pick = kind == "raid" and RAID_SAMPLES[index] or index
-		f.sample, f.order = SAMPLES[(pick - 1) % #SAMPLES + 1], index
+		f.sample, f.order = sample or SAMPLES[(pick - 1) % #SAMPLES + 1], index
 		f.others = SAMPLE_NAMES
 		for _, hook in ipairs(ns.Button.built) do
 			hook(f)
@@ -183,9 +189,9 @@ function Preview.Build(...)
 		end
 	end
 
-	local function Order(frames, byClass, per)
-		local rank = {}
-		for i = #Settings.CLASSES, 1, -1 do rank[Settings.current.sort["class" .. i]] = i end
+	local function Order(frames, byClass, per, kind)
+		local rank, list = {}, Settings.ClassList(kind)
+		for i = #Settings.CLASSES, 1, -1 do rank[Settings.current.sort[list .. i]] = i end
 		local function Key(f)
 			return (per and math.ceil(f.order / per) or 0) * 100 + (byClass and rank[f.sample.class] or 0)
 		end
@@ -219,8 +225,8 @@ function Preview.Build(...)
 		local memberSpacing = Geometry.IsVertical(party.growth) and party.spacing or (party.spacing + partyGeo.lane)
 		local x0 = partyGeo.laneSide == "LEFT" and partyGeo.lane or 0
 		local separate = raid.sortBy == "GROUP" and not raid.merge
-		Order(preview.partyFrames, cfg.sort.classFirst and party.sortBy ~= "ROLE")
-		Order(preview.raidFrames, raid.sortBy == "CLASS" or separate and cfg.sort.classFirst, separate and GROUP_SIZE)
+		Order(preview.partyFrames, Settings.ClassFirst("party") and party.sortBy ~= "ROLE", nil, "party")
+		Order(preview.raidFrames, raid.sortBy == "CLASS" or separate and Settings.ClassFirst("raid"), separate and GROUP_SIZE, "raid")
 		PlaceRun(preview.partyFrames, preview.party, party, party.growth, count, x0, 0, partyGeo.corner, partyGeo.memberWidth, memberSpacing)
 		local total = GROUP_SIZE * RAID_GROUPS_SHOWN
 		local size = raid.sortBy == "GROUP" and raid.merge and math.min(raid.unitsPerColumn, total) or GROUP_SIZE
@@ -261,8 +267,41 @@ function Preview.Build(...)
 				number:SetTextColor(Tokens.Color("text"))
 				number:SetText(g)
 				number:ClearAllPoints()
-				number:SetPoint("BOTTOM", frames[raid.growth == "UP" and #frames or 1], "TOP", 0, 1)
+				number:SetPoint("BOTTOM", frames[raid.growth == "UP" and #frames or 1], "TOP", cfg.numbers.x, 1 + cfg.numbers.y)
 			end
+		end
+		local ex, eh = 0, 0
+		for _, name in ipairs({ "pets", "tanks", "boss" }) do
+			local list, s = preview.extras[name], cfg[name]
+			local on = s.enabled or name == "boss" and s.display ~= "NEVER"
+			list.holder:SetShown(on)
+			if on then
+				local w, h, spacing = ns.Extras.Size(name)
+				local growth = name == "tanks" and s.growth or raid.growth
+				local wrap = Geometry.Perpendicular(growth, name == "tanks" and s.wrap or "RIGHT")
+				local per = name == "tanks" and s.wrapAfter > 0 and s.wrapAfter or #list
+				local vertical, lines = Geometry.IsVertical(growth), math.ceil(#list / per)
+				local along, across = Geometry.Line(math.min(per, #list), vertical and h or w, spacing), Geometry.Line(lines, vertical and w or h, spacing)
+				local bw, bh = vertical and across or along, vertical and along or across
+				list.holder:SetSize(bw, bh)
+				list.holder:ClearAllPoints()
+				list.holder:SetPoint("TOPLEFT", preview.raid, "TOPLEFT", ex, -(rh + groupSpacing))
+				for line = 1, lines do
+					local run = {}
+					for m = 1, per do run[m] = list[(line - 1) * per + m] end
+					local ox, oy = Geometry.Offset(wrap, (line - 1) * ((vertical and w or h) + spacing))
+					PlaceRun(run, list.holder, { height = h }, growth, #run, ox, oy, Geometry.Corner(growth, wrap), w, spacing)
+				end
+				for _, f in ipairs(list) do
+					Style.Apply(f, w, h)
+					Paint(f, f.sample)
+				end
+				ex, eh = ex + bw + groupSpacing, math.max(eh, bh)
+			end
+		end
+		if eh > 0 then
+			rw, rh = math.max(rw, ex - groupSpacing), rh + groupSpacing + eh
+			preview.raid:SetSize(rw, rh)
 		end
 		preview.canvas:SetSize(pw, ph)
 		preview.raidCanvas:SetSize(rw, rh)
@@ -320,7 +359,7 @@ function Preview.Build(...)
 		preview.raidCanvas = K.Widgets.MarkPreview(CreateFrame("Frame", nil, preview))
 		preview.party = CreateFrame("Frame", nil, preview.canvas)
 		preview.raid = CreateFrame("Frame", nil, preview.raidCanvas)
-		preview.partyFrames, preview.raidFrames, preview.numbers = {}, {}, {}
+		preview.partyFrames, preview.raidFrames, preview.numbers, preview.extras = {}, {}, {}, {}
 		preview.mana, preview.label = CreateFrame("Frame", nil, preview), CreateFrame("Frame", nil, preview)
 		for i = 1, PARTY_SHOWN do
 			preview.partyFrames[i] = Sample(preview.party, "party", i)
@@ -328,6 +367,12 @@ function Preview.Build(...)
 		end
 		for i = 1, RAID_GROUPS_SHOWN * GROUP_SIZE do
 			preview.raidFrames[i] = Sample(preview.raid, "raid", i)
+		end
+		for name, samples in pairs(EXTRAS) do
+			local holder = CreateFrame("Frame", nil, preview.raid)
+			holder.kstyleExtra = name
+			preview.extras[name] = { holder = holder }
+			for i, sample in ipairs(samples) do preview.extras[name][i] = Sample(holder, "raid", i, sample) end
 		end
 		preview.clickCast = ns.ClickCast.Panel(preview)
 		preview.Refresh = Layout
