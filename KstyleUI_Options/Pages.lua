@@ -782,7 +782,9 @@ end
 
 function Pages.ReviewImport(text)
 	if type(text) == "string" and text:match("^%s*KSA1:") then
-		K.Widgets.Confirm({ title = L["Import profile"], text = L["Add every profile in this string and its character choices? Your other profiles stay."],
+		K.Widgets.Confirm({ title = L["Import profile"], text = K.Store.Module("ProfileTools").accountChoices
+			and L["Add every profile in this string with its character and specialization choices? Its account preferences and profile hotkeys replace yours. Your other profiles stay."]
+			or L["Add every profile in this string and its character choices? Your other profiles stay."],
 			acceptLabel = L["Import"], onAccept = function() Report(K.Profiles.ImportAccount(text:match("^%s*(.-)%s*$"))) end })
 		return true
 	end
@@ -1003,7 +1005,7 @@ local function ProfileItems()
 		kind = "button", label = L["Export"], help = L["Shows this profile as a string you can copy and share."],
 		buttons = { { label = L["Export"], onClick = Pages.ExportProfile } },
 	})
-	add({ kind = "button", label = L["Export every profile"], help = L["Shows all your profiles and character choices as one string to copy."],
+	add({ kind = "button", label = L["Export every profile"], help = L["Shows all your profiles, character and specialization choices, account preferences and profile hotkeys as one string to copy."],
 		buttons = { { label = L["Export"], onClick = function()
 			local text, why = K.Profiles.ExportAccount()
 			if not text then return Notify(L["Export failed"], tostring(why)) end
@@ -1144,13 +1146,6 @@ local function AboutItems()
 			end,
 		} },
 	})
-	add({
-		kind = "button", label = L["What's new"], help = L["Shows the link to every version's release notes, ready to copy."],
-		buttons = { { label = L["Show"], onClick = function()
-			SelectLater(K.Widgets.Popup({ title = L["What's new"], text = L["Press Ctrl+C to copy this link, then open it in your browser."],
-				editBox = { text = "https://github.com/korallis/KstyleUI/releases" }, buttons = { { label = L["Close"], primary = true } } }))
-		end } },
-	})
 	local metrics = { { value = "", label = L["Off"] }, { value = 0, label = L["Session average"] }, { value = 1, label = L["Recent average"] },
 		{ value = 2, label = L["Encounter average"] }, { value = 3, label = L["Last frame"] } }
 	add({ kind = "dropdown", label = L["CPU readout"], help = L["Shows how long KstyleUI takes each frame, refreshed while this page is open."], options = metrics,
@@ -1158,6 +1153,17 @@ local function AboutItems()
 		set = function(value) K.Store.Account().optionsCpuMetric = value ~= "" and value or nil; ns.Changed() end })
 	local metric = K.Store.Account().optionsCpuMetric
 	if metric then add({ kind = "note", label = Pages.Cpu(metric) }) end
+	add({
+		kind = "button", label = L["What's new"], help = L["Shows the link to every version's release notes, ready to copy."],
+		buttons = { { label = L["Show"], onClick = function()
+			SelectLater(K.Widgets.Popup({ title = L["What's new"], text = L["Press Ctrl+C to copy this link, then open it in your browser."],
+				editBox = { text = "https://github.com/korallis/KstyleUI/releases" }, buttons = { { label = L["Close"], primary = true } } }))
+		end } },
+	})
+	for _, note in ipairs(ns.NOTES) do
+		add({ kind = "header", level = 2, label = note[1] })
+		for _, line in ipairs(note[2]) do add({ kind = "note", label = line }) end
+	end
 	add({ kind = "header", level = 1, label = L["Credits"] })
 	add({ kind = "note", label = L["Fonts: Source Sans 3 and Inter, under the SIL Open Font Licence."] })
 	return items
