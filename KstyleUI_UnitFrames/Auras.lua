@@ -254,7 +254,7 @@ local function TimerRoom(kind)
 	end
 	local _, fontSize = Settings.Font(kind, "aura")
 	local gap = Settings.Form(kind) == "column" and COLUMN_TIMER_GAP or TIMER_BELOW_GAP
-	return gap + TextSize(kind, fontSize) + TIMER_ROOM_EXTRA
+	return gap + TextSize(kind, fontSize) + TIMER_ROOM_EXTRA + math.max(0, -Settings.Value(kind, "auraTimerY"))
 end
 
 function Auras.TimerRoom(kind)
@@ -522,11 +522,14 @@ end
 
 local function GroupLayout(view, key)
 	local size, spacing = Snap(view, Value(view, "auraSize")), Snap(view, Value(view, "auraSpacing"))
+	local room = Snap(view, TimerRoom(view.kind))
+	local line = spacing + room + Snap(view, Value(view, "auraRowGap"))
 	return {
 		elementWidth = size,
 		elementHeight = size,
 		elementSpacing = Snap(view, Auras.Spacing(view.kind)),
-		lineSpacing = spacing + Snap(view, TimerRoom(view.kind)) + Snap(view, Value(view, "auraRowGap")),
+		lineSpacing = line,
+		groupLineSpacing = room > 0 and line or 0,
 		forceNewLine = key == "buffs" and Value(view, "auraFilter") == "both",
 	}
 end
