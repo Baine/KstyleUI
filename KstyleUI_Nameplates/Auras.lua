@@ -33,8 +33,22 @@ local TIMER_GAP, TIMER_EXTRA = 1, 3
 local SAMPLE_ICONS = { 136118, 135817, 132155 }
 local SAMPLE_TIMES = { "12", "4", "21" }
 local TEXT_KEYS = { "timePlace", "timeX", "timeY", "countPlace", "countX", "countY" }
+local SUNDER_GROUP, SUNDER_ICON = "sunder", 132363
+local SUNDER = { [7386] = true, [7405] = true, [8380] = true, [11596] = true, [11597] = true }
+local KINDS = {
+	buffs = { ring = "edgeInner", magic = { [135940] = true, [135953] = true },
+		icons = { important = { 135940, 135932 }, dispellable = { 135940, 135953 }, all = { 135940, 135932, 135987, 136104 } } },
+	ccs = { ring = "hostile", icons = { 135963, 136071 }, filter = "HARMFUL|CROWD_CONTROL|INCLUDE_NAME_PLATE_ONLY" },
+}
+local KIND_ORDER = { "buffs", "ccs" }
+local BUFF_FILTERS = { important = "HELPFUL|IMPORTANT|INCLUDE_NAME_PLATE_ONLY", dispellable = "HELPFUL|DISPELLABLE|INCLUDE_NAME_PLATE_ONLY", all = "HELPFUL|INCLUDE_NAME_PLATE_ONLY" }
+local PLACES = {
+	LEFT = { "RIGHT", "LEFT", "TOPRIGHT", "Left", -1, 0 }, RIGHT = { "LEFT", "RIGHT", "TOPLEFT", "Right", 1, 0 },
+	TOP = { "BOTTOM", "TOP", "BOTTOMLEFT", "Right", 0, 1 }, TOPLEFT = { "BOTTOMLEFT", "TOPLEFT", "BOTTOMLEFT", "Right", 0, 1 },
+	TOPRIGHT = { "BOTTOMRIGHT", "TOPRIGHT", "BOTTOMRIGHT", "Left", 0, 1 }, BOTTOM = { "TOP", "BOTTOM", "TOPLEFT", "Right", 0, -1 },
+}
 
-local available = true
+local available, refused = true, {}
 local parts = setmetatable({}, { __mode = "k" })
 local pending = setmetatable({}, { __mode = "k" })
 local flushScheduled = false
@@ -58,8 +72,8 @@ local function Grid(frame)
 end
 Auras.GROUP, Auras.OVERFLOW_MAX, Auras.Grid = GROUP, OVERFLOW_MAX, Grid
 
-local function SettingsLane(frame)
-	if not Settings.Get("debuffs.showTime") or Settings.Get("debuffs.timePlace") ~= "BELOW" then
+local function SettingsLane(frame, kind)
+	if not Settings.Get((kind or "debuffs") .. ".showTime") or Settings.Get("debuffs.timePlace") ~= "BELOW" then
 		return 0
 	end
 	local lane = TIMER_GAP + Settings.Get("debuffs.textSize") + TIMER_EXTRA
@@ -97,10 +111,32 @@ local function GroupLayout(plate)
 	return { elementSpacing = spacing, lineSpacing = spacing + Lane(plate), elementWidth = size, elementHeight = height }
 end
 
-local function Filter()
+local function KindShows(plate, kind)
+	return Settings.Get(kind .. ".enabled") and plate.kind == "enemy" and not plate.nameOnly
+end
+
+local function Filter(plate)
 	local filter = Settings.Get("debuffs.onlyMine") and "HARMFUL|PLAYER" or "HARMFUL"
 	if Settings.Get("debuffs.includePlateOnly") then filter = filter .. "|INCLUDE_NAME_PLATE_ONLY" end
+	if KindShows(plate, "ccs") and not refused.ccs then filter = filter .. "|!CROWD_CONTROL" end
 	return K.Options.AuraFilterString({ dispellable = Settings.Get("debuffs.dispellable") }, filter)
+end
+
+function Auras.Warrior()
+	local class = type(UnitClass) == "function" and select(2, UnitClass("player"))
+	return not IsSecret(class) and class == "WARRIOR"
+end
+
+local function Sunder()
+	return Settings.Get("debuffs.sunder") and Settings.Get("debuffs.onlyMine") and Auras.Warrior()
+end
+
+local function Cap()
+	return Settings.Get("debuffs.columns") * Settings.Get("debuffs.rows") - (Sunder() and 1 or 0)
+end
+
+local function KindFilter(kind)
+	return KINDS[kind].filter or BUFF_FILTERS[Settings.Get("buffs.filter")]
 end
 
 local function Candidates()
@@ -116,18 +152,18 @@ local function StyleText(text, size)
 	end
 end
 
-local function NewTile(owner)
+local function NewTile(owner, kind)
 	local skin = CreateFrame("Frame", nil, owner)
 	skin:SetAllPoints(owner)
 	local rings = {}
 	for i, color in ipairs(RINGS) do
 		local ring = Widgets.Crisp(skin:CreateTexture(nil, "BACKGROUND", nil, RING_LEVELS[i]))
-		ring:SetColorTexture(Tokens.Color(color))
+		ring:SetColorTexture(Tokens.Color(i == 2 and KINDS[kind] and KINDS[kind].ring or color))
 		rings[i] = ring
 	end
 	local icon = skin:CreateTexture(nil, "ARTWORK")
 	icon:SetTexCoord(ICON_CROP, 1 - ICON_CROP, ICON_CROP, 1 - ICON_CROP)
-	return { skin = skin, icon = icon, rings = rings, bare = false, crop = 0 }
+	return { skin = skin, icon = icon, rings = rings, bare = false, crop = 0, kind = kind or "debuffs" }
 end
 
 local function Inset(region, skin, inset)
@@ -145,7 +181,7 @@ local function LayoutTile(tile)
 		if bare ~= tile.bare then ring:SetShown(not bare) end
 	end
 	tile.bare = bare
-	if tile.dispel then Inset(tile.dispel, skin, px) end
+	if tile.dispel then Inset(tile.dispel, skin, tile.kind == "buffs" and -2 * px or px) end
 	Inset(tile.icon, skin, bare and 0 or px * #tile.rings)
 	local crop = Settings.Get("debuffs.cropped") and Settings.Get("debuffs.crop") / 100 or 0
 	if crop ~= tile.crop then
@@ -190,7 +226,7 @@ local function StyleTexts(p, size)
 		p.time:SetPoint(place, p.timeHolder, place, x, y)
 	end
 	p.countHolder:SetShown(Settings.Get("debuffs.showCount"))
-	p.timeHolder:SetShown(Settings.Get("debuffs.showTime"))
+	p.timeHolder:SetShown(Settings.Get(p.kind .. ".showTime"))
 end
 
 local function Cue(p)
@@ -209,37 +245,42 @@ end
 
 local function Dispel(p)
 	if not p.dispel then
-		p.dispel = Widgets.Crisp(p.skin:CreateTexture(nil, "BACKGROUND", nil, DISPEL_LEVEL))
+		local glow = p.kind == "buffs"
+		p.dispel = p.skin:CreateTexture(nil, "BACKGROUND", nil, glow and 0 or DISPEL_LEVEL)
+		if not glow then Widgets.Crisp(p.dispel) end
 		p.dispel:SetColorTexture(Tokens.Color("white"))
-		Inset(p.dispel, p.skin, K.Scale.Pixel(1) / Widgets.ScaleFactor(p.skin))
+		Inset(p.dispel, p.skin, (glow and -2 or 1) * K.Scale.Pixel(1) / Widgets.ScaleFactor(p.skin))
 	end
 	return p.dispel
 end
 
 local dispelOptions
-local function DispelOptions()
+local function DispelOptions(kind)
 	if dispelOptions == nil then
 		local styles = Enum and Enum.CustomAuraButtonDispelTypeTextureStyle
 		dispelOptions = styles and styles.PreserveAsset ~= nil and { style = styles.PreserveAsset, showWhenHarmful = true } or false
 		if not dispelOptions then
-			LogOnce("aura-dispel", "Enum.CustomAuraButtonDispelTypeTextureStyle is missing; debuffs keep their red ring")
+			LogOnce("aura-dispel", "Enum.CustomAuraButtonDispelTypeTextureStyle is missing; aura tiles show no dispel colour")
+		else
+			dispelOptions.buffs = { style = dispelOptions.style, showWhenHelpful = true, showWhenHarmful = false }
 		end
 	end
-	return dispelOptions or nil
+	return dispelOptions and (kind == "buffs" and dispelOptions.buffs or dispelOptions) or nil
 end
 
 local function Cues(button, p)
-	local dispel = Settings.Get("debuffs.dispelColor") and Settings.Get("debuffs.border") and DispelOptions() ~= nil
+	local buffs = p.kind == "buffs"
+	local dispel = (buffs and Settings.Get("buffs.dispelGlow") or not buffs and Settings.Get("debuffs.dispelColor") and Settings.Get("debuffs.border")) and DispelOptions(p.kind) ~= nil
 	if dispel ~= (p.dispelBound == true) and type(button.AddDispelTypeTexture) == "function" and type(button.RemoveDispelTypeTexture) == "function" then
 		if dispel then
-			button:AddDispelTypeTexture(Dispel(p), DispelOptions())
+			button:AddDispelTypeTexture(Dispel(p), DispelOptions(p.kind))
 		else
 			button:RemoveDispelTypeTexture(p.dispel)
 			p.dispel:Hide()
 		end
 		p.dispelBound = dispel
 	end
-	local cue = Settings.Get("debuffs.pandemic")
+	local cue = Settings.Get("debuffs.pandemic") and p.kind == "debuffs"
 	if cue ~= (p.cueBound == true) and type(button.AddPandemicRegion) == "function" and type(button.RemovePandemicRegion) == "function" then
 		if cue then
 			button:AddPandemicRegion(Cue(p))
@@ -276,11 +317,11 @@ local function StyleButton(button)
 	Cues(button, p)
 end
 
-local function BuildButton(button)
+local function BuildButton(button, kind)
 	if not pcall(button.EnableMouse, button, false) then
 		LogOnce("aura-mouse", "aura buttons refused EnableMouse(false); debuff icons may catch clicks")
 	end
-	local tile = NewTile(button)
+	local tile = NewTile(button, kind)
 	local cooldown = CreateFrame("Cooldown", nil, tile.skin)
 	cooldown:SetAllPoints(tile.icon)
 	cooldown:SetSwipeTexture((Tokens.Texture("barFlat")))
@@ -297,23 +338,39 @@ local function BuildButton(button)
 	button:SetApplicationCount(tile.count)
 end
 
-local function InitButton(button)
-	local ok, err = pcall(BuildButton, button)
-	if not ok then
-		LogOnce("aura-button", "building an aura button failed: " .. tostring(err))
+local inits = {}
+local function InitButton(kind)
+	inits[kind] = inits[kind] or function(button)
+		local ok, err = pcall(BuildButton, button, kind)
+		if not ok then
+			LogOnce("aura-button", "building an aura button failed: " .. tostring(err))
+		end
 	end
+	return inits[kind]
 end
 
 local function GroupOptions(plate)
-	local _, _, columns, rows = Grid(plate)
 	local options = {
-		maxFrameCount = columns * rows,
-		initializeFrame = InitButton,
+		maxFrameCount = Cap(),
+		initializeFrame = InitButton("debuffs"),
 		layout = GroupLayout(plate),
 		candidateFilters = Candidates(),
 	}
 	options.sortMethod, options.sortDirection = SortOptions()
 	return options
+end
+
+local function SyncSunder(plate, container)
+	local on = Sunder()
+	if plate.sunderGroup then
+		container:SetAuraGroupEnabled(SUNDER_GROUP, on)
+		if on then container:SetAuraGroupLayout(SUNDER_GROUP, GroupLayout(plate)) end
+	elseif on then
+		local ok, err = pcall(container.AddAuraGroup, container, SUNDER_GROUP, "HARMFUL|!PLAYER",
+			{ maxFrameCount = 1, initializeFrame = InitButton("debuffs"), layout = GroupLayout(plate), candidateFilters = { includeSpellIDs = SUNDER } })
+		plate.sunderGroup = ok
+		if not ok then LogOnce("aura-sunder", "the Sunder Armor group could not be added: " .. tostring(err)) end
+	end
 end
 
 local function Bind(plate, unit)
@@ -355,7 +412,7 @@ local function NewContainer(plate)
 	if type(container.SetEditModePreviewEnabled) == "function" then
 		pcall(container.SetEditModePreviewEnabled, container, false)
 	end
-	local added, err = pcall(container.AddAuraGroup, container, GROUP, Filter(), GroupOptions(plate))
+	local added, err = pcall(container.AddAuraGroup, container, GROUP, Filter(plate), GroupOptions(plate))
 	if not added then
 		container:Hide()
 		available = false
@@ -363,8 +420,7 @@ local function NewContainer(plate)
 		return nil
 	end
 	K.DevTest.Log(Settings.MODULE, "nameplate debuffs run on the AuraContainer engine")
-	local _, _, columns, rows = Grid(plate)
-	local chip, why = Overflow.New(plate, "none", Filter(), columns * rows, { labels = OVERFLOW_MAX })
+	local chip, why = Overflow.New(plate, "none", Filter(plate), Cap(), { labels = OVERFLOW_MAX })
 	if chip then
 		plate.auraChip = chip
 	else
@@ -373,14 +429,23 @@ local function NewContainer(plate)
 	return container
 end
 
-local function RestyleNow(plate)
-	local container = plate.auras
-	for i = 1, container:GetAuraGroupFrameCount(GROUP) do
-		local ok, err = pcall(StyleButton, container:GetAuraGroupFrame(GROUP, i))
+local function RestyleGroup(container, key)
+	for i = 1, container:GetAuraGroupFrameCount(key) do
+		local ok, err = pcall(StyleButton, container:GetAuraGroupFrame(key, i))
 		if not ok then
 			LogOnce("aura-style", "restyling an aura button failed: " .. tostring(err))
 			return
 		end
+	end
+end
+
+local function RestyleNow(plate)
+	if plate.auras then
+		RestyleGroup(plate.auras, GROUP)
+		if plate.sunderGroup then RestyleGroup(plate.auras, SUNDER_GROUP) end
+	end
+	if plate.kinds then
+		for kind, container in pairs(plate.kinds) do RestyleGroup(container, kind) end
 	end
 end
 
@@ -396,6 +461,8 @@ local function Flush()
 		pending[plate] = nil
 		if plate.auras then
 			LayoutContainer(plate)
+		else
+			RestyleNow(plate)
 		end
 	end
 end
@@ -461,7 +528,7 @@ local function Anchor(plate, frame, anchor)
 	frame:SetPoint(anchor, plate.health, relPoint, 0, Widgets.Snap(plate, y))
 end
 
-function Auras.Extent(plate, rowsCap)
+local function DebuffExtent(plate, rowsCap)
 	local above, below = RoomAbove(plate), RoomBelow(plate)
 	if not Shows(plate) then
 		return above, below
@@ -477,6 +544,91 @@ function Auras.Extent(plate, rowsCap)
 	return above + block, below
 end
 
+local function Span(kind, size, spacing)
+	local place, half = Settings.Get(kind .. ".place"), ns.state.width / 2
+	local row = Logic.AuraLineSize(Settings.Get(kind .. ".count"), size, spacing)
+	local left = place == "TOPLEFT" and -half or place == "TOPRIGHT" and half - row or -row / 2
+	return left, left + row
+end
+
+local function KindSpot(plate, kind)
+	local size, spacing, _, _, height = Grid(plate)
+	local place, step = Settings.Get(kind .. ".place"), 0
+	local v, left, right = PLACES[place][6], Span(kind, size, spacing)
+	for _, other in ipairs(KIND_ORDER) do
+		if other == kind then break end
+		local there, l, r = Settings.Get(other .. ".place"), Span(other, size, spacing)
+		if KindShows(plate, other) and (there == place or v ~= 0 and PLACES[there][6] == v and l < right and left < r) then
+			step = step + (PLACES[place][5] ~= 0 and Settings.Get(other .. ".count") * (size + spacing) or height + SettingsLane(plate, other) + spacing)
+		end
+	end
+	return place, step, size, spacing, height
+end
+
+local function SideReach(plate, sign)
+	local Plate = ns.Plate
+	if sign < 0 then
+		return (Settings.Get("level.show") or Settings.Get("markers.classification")) and Plate.DiamondReach(plate) or Plate.MarkerReach()
+	end
+	return Plate.MarkerReach() + (Settings.Get("markers.raid") and Settings.Get("markers.raidSize") + GAP or 0)
+end
+
+local function PlaceKind(plate, kind, frame)
+	local place, step, _, spacing = KindSpot(plate, kind)
+	local spot = PLACES[place]
+	local x, y = 0, 0
+	if spot[5] ~= 0 then
+		x = spot[5] * (SideReach(plate, spot[5]) + GAP + step)
+	else
+		local above, below = DebuffExtent(plate)
+		y = spot[6] > 0 and above + spacing + step + SettingsLane(plate, kind) or -(below + spacing + step)
+	end
+	frame:ClearAllPoints()
+	frame:SetPoint(spot[1], plate.health, spot[2], Widgets.Snap(plate, x), Widgets.Snap(plate, y))
+	return spot
+end
+
+local function AnyKind()
+	return Settings.Get("buffs.enabled") or Settings.Get("ccs.enabled")
+end
+
+function Auras.Extent(plate, rowsCap)
+	local above, below = DebuffExtent(plate, rowsCap)
+	if not AnyKind() then return above, below end
+	local up, down = 0, 0
+	for _, kind in ipairs(KIND_ORDER) do
+		if KindShows(plate, kind) then
+			local place, step, _, spacing, height = KindSpot(plate, kind)
+			local lane, v = SettingsLane(plate, kind), PLACES[place][6]
+			if v > 0 then
+				up = math.max(up, spacing + step + lane + height)
+			elseif v < 0 then
+				down = math.max(down, spacing + step + height + lane)
+			else
+				local over = (height - ns.state.height) / 2
+				above, below = math.max(above, over), math.max(below, over + lane)
+			end
+		end
+	end
+	return above + up, below + down
+end
+
+function Auras.Reach(plate)
+	local left, right = 0, 0
+	if not AnyKind() then return left, right end
+	for _, kind in ipairs(KIND_ORDER) do
+		if KindShows(plate, kind) then
+			local place, step, size, spacing = KindSpot(plate, kind)
+			local sign = PLACES[place][5]
+			if sign ~= 0 then
+				local reach = SideReach(plate, sign) + GAP + step + Settings.Get(kind .. ".count") * (size + spacing) - spacing
+				if sign < 0 then left = math.max(left, reach) else right = math.max(right, reach) end
+			end
+		end
+	end
+	return left, right
+end
+
 local function StyleChipText(text)
 	StyleText(text)
 	text:SetTextColor(Tokens.Color("textEmphasis"))
@@ -489,11 +641,10 @@ function LayoutChip(plate, anchor, size, spacing, columns)
 	if not chip then
 		return
 	end
-	local _, _, _, rows = Grid(plate)
 	local relPoint, y = AnchorTo(plate, anchor)
 	local sign = Settings.Get("debuffs.growthX") == "LEFT" and -1 or 1
 	Overflow.Apply(chip, {
-		enabled = Shows(plate), groups = { { filter = Filter(), candidates = Candidates() } }, cap = columns * rows, cell = size, after = true,
+		enabled = Shows(plate), groups = { { filter = Filter(plate), candidates = Candidates() } }, cap = Cap(), cell = size, after = true,
 		point = anchor, rel = plate.health, relPoint = relPoint, x = sign * (Logic.AuraLineSize(columns, size, spacing) + spacing), y = y,
 		level = plate.auras:GetFrameLevel() + 2, style = StyleChipText,
 	})
@@ -514,7 +665,7 @@ function LayoutContainer(plate)
 	end
 	plate.timerLane = lane
 	local container = plate.auras
-	local size, spacing, columns, rows = Grid(plate)
+	local size, spacing, columns = Grid(plate)
 	local anchor, horizontal, vertical = Logic.AuraGrowth(Settings.Get("debuffs.growthX"), Settings.Get("debuffs.growthY"))
 	local axis = AnchorUtil and AnchorUtil.FlowLayoutAxis
 	local direction = AnchorUtil and AnchorUtil.FlowDirection
@@ -527,8 +678,9 @@ function LayoutContainer(plate)
 		container:SetFlowLayoutMaximumLineSize(Logic.AuraLineSize(columns, size, spacing) + LINE_SLACK)
 	end
 	container:SetAuraGroupLayout(GROUP, GroupLayout(plate))
-	container:SetAuraGroupMaxFrameCount(GROUP, columns * rows)
-	container:SetAuraGroupFilterString(GROUP, Filter())
+	container:SetAuraGroupMaxFrameCount(GROUP, Cap())
+	SyncSunder(plate, container)
+	container:SetAuraGroupFilterString(GROUP, Filter(plate))
 	if type(container.SetAuraGroupCandidateFilters) == "function" then
 		container:SetAuraGroupCandidateFilters(GROUP, Candidates())
 	end
@@ -544,6 +696,124 @@ function LayoutContainer(plate)
 	Anchor(plate, container, anchor)
 	LayoutChip(plate, anchor, size, spacing, columns)
 	RestyleButtons(plate)
+end
+
+local function LayoutKind(plate, kind, container)
+	local spot = PlaceKind(plate, kind, container)
+	local size, spacing = Grid(plate)
+	local count = Settings.Get(kind .. ".count")
+	local axis, direction = AnchorUtil and AnchorUtil.FlowLayoutAxis, AnchorUtil and AnchorUtil.FlowDirection
+	if axis and direction then
+		container:SetFlowLayoutAxis(axis.Horizontal)
+		container:SetFlowLayoutAnchorPoint(spot[3])
+		container:SetFlowLayoutGrowthDirection(direction[spot[4]], direction.Down)
+		container:SetFlowLayoutMaximumLineSize(Logic.AuraLineSize(count, size, spacing) + LINE_SLACK)
+	end
+	container:SetAuraGroupLayout(kind, GroupLayout(plate))
+	container:SetAuraGroupMaxFrameCount(kind, count)
+	container:SetAuraGroupFilterString(kind, KindFilter(kind))
+	local raise = Settings.Get("debuffs.raise")
+	if raise or container.raised then
+		container.raised = raise
+		container:SetFrameLevel(plate:GetFrameLevel() + (raise and IN_FRONT or 1))
+	end
+end
+
+local function NewKind(plate, kind)
+	local ok, container = pcall(CreateFrame, "AuraContainer", nil, plate, TEMPLATE)
+	local added, err = ok and type(container) == "table" and type(container.AddAuraGroup) == "function", container
+	if added then
+		if type(container.SetEditModePreviewEnabled) == "function" then pcall(container.SetEditModePreviewEnabled, container, false) end
+		added, err = pcall(container.AddAuraGroup, container, kind, KindFilter(kind),
+			{ maxFrameCount = Settings.Get(kind .. ".count"), initializeFrame = InitButton(kind), layout = GroupLayout(plate) })
+		if not added then container:Hide() end
+	end
+	if added then return container end
+	LogOnce("aura-" .. kind, "the " .. kind .. " container could not be made: " .. tostring(err))
+	if not InCombatLockdown() then
+		refused[kind] = true
+	elseif not plate.kindsRetry then
+		plate.kindsRetry = true
+		K.Combat.Queue(function()
+			plate.kindsRetry = nil
+			if plate.unit then plate:Refresh() end
+		end)
+	end
+end
+
+local function RefreshKinds(plate)
+	local moved = false
+	for _, kind in ipairs(KIND_ORDER) do
+		local container = plate.kinds and plate.kinds[kind]
+		local unit = plate.unit and KindShows(plate, kind) and plate.unit or "none"
+		if unit ~= "none" and not container and not plate.kindsRetry and not refused[kind] then
+			container = NewKind(plate, kind)
+			if container then
+				plate.kinds, plate.kindUnits = plate.kinds or {}, plate.kindUnits or {}
+				plate.kinds[kind] = container
+				LayoutKind(plate, kind, container)
+				RestyleButtons(plate)
+			end
+		end
+		local was = container and plate.kindUnits[kind]
+		if container and was ~= unit then
+			local ok, err = pcall(container.SetUnit, container, unit)
+			plate.kindUnits[kind] = ok and unit or nil
+			container:SetShown(unit ~= "none")
+			moved = moved or (was == nil or was == "none") ~= (unit == "none")
+			if not ok then LogOnce("aura-kind-unit", "an aura container refused a unit: " .. tostring(err)) end
+		end
+	end
+	if moved then
+		if plate.auras then plate.auras:SetAuraGroupFilterString(GROUP, Filter(plate)) end
+		Auras.Reanchor(plate)
+		if plate.rise then ns.Stacking.Bound(plate, plate.rise) end
+	end
+end
+
+local function KindSamples(plate)
+	for _, kind in ipairs(KIND_ORDER) do
+		local shown = KindShows(plate, kind)
+		local holder = plate.sampleKinds and plate.sampleKinds[kind]
+		if shown and not holder then
+			holder = CreateFrame("Frame", nil, plate)
+			holder.icons = {}
+			plate.sampleKinds = plate.sampleKinds or {}
+			plate.sampleKinds[kind] = holder
+		end
+		if holder then
+			holder:SetShown(shown)
+			if shown then
+				local size, spacing, _, _, height = Grid(plate)
+				local n, icons = Settings.Get(kind .. ".count"), KINDS[kind].icons
+				icons = icons[Settings.Get("buffs.filter")] or icons
+				for i = #holder.icons + 1, n do
+					local frame = CreateFrame("Frame", nil, holder)
+					frame.tile = NewTile(frame, kind)
+					AddTexts(frame.tile, frame.tile.skin, frame.tile.skin:GetFrameLevel() + 1)
+					frame.tile.time:SetText(SAMPLE_TIMES[(i - 1) % #SAMPLE_TIMES + 1])
+					holder.icons[i] = frame
+				end
+				local spot = PlaceKind(plate, kind, holder)
+				Widgets.Size(holder, Logic.AuraLineSize(n, size, spacing), height)
+				for i, icon in ipairs(holder.icons) do
+					local tile, fileID = icon.tile, icons[(i - 1) % #icons + 1]
+					tile.icon:SetTexture(fileID)
+					Widgets.Size(icon, size, height)
+					icon:ClearAllPoints()
+					icon:SetPoint(spot[3], holder, spot[3], (spot[4] == "Left" and -1 or 1) * (i - 1) * (size + spacing), 0)
+					icon:SetShown(i <= n)
+					LayoutTile(tile)
+					StyleTexts(tile, size)
+					local glow = kind == "buffs" and Settings.Get("buffs.dispelGlow") and KINDS.buffs.magic[fileID] or false
+					if glow or tile.dispel then
+						Dispel(tile):SetVertexColor(Tokens.Color("magic"))
+						tile.dispel:SetShown(glow)
+					end
+				end
+			end
+		end
+	end
 end
 
 local function SampleTexts(tile, i, size)
@@ -587,6 +857,13 @@ local function LayoutSamples(plate)
 		LayoutTile(icon.tile)
 		if texts then SampleTexts(icon.tile, i, size) end
 	end
+	local last = icons[#icons]
+	local sunder = Sunder()
+	if sunder or last.sunder then
+		last.sunder = sunder
+		last.icon:SetTexture(last.sunder and SUNDER_ICON or SAMPLE_ICONS[#icons])
+	end
+	if texts and (plate.sampleKinds or AnyKind()) then KindSamples(plate) end
 end
 
 local function BuildSamples(plate)
@@ -605,11 +882,16 @@ end
 function Auras.Reanchor(plate)
 	if plate.sample then
 		LayoutSamples(plate)
-	elseif plate.auras then
+		return
+	end
+	if plate.auras then
 		local size, spacing, columns = Grid(plate)
 		local anchor = Logic.AuraGrowth(Settings.Get("debuffs.growthX"), Settings.Get("debuffs.growthY"))
 		Anchor(plate, plate.auras, anchor)
 		LayoutChip(plate, anchor, size, spacing, columns)
+	end
+	if plate.kinds then
+		for kind, container in pairs(plate.kinds) do PlaceKind(plate, kind, container) end
 	end
 end
 
@@ -625,8 +907,14 @@ end
 function Component.Restyle(plate)
 	if plate.sample then
 		LayoutSamples(plate)
-	elseif plate.auras then
+		return
+	end
+	if plate.auras then
 		LayoutContainer(plate)
+	end
+	if plate.kinds then
+		for kind, container in pairs(plate.kinds) do LayoutKind(plate, kind, container) end
+		if not plate.auras then RestyleButtons(plate) end
 	end
 end
 
@@ -635,6 +923,7 @@ function Component.Refresh(plate)
 		LayoutSamples(plate)
 		return
 	end
+	if plate.kinds or AnyKind() then RefreshKinds(plate) end
 	if not (plate.unit and Shows(plate)) then
 		if plate.auras then
 			Bind(plate, "none")
@@ -659,6 +948,7 @@ end
 function Component.Clear(plate)
 	ShowChip(plate, false)
 	Bind(plate, "none")
+	if plate.kinds then RefreshKinds(plate) end
 end
 
 Auras.AurasSecret = AurasSecret
