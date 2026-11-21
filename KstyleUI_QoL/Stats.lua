@@ -1,4 +1,4 @@
--- Stats.lua: character stats as text at the top left, a Layout element: the stats the player picks in their order, ratings as a percentage, the rating or both. Each value comes from one game call and goes straight to the font string, never compared, so a value the game makes secret in combat still shows, except spell power: the lowest of the magic schools, as the character sheet shows it, blank while any school is secret; ratings are read only when shown; fonts and formats change on settings, values on the events that change stats.
+-- Stats.lua: character stats as text at the top left, a Layout element: the stats the player picks in their order, ratings as a percentage, the rating or both, and the frame rate and latency. Each value comes from one game call and goes straight to the font string, never compared, so a value the game makes secret in combat still shows, except spell power: the lowest of the magic schools, as the character sheet shows it, blank while any school is secret; ratings are read only when shown; fonts and formats change on settings, values on the events that change stats, and the frame rate and latency only on a ticker at their interval that runs only while one of them shows, one latency call serving both lines.
 local _, ns = ...
 
 local K, L = ns.K, ns.L
@@ -35,6 +35,9 @@ local STATS = {
 	{ "parry", L["Parry"], L["Parry"], "GetParryChance", {}, 1, "CR_PARRY" },
 	{ "block", L["Block"], L["Block"], "GetBlockChance", {}, 1, "CR_BLOCK" },
 	{ "armour", L["Armour"], L["Arm"], "UnitArmor", { "player" }, 2 },
+	{ "fps", L["Frame rate"], L["FPS"], "GetFramerate", {}, 1, fmt = "%d", sample = 60 },
+	{ "home", L["Home latency"], L["Home"], "GetNetStats", {}, 3, fmt = L["%d ms"], net = true, sample = 42 },
+	{ "world", L["World latency"], L["World"], "GetNetStats", {}, 4, fmt = L["%d ms"], net = true, sample = 58 },
 }
 local BY = {}
 ns.defaults.statsList = {}
@@ -43,7 +46,8 @@ for i, stat in ipairs(STATS) do
 	ns.defaults.statsList[i] = { id = stat[1], shown = SHOWN[stat[1]] == true, zone = "left" }
 end
 
-local holder
+local holder, ticker
+local net = {}
 
 function ns.StatOptions()
 	local options = { zones = false }
@@ -69,6 +73,10 @@ end
 function ns.ReadStat(stat, which)
 	local fn = stat.read or _G[stat[4]]
 	if type(fn) ~= "function" then return nil end
+	if stat.net then
+		if not net.read then net[1], net[2], net[3], net[4] = fn(); net.read = true end
+		return net[stat[6]]
+	end
 	return select(stat[6], fn(unpack(stat[5]))), which ~= "percent" and stat[7] and GetCombatRating(_G[stat[7]])
 end
 
@@ -94,7 +102,8 @@ function ns.StyleStats(frame, read)
 			local rated = stat[7] and type(_G[stat[7]]) == "number" and type(GetCombatRating) == "function"
 			text.stat, text.which = stat, stat[7] and (rated and mode or "percent")
 			local shown = text.which == "rating" and "%d" or text.which == "both" and "%.2f%% (%d)" or text.which == "percent" and "%.2f%%" or "%d"
-			text.format = "|cff" .. label .. (short and stat[3] or stat[2]):gsub("%%", "%%%%") .. "|r  |cff" .. value .. shown .. "|r"
+			local name = (short and stat[3] or stat[2]):gsub("%%", "%%%%")
+			text.format = (stat.net and not ns.Get("statsNetLabels") and "" or "|cff" .. label .. name .. "|r  ") .. "|cff" .. value .. (stat.fmt or shown) .. "|r"
 			height = Widgets.LineHeight(text)
 			text:ClearAllPoints()
 			Widgets.Point(text, "TOPLEFT", frame, "TOPLEFT", 0, -(count - 1) * (height + GAP))
@@ -106,30 +115,35 @@ function ns.StyleStats(frame, read)
 	Widgets.Size(frame, WIDTH * ns.Get("statsScale") / 100, math.max(height, count * (height + GAP) - GAP))
 end
 
-function ns.FillStats(frame)
+function ns.FillStats(frame, timed)
+	net.read = nil
 	for i = 1, frame.count or 0 do
 		local text = frame.lines[i]
-		local amount, rating = frame.read(text.stat, text.which)
-		if text.which == "rating" then amount = rating end
-		if not ns.IsSecret(amount) and amount == nil or text.which == "both" and not ns.IsSecret(rating) and rating == nil then
-			text:SetText("")
-		else
-			text:SetFormattedText(text.format, amount, rating)
+		if timed == nil or (text.stat.fmt ~= nil) == timed then
+			local amount, rating = frame.read(text.stat, text.which)
+			if text.which == "rating" then amount = rating end
+			if not ns.IsSecret(amount) and amount == nil or text.which == "both" and not ns.IsSecret(rating) and rating == nil then
+				text:SetText("")
+			else
+				text:SetFormattedText(text.format, amount, rating)
+			end
 		end
 	end
 end
 
-local function Fill()
-	if holder and holder:IsShown() then ns.FillStats(holder) end
+local function Fill(timed)
+	if holder and holder:IsShown() then ns.FillStats(holder, timed) end
 end
+local function Events() Fill(false) end
+local function Tick() Fill(true) end
 
 local function Sync()
 	local on = ns.running and ns.Get("stats")
 	for _, event in ipairs(EVENTS) do
-		if on then K.Events.Register(OWNER, event, Fill) else K.Events.Unregister(OWNER, event) end
+		if on then K.Events.Register(OWNER, event, Events) else K.Events.Unregister(OWNER, event) end
 	end
 	for _, event in ipairs(UNIT_EVENTS) do
-		if on then K.Events.RegisterUnit(OWNER, event, Fill, "player") else K.Events.Unregister(OWNER, event) end
+		if on then K.Events.RegisterUnit(OWNER, event, Events, "player") else K.Events.Unregister(OWNER, event) end
 	end
 	if on and not holder then
 		holder = CreateFrame("Frame", nil, K.Scale.Root())
@@ -142,6 +156,16 @@ local function Sync()
 		Widgets.Size(holder, WIDTH, 1)
 		Widgets.Track(holder)
 		Widgets.Place(holder, KEY, { anchor = "TOPLEFT", x = 16, y = -40 }, { label = L["Character stats"], module = ns.MODULE })
+	end
+	if ticker then ticker:Cancel() end
+	ticker = nil
+	if on and C_Timer and type(C_Timer.NewTicker) == "function" then
+		for _, entry in ipairs(ns.StatList()) do
+			if entry.shown and BY[entry.id].fmt then
+				ticker = C_Timer.NewTicker(ns.Get("statsInterval"), Tick)
+				break
+			end
+		end
 	end
 	if not holder then return end
 	holder:SetShown(on)
