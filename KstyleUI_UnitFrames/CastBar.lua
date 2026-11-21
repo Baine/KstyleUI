@@ -31,6 +31,8 @@ local TRACK = "buttonFill"
 local TIMER_FORMAT = "%.1fs"
 local ELAPSED_FORMAT = "%.1f / %.1f"
 local REMAINING_FORMAT = "%.1f"
+local LAG_SUFFIX, LAG_EM, FIT_FLOOR = " (%dms)", 3.5, 0.6
+local LAGGED = { [TIMER_FORMAT] = TIMER_FORMAT .. LAG_SUFFIX, [ELAPSED_FORMAT] = ELAPSED_FORMAT .. LAG_SUFFIX, [REMAINING_FORMAT] = REMAINING_FORMAT .. LAG_SUFFIX }
 local CAPTION_BAR = { above = 14, below = 14, inside = 14 }
 local CAPTION_OFFSET = { above = 0, below = 0.5, inside = 0 }
 local CAPTION_GAP = { above = 1, below = 3.5, inside = 0 }
@@ -110,32 +112,6 @@ local function NewText(owner, justify)
 	return text
 end
 
-function CastBars.SetName(cb, text, target)
-	local shown = text
-	if not (issecretvalue(text) or type(text) ~= "string" or not Settings.Value(cb.kind, "castbarCaps")) then
-		shown = ns.Unit.Tracked(text, cb.textPath or (Settings.Font(cb.kind, "cast")))
-	end
-	local named = issecretvalue(target) or target ~= nil
-	if named then
-		cb.text:SetText(shown .. " - " .. target)
-	else
-		cb.text:SetText(shown)
-	end
-	if cb.line and cb.nameFree then
-		local width = named and not (issecretvalue(text) or issecretvalue(target)) and cb.text:GetUnboundedStringWidth()
-		local long = named and not (not issecretvalue(width) and type(width) == "number" and width <= cb.nameRoom)
-		if long ~= (cb.longName or false) then
-			cb.longName = long
-			cb.text:SetWidth(long and cb.nameRoom or 0)
-		end
-	end
-	local secret = issecretvalue(text) or named
-	if not cb.ornament.joined and (secret or text ~= cb.ornamentText) then
-		cb.ornamentText = not secret and text or nil
-		cb.ornament:Restyle()
-	end
-end
-
 local function Caption(cb)
 	local form = Settings.Form(cb.kind)
 	if form == "column" then
@@ -155,14 +131,19 @@ local function Elapsed(cb)
 end
 
 local function WriteTimer(cb, elapsed, total, remaining)
-	if Elapsed(cb) then
-		cb.timer:SetFormattedText(ELAPSED_FORMAT, elapsed, total)
-	elseif cb.mode == "below" or cb.mode == "inside" or cb.medal then
-		cb.timer:SetFormattedText(REMAINING_FORMAT, remaining)
-	else
-		cb.timer:SetFormattedText(TIMER_FORMAT, remaining)
+	local lag, batch = cb.lag, cb.batch
+	if batch then
+		remaining = math.max(0, batch - GetTime())
 	end
+	if Elapsed(cb) and not batch then
+		if lag then cb.timer:SetFormattedText(LAGGED[ELAPSED_FORMAT], elapsed, total, lag) else cb.timer:SetFormattedText(ELAPSED_FORMAT, elapsed, total) end
+		return
+	end
+	local fmt = (cb.mode == "below" or cb.mode == "inside" or cb.medal) and REMAINING_FORMAT or TIMER_FORMAT
+	if lag then cb.timer:SetFormattedText(LAGGED[fmt], remaining, lag) else cb.timer:SetFormattedText(fmt, remaining) end
 end
+
+CastBars.WriteTimer = WriteTimer
 
 local function Tick(frame, elapsed)
 	local cb = frame.cb
@@ -475,6 +456,7 @@ local function Form(cb)
 	cb.line = not cb.medal and Lined(cb)
 	cb.mode = not cb.medal and Caption(cb) or nil
 	cb.iconRight, cb.showTotal = Settings.Value(cb.kind, "castbarIconRight"), cb.kind == "player" and Settings.Value(cb.kind, "castbarTotal")
+	cb.lagText = cb.kind == "player" and Settings.Value(cb.kind, "castbarLagText")
 	if cb.medalOn == cb.medal then
 		return
 	end
@@ -610,7 +592,8 @@ local function LayoutCaption(cb, width, height)
 	end
 	local barH = math.min(CAPTION_BAR[mode], labelOn and not inside and spare or height - barOffset)
 	local timerOn = labelOn and Settings.Value(cb.kind, "castbarTimer")
-	local timerW = timerOn and math.min(math.ceil(CAPTION_TIMER_EM[Elapsed(cb) and "elapsed" or "remaining"] * size), math.floor(width / 2)) or 0
+	local em = CAPTION_TIMER_EM[Elapsed(cb) and "elapsed" or "remaining"] + (cb.lagText and LAG_EM or 0)
+	local timerW = timerOn and math.min(math.ceil(em * size), math.floor(width / 2)) or 0
 	local reach, roomy = 0, above and Roomy(cb)
 	if roomy then
 		reach = Ceil(cb, math.max(0, CAPTION_ROOM + timerW + (timerOn and TEXT_PAD or 0) - width) / 2)
@@ -712,7 +695,7 @@ end
 
 function CastBars.Layout(cb, width, height)
 	Form(cb)
-	local column = cb.showTotal and CAPTION_TIMER_EM.elapsed or TIMER_COLUMN
+	local column = (cb.showTotal and CAPTION_TIMER_EM.elapsed or TIMER_COLUMN) + (cb.lagText and LAG_EM or 0)
 	if cb.medal then
 		LayoutMedal(cb, width, height, column)
 		return
@@ -828,6 +811,68 @@ local function StyleText(text, path, size, flags)
 	end
 end
 
+local function NameFont(cb, size)
+	local style = cb.nameStyle
+	StyleText(cb.text, style.path, size, style.flags)
+	if style.shadow then
+		local border = K.Scale.Border() / Widgets.ScaleFactor(cb.text)
+		cb.text:SetShadowColor(Tokens.Color("textShadow"))
+		cb.text:SetShadowOffset(border, -border)
+	end
+	cb.fitSize = size
+end
+
+local function Advance(text)
+	local width = text:GetUnboundedStringWidth()
+	return not issecretvalue(width) and type(width) == "number" and width or nil
+end
+
+local function Fit(cb)
+	local style = cb.nameStyle
+	if not style then return end
+	local size, room = style.size, Settings.Value(cb.kind, "castbarFit") and cb.text:GetWidth()
+	local width = room and not issecretvalue(room) and type(room) == "number" and room > 0 and Advance(cb.text)
+	if not width then
+		if size ~= cb.fitSize then NameFont(cb, size) end
+		return
+	end
+	local least = math.min(size, math.max(size * FIT_FLOOR, K.Scale.TextFloor() * K.Scale.Pixel(1) / Widgets.ScaleFactor(cb.text)))
+	width = width * size / cb.fitSize
+	if width > room then size = math.max(least, size * room / width) end
+	if size ~= cb.fitSize then NameFont(cb, size) end
+	width = size < style.size and Advance(cb.text)
+	if width and width > room then
+		NameFont(cb, math.max(least, size - K.Scale.Pixel(1) / Widgets.ScaleFactor(cb.text)))
+	end
+end
+
+function CastBars.SetName(cb, text, target)
+	local shown, secret = text, issecretvalue(text)
+	if not (secret or type(text) ~= "string" or not Settings.Value(cb.kind, "castbarCaps")) then
+		shown = ns.Unit.Tracked(text, cb.textPath or (Settings.Font(cb.kind, "cast")))
+	end
+	local named = issecretvalue(target) or target ~= nil
+	if named then
+		cb.text:SetText(shown .. " - " .. target)
+	else
+		cb.text:SetText(shown)
+	end
+	if cb.line and cb.nameFree then
+		local width = named and not (secret or issecretvalue(target)) and cb.text:GetUnboundedStringWidth()
+		local long = named and not (not issecretvalue(width) and type(width) == "number" and width <= cb.nameRoom)
+		if long ~= (cb.longName or false) then
+			cb.longName = long
+			cb.text:SetWidth(long and cb.nameRoom or 0)
+		end
+	end
+	Fit(cb)
+	secret = secret or named
+	if not cb.ornament.joined and (secret or text ~= cb.ornamentText) then
+		cb.ornamentText = not secret and text or nil
+		cb.ornament:Restyle()
+	end
+end
+
 local function Orient(cb)
 	local o = ORIENTATION[Settings.Value(cb.kind, "castbarOrientation")] or ORIENTATION.RIGHT
 	local bar = cb.bar
@@ -893,12 +938,8 @@ function CastBars.Restyle(cb)
 		timerPath = Tokens.Font("number")
 	end
 	cb.textPath = textPath
-	StyleText(cb.text, textPath, size, flags)
-	if caption and flags == "" then
-		local border = K.Scale.Border() / Widgets.ScaleFactor(cb.text)
-		cb.text:SetShadowColor(Tokens.Color("textShadow"))
-		cb.text:SetShadowOffset(border, -border)
-	end
+	cb.nameStyle = { path = textPath, size = size, flags = flags, shadow = caption and flags == "" }
+	NameFont(cb, size)
 	StyleText(cb.timer, timerPath, size, cb.medal and Widgets.Readability("readableBars") and "OUTLINE" or flags)
 	StyleText(cb.label, path, size, flags)
 	StyleText(cb.lock, path, size, flags)
@@ -1036,12 +1077,35 @@ local function RunTimes(cb, channel, startMs, endMs)
 	return false
 end
 
+local function Ranked(text, spellID)
+	local api = C_Spell and C_Spell.GetSpellSubtext
+	if not api or issecretvalue(text) or type(text) ~= "string" or issecretvalue(spellID) or type(spellID) ~= "number" then return text end
+	local rank = api(spellID)
+	if issecretvalue(rank) or type(rank) ~= "string" or not rank:find("%d") then return text end
+	return text .. " (" .. rank .. ")"
+end
+
+local function Batch(cb, text, startMs, endMs)
+	local api = C_TradeSkillUI and C_TradeSkillUI.GetRemainingRecasts
+	local left = api and api()
+	if issecretvalue(left) or type(left) ~= "number" or left < 1 or issecretvalue(text) or type(text) ~= "string"
+		or issecretvalue(startMs) or issecretvalue(endMs) or type(startMs) ~= "number" or type(endMs) ~= "number" or endMs <= startMs then
+		return text
+	end
+	cb.batch = (endMs + left * (endMs - startMs)) / MS
+	return text .. " (" .. (left + 1) .. ")"
+end
+
 local function Latency(cb, channel, startMs, endMs)
 	if cb.latency then cb.latency:Hide() end
-	if cb.kind ~= "player" or not Settings.Value(cb.kind, "castbarLatency") or not GetNetStats then return end
-	if issecretvalue(startMs) or issecretvalue(endMs) or type(startMs) ~= "number" or type(endMs) ~= "number" or startMs ~= startMs or endMs ~= endMs or endMs <= startMs then return end
+	cb.lag = nil
+	local zone = cb.kind == "player" and Settings.Value(cb.kind, "castbarLatency")
+	if not ((zone or cb.lagText) and GetNetStats) then return end
 	local _, _, _, ms = GetNetStats()
-	if issecretvalue(ms) or type(ms) ~= "number" or ms ~= ms or ms <= 0 then return end
+	if issecretvalue(ms) or type(ms) ~= "number" or ms ~= ms or ms < 0 then return end
+	if cb.lagText then cb.lag = math.floor(ms + 0.5) end
+	if not zone or ms == 0 then return end
+	if issecretvalue(startMs) or issecretvalue(endMs) or type(startMs) ~= "number" or type(endMs) ~= "number" or startMs ~= startMs or endMs ~= endMs or endMs <= startMs then return end
 	local w, h = cb.bar:GetSize()
 	if issecretvalue(w) or issecretvalue(h) or type(w) ~= "number" or type(h) ~= "number" or not (w > 0 and h > 0) then return end
 	if not cb.latency then
@@ -1110,6 +1174,11 @@ local function Start(cb, channel, update)
 	end
 	if not channel and not issecretvalue(spellID) and type(spellID) == "number" then
 		cb.spellID = spellID
+	end
+	cb.batch, cb.rankID = nil, nil
+	if cb.kind == "player" then
+		if Settings.Value("player", "castbarRank") then text, cb.rankID = Ranked(text, spellID), not issecretvalue(spellID) and spellID or nil end
+		if not issecretvalue(isTradeSkill) and isTradeSkill == true and Settings.Value("player", "castbarCraft") then text = Batch(cb, text, startMs, endMs) end
 	end
 	cb.token = (cb.token or 0) + 1
 	cb.duration = nil
@@ -1305,6 +1374,12 @@ local function Listen(cb)
 	end
 	for event in pairs(EVENTS) do
 		K.Events.RegisterUnit(owner, event, cb.handler, cb.unit)
+	end
+	if cb.kind == "player" and Settings.Value("player", "castbarRank") then
+		cb.onText = cb.onText or function(_, spellID)
+			if cb.active and not issecretvalue(spellID) and spellID == cb.rankID then Start(cb, cb.channel, true) end
+		end
+		K.Events.Register(owner, "SPELL_TEXT_UPDATE", cb.onText)
 	end
 end
 

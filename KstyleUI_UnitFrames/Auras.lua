@@ -49,6 +49,10 @@ local TEXT_FLOOR, TEXT_LINE = 10, 1.2
 local CHIP_LEVEL = 8
 local SLAB_ICON_INSET, SLAB_UNDERLINE = 2, 1.5
 local SORT = "Expiration"
+local LANES = { { "buffDefensive", "BIG_DEFENSIVE" }, { "buffDispellable", "DISPELLABLE" } }
+local LOCKOUTS = { [57723] = true, [57724] = true, [80354] = true, [95809] = true, [160455] = true, [264689] = true, [390435] = true }
+local TRACK = OWNER .. ":track"
+local FIXED_UNIT = { player = true, pet = true }
 
 local issecretvalue = issecretvalue or function()
 	return false
@@ -355,6 +359,50 @@ local function StyleButton(view, entry, style)
 	entry.badge:SetShown(not TimerBelow(view.kind) and Value(view, "auraTimer") == true)
 end
 
+local formatters = {}
+local function Formatter(minutes)
+	if minutes <= 0 then return nil end
+	if formatters[minutes] == nil then
+		local ok, made = pcall(function()
+			local f, units = C_StringUtil.CreateSecondsFormatter(), C_CurveUtil.CreateCurve()
+			units:SetType(Enum.LuaCurveType.Step)
+			units:AddPoint(0, 2)
+			units:AddPoint(minutes * 60 + 1, 1)
+			f:SetDefaultAbbreviation(Enum.SecondsFormatterAbbreviation.OneLetter)
+			f:SetRounding(Enum.SecondsFormatterRounding.Truncate)
+			f:SetCanRoundUpLastUnit(true)
+			f:SetMinInterval(Enum.SecondsFormatterInterval.Seconds)
+			f:SetMaxIntervalCurve(Widgets.Duration.Formatter("short"):GetMaxIntervalCurve())
+			f:SetDesiredUnitCountCurve(units)
+			return f
+		end)
+		formatters[minutes] = ok and made or false
+		if not ok then LogOnce("precise", "frame auras: the seconds formatter is unavailable (" .. tostring(made) .. "); timers keep the short form") end
+	end
+	return formatters[minutes] or nil
+end
+
+local ruler
+function Auras.Spacing(kind)
+	local spacing, minutes = Settings.Value(kind, "auraSpacing"), Settings.Value(kind, "auraPrecise")
+	if not Formatter(minutes) or Settings.Value(kind, "auraTimer") ~= true then return spacing end
+	local path, size, flags = Settings.Font(kind, "aura")
+	ruler = ruler or Widgets.FontString(K.Scale.Root(), "OVERLAY")
+	ruler:Hide()
+	Widgets.ApplyFont(ruler, path, TextSize(kind, size), flags)
+	ruler:SetText(minutes > 10 and "88m 88s" or "8m 88s")
+	local width = Widgets.TextWidth(ruler)
+	return width and math.max(spacing, math.ceil(width) + 2 * (BADGE_PAD + GAP) - Settings.Value(kind, "auraSize")) or spacing
+end
+
+function Auras.Precise(view, entry)
+	local f = view.auras.formatter
+	if entry.precise ~= f then
+		entry.precise = f
+		entry.button:SetDurationText(entry.timer, f and { textFormatter = f } or nil)
+	end
+end
+
 local function Flush()
 	if not Auras.Open() then
 		return false
@@ -369,6 +417,7 @@ local function Flush()
 			local style = TextStyle(view)
 			for _, entry in ipairs(view.auras.buttons) do
 				K.Call(StyleButton, view, entry, style)
+				K.Call(Auras.Precise, view, entry)
 			end
 			ns.Fan.Restyle(view)
 		end
@@ -442,7 +491,8 @@ local function Dress(view, key, button, buttons)
 	button:SetIcon(entry.icon)
 	button:SetDurationCooldown(cooldown)
 	button:SetApplicationCount(count)
-	button:SetDurationText(timer)
+	entry.precise = false
+	Auras.Precise(view, entry)
 	buttons[#buttons + 1] = entry
 end
 
@@ -467,8 +517,8 @@ local function GroupLayout(view, key)
 	return {
 		elementWidth = size,
 		elementHeight = size,
-		elementSpacing = spacing,
-		lineSpacing = spacing + Snap(view, TimerRoom(view.kind)),
+		elementSpacing = Snap(view, Auras.Spacing(view.kind)),
+		lineSpacing = spacing + Snap(view, TimerRoom(view.kind)) + Snap(view, Value(view, "auraRowGap")),
 		forceNewLine = key == "buffs" and Value(view, "auraFilter") == "both",
 	}
 end
@@ -525,11 +575,11 @@ local function BuildStyle(view)
 	local cached = a.styles[style]
 	a.style = style
 	if cached then
-		a.container, a.buttons = cached.container, cached.buttons
+		a.container, a.buttons, a.candidates = cached.container, cached.buttons, cached.candidates
 		a.container:Show()
 		return
 	end
-	a.buttons = {}
+	a.buttons, a.candidates = {}, {}
 	local buttons = a.buttons
 	EngineReady()
 	local ok, container = pcall(CreateFrame, "AuraContainer", nil, a.host, TEMPLATE)
@@ -558,7 +608,7 @@ local function BuildStyle(view)
 			return a
 		end
 	end
-	a.styles[style] = { container = container, buttons = buttons }
+	a.styles[style] = { container = container, buttons = buttons, candidates = a.candidates }
 end
 
 local function Build(view)
@@ -602,22 +652,106 @@ end
 
 function Auras.LastCell(kind, frame, first, after)
 	local size, spacing = Settings.Value(kind, "auraSize"), Settings.Value(kind, "auraSpacing")
-	local room = TimerRoom(kind)
-	if frame then
-		size, spacing, room = Widgets.Snap(frame, size), Widgets.Snap(frame, spacing), Widgets.Snap(frame, room)
-	end
 	local columns, rows = Settings.Value(kind, "auraColumns"), Settings.Value(kind, "auraRows")
+	local room, gap, across = TimerRoom(kind), rows > 1 and Settings.Value(kind, "auraRowGap") or 0, Auras.Spacing(kind)
+	if frame then
+		size, spacing, room, gap, across = Widgets.Snap(frame, size), Widgets.Snap(frame, spacing), Widgets.Snap(frame, room), Widgets.Snap(frame, gap), Widgets.Snap(frame, across)
+	end
 	local _, _, corner, _, growth = Auras.Footprint(kind, frame)
 	local right, down = growth[2] == "Right", growth[3] == "Down"
-	local x = (after and columns or columns - 1) * (size + spacing)
+	local x = (after and columns or columns - 1) * (size + across)
 	if not right then
 		x = -(x + size)
 	end
 	if first then
-		local y = (rows - 1) * (size + spacing + room)
+		local y = (rows - 1) * (size + spacing + room + gap)
 		return corner, x, down and -y or y + size, size
 	end
 	return (down and "BOTTOM" or "TOP") .. (right and "LEFT" or "RIGHT"), x, down and size or 0, size
+end
+
+local function Assist(view)
+	local ok = type(UnitCanAssist) == "function" and UnitCanAssist("player", view.unit, true, true)
+	return not issecretvalue(ok) and ok == true
+end
+
+local tracking = false
+local function Untrack()
+	tracking = false
+	K.Events.UnregisterAll(TRACK)
+end
+
+local function Retrack()
+	local any = false
+	for _, view in ipairs(views) do
+		local a = view.auras
+		if a and a.assist ~= nil then
+			any = true
+			if Wanted(view) and a.assist ~= Assist(view) then K.Call(Auras.Apply, view) end
+		end
+	end
+	if not any then Untrack() end
+end
+
+local function Track()
+	if tracking then return end
+	tracking = true
+	for _, event in ipairs({ "PLAYER_TARGET_CHANGED", "PLAYER_FOCUS_CHANGED", "INSTANCE_ENCOUNTER_ENGAGE_UNIT", "UNIT_FACTION", "UNIT_FLAGS" }) do
+		K.Events.Register(TRACK, event, Retrack)
+	end
+end
+
+local function Lanes(view, filter)
+	for _, lane in ipairs(LANES) do
+		local mode = Value(view, lane[1])
+		if mode ~= "" then filter = filter .. (mode == "hide" and "|!" or "|") .. lane[2] end
+	end
+	return filter
+end
+
+function Auras.Candidates(view, key)
+	local c, buffs = nil, key == "buffs"
+	if Value(view, "auraTimed") then c = { maxDuration = math.huge } end
+	local steal = buffs and Value(view, "buffStealable") or ""
+	if steal ~= "" then
+		c = c or {}
+		c.isStealable = steal == "only"
+	end
+	local tracked = buffs and Value(view, "auraTrackedOnly") and Value(view, "auraTracked") or ""
+	if tracked ~= "" and not FIXED_UNIT[view.kind] then
+		view.auras.assist = Assist(view)
+		Track()
+		if not view.auras.assist then tracked = "" end
+	end
+	c = K.Options.AuraCandidates({ allowSpells = tracked, blockSpells = Value(view, "auraHidden") }, c)
+	if not buffs and Value(view, "auraHideLockout") then
+		c = c or {}
+		local exclude = c.excludeSpellIDs or {}
+		for id in pairs(LOCKOUTS) do exclude[id] = true end
+		c.excludeSpellIDs = exclude
+	end
+	return c
+end
+
+local function Same(a, b)
+	if type(a) ~= "table" or type(b) ~= "table" then return a == b end
+	for k, v in pairs(a) do
+		if not Same(v, b[k]) then return false end
+	end
+	for k in pairs(b) do
+		if a[k] == nil then return false end
+	end
+	return true
+end
+
+function Auras.SetCandidates(cache, slot, container, key, candidates)
+	if Same(candidates, cache[slot]) then return end
+	cache[slot] = candidates
+	if type(container.SetAuraGroupCandidateFilters) == "function" then
+		container:SetAuraGroupCandidateFilters(key, candidates)
+	else
+		LogOnce("candidates", "frame auras: SetAuraGroupCandidateFilters is missing; duration, stealable and spell ID filters do nothing")
+	end
 end
 
 local function ApplyOverflow(view, filter, want)
@@ -633,7 +767,7 @@ local function ApplyOverflow(view, filter, want)
 			local on = want and filter[key] ~= nil
 			local point, x, y, cell = Auras.LastCell(view.kind, a.host, key == "debuffs" or not filter.debuffs, after)
 			Overflow.Apply(chip, {
-				enabled = on, filter = filter[key], cap = capacity, cell = cell, after = after,
+				enabled = on, groups = { { filter = filter[key], candidates = a.candidates[key] } }, cap = capacity, cell = cell, after = after,
 				rel = a.container, relPoint = point, x = x, y = y, level = level, accent = Settings.Accent,
 			})
 		end
@@ -649,6 +783,7 @@ local function ApplyContainer(view, fan)
 	for key, value in pairs(base) do
 		filter[key] = K.Options.AuraFilterString(settings, value)
 	end
+	if filter.buffs then filter.buffs = Lanes(view, filter.buffs) end
 	if fan then
 		filter.debuffs = not settings.onlyMine and base.debuffs == "HARMFUL" and filter.debuffs .. "|!PLAYER" or nil
 	end
@@ -660,6 +795,7 @@ local function ApplyContainer(view, fan)
 		if on then
 			container:SetAuraGroupFilterString(key, filter[key])
 		end
+		Auras.SetCandidates(a.candidates, key, container, key, on and Auras.Candidates(view, key) or nil)
 		container:SetAuraGroupLayout(key, GroupLayout(view, key))
 		container:SetAuraGroupMaxFrameCount(key, capacity)
 		if method ~= nil and type(container.SetAuraGroupSortMethod) == "function" then
@@ -715,21 +851,24 @@ local function EnableOverflow(view, on)
 end
 
 function Auras.Footprint(kind, frame)
-	local size, spacing = Settings.Value(kind, "auraSize"), Settings.Value(kind, "auraSpacing")
+	local size, spacing, across = Settings.Value(kind, "auraSize"), Settings.Value(kind, "auraSpacing"), Auras.Spacing(kind)
 	if frame then
-		size, spacing = Widgets.Snap(frame, size), Widgets.Snap(frame, spacing)
+		size, spacing, across = Widgets.Snap(frame, size), Widgets.Snap(frame, spacing), Widgets.Snap(frame, across)
 	end
 	local columns = Settings.Value(kind, "auraColumns")
 	local filter = FILTERS[Settings.Value(kind, "auraFilter")] or FILTERS.mine
 	local groups = filter.debuffs and filter.buffs and 2 or 1
 	local rows = Settings.Value(kind, "auraRows") * groups
-	local line = columns * size + (columns - 1) * spacing
-	local growth = GROWTH[Settings.Value(kind, "auraGrowth")] or GROWTH.RIGHT_DOWN
-	local timerRoom = TimerRoom(kind)
-	if frame then
-		timerRoom = Widgets.Snap(frame, timerRoom)
+	local line = size
+	for _ = 2, columns do
+		line = line + across + size
 	end
-	local height = rows * (size + timerRoom) + (rows - 1) * spacing
+	local growth = GROWTH[Settings.Value(kind, "auraGrowth")] or GROWTH.RIGHT_DOWN
+	local timerRoom, gap = TimerRoom(kind), rows > 1 and Settings.Value(kind, "auraRowGap") or 0
+	if frame then
+		timerRoom, gap = Widgets.Snap(frame, timerRoom), Widgets.Snap(frame, gap)
+	end
+	local height = rows * (size + timerRoom) + (rows - 1) * (spacing + gap)
 	if Centred(kind) then
 		growth = GROWTH.RIGHT_DOWN
 	end
@@ -793,6 +932,7 @@ function Auras.Apply(view)
 		return
 	end
 	a.container:SetEnabled(want and true or false)
+	a.assist, a.formatter = nil, Formatter(Value(view, "auraPrecise"))
 	local fan = ns.Fan.Apply(view, Active(view))
 	if want then
 		K.Call(ApplyContainer, view, fan)
@@ -821,4 +961,5 @@ function Auras.Disable()
 	end
 	pending = {}
 	StopWaiting()
+	if tracking then Untrack() end
 end

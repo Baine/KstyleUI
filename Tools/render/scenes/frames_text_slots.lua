@@ -1,4 +1,4 @@
--- frames_text_slots.lua: real default frames for base pixel comparisons, with optional extra text or unit-frame parity round 1, 2 or 3a options through Options.
+-- frames_text_slots.lua: real default frames for base pixel comparisons, with optional extra text or unit-frame parity round 1, 2, 3a or 3d options through Options.
 local Common = dofile("Tools/render/scenes/_common.lua")
 local Gallery = dofile("Tools/render/scenes/_gallery.lua")
 local Hud = dofile("Tools/render/scenes/hud.lua")
@@ -99,6 +99,38 @@ return Common.Run(function()
 		end
 		env._units.boss1.auras, env._units.target.auras = auras(3, 0), auras(2, 2)
 		dofile("Tools/regression/aura_fixture_engine.lua").Install(env)
+	end
+	if os.getenv("RENDER_PARITY_R3D") == "1" and module == "UnitFrames" then
+		env.GetNetStats = function() return 0, 0, 20, 42 end
+		env.C_Spell.GetSpellSubtext = function() return "Rank 3" end
+		env.C_TradeSkillUI = { GetRemainingRecasts = function() return 4 end }
+		local info = env.UnitCastingInfo
+		env.UnitCastingInfo = function(token)
+			local r = { info(token) }
+			if token == "player" and r[1] then r[6] = true end
+			return unpack(r, 1, 11)
+		end
+		dofile("Tools/regression/cooldowns_env.lua").StringUtil(env)
+		env.C_StringUtil.CreateSecondsFormatter = function()
+			return setmetatable({ Format = function(_, s) return s < 60 and string.format("%ds", s) or string.format("%dm %ds", s / 60, s % 60) end }, { __index = function() return function() end end })
+		end
+		env._units.target.auras = { { id = 1, icon = 135813, left = 272, harmful = true, mine = true }, { id = 2, icon = 136207, left = 168, harmful = true, mine = true },
+			{ id = 3, icon = 135846, left = 95, harmful = true, mine = true }, { id = 4, icon = 136096, left = 45, harmful = false }, { id = 5, icon = 136075, left = 230, harmful = false },
+			{ id = 6, icon = 135932, left = 299, harmful = false } }
+		K.Options.Get(module)
+		for _, pair in ipairs({ { "player.castbarFit", true }, { "player.castbarRank", true }, { "player.castbarLagText", true }, { "player.castbarCraft", true },
+			{ "target.castbarFit", true }, { "target.auras", true }, { "target.auraTimer", true }, { "target.auraFilter", "both" }, { "target.auraColumns", 3 },
+			{ "target.auraRows", 2 }, { "target.auraRowGap", 6 }, { "target.auraPrecise", 5 } }) do
+			K.Options.Write(module, pair[1], pair[2])
+		end
+		dofile("Tools/regression/aura_fixture_engine.lua").Install(env)
+		for token, name in pairs({ player = "Silk Bandage", target = "Shadow Bolt Volley of the Endless Abyss" }) do
+			local cast = env._units[token] and env._units[token].cast
+			if cast then
+				cast.name, cast.text = name, name
+				env.FireEvent("UNIT_SPELLCAST_START", token, "Cast-1", cast.spellID)
+			end
+		end
 	end
 	env.RunTimers(); Gallery.Ticks(dofile("Tools/regression/widget_env.lua"), env, 40)
 	assert(not Common.Errors(env, K), tostring(Common.Errors(env, K)))
