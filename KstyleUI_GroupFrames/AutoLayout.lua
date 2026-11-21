@@ -7,8 +7,6 @@ local Settings, Unit, Frames, Geometry = ns.Settings, ns.Unit, ns.Frames, ns.Geo
 local AutoLayout = { state = { bracket = "MEDIUM", healer = false } }
 ns.AutoLayout = AutoLayout
 
-local SMALL_MOST = 10
-local LARGE_LEAST = 26
 local HEALER_DISPELS = 2
 local HEALER_HEALS = 3
 local HEALER_WIDTH = 20
@@ -17,11 +15,12 @@ local MIN_NAME = 6
 local queued = false
 
 function AutoLayout.Bracket(members)
+	local auto = Settings.current.auto
 	if Unit.IsSecret(members) or type(members) ~= "number" then
 		return "MEDIUM"
-	elseif members >= LARGE_LEAST then
+	elseif members >= auto.largeLeast then
 		return "LARGE"
-	elseif members > 0 and members <= SMALL_MOST then
+	elseif members > 0 and members <= auto.smallMost then
 		return "SMALL"
 	end
 	return "MEDIUM"
@@ -55,6 +54,18 @@ local function Mythic()
 	return id ~= nil and not Unit.IsSecret(difficulty) and difficulty == id
 end
 
+local function Counted(cfg, state)
+	local sizes = cfg.auto.shownOnly and state.sizes
+	if not sizes then
+		return state.members
+	end
+	local count = 0
+	for g = 1, 8 do
+		if cfg.groups["show" .. g] then count = count + (sizes[g] or 0) end
+	end
+	return count
+end
+
 function AutoLayout.Overlay(cfg, state)
 	state = state or AutoLayout.state
 	if cfg.groups and not cfg.groups.mythicBench and Mythic() then
@@ -86,9 +97,10 @@ function AutoLayout.Overlay(cfg, state)
 		end
 		cfg.raid.width = cfg.raid.width + HEALER_WIDTH
 	end
-	if auto.size and state.bracket == "SMALL" then
+	local bracket = state.members and AutoLayout.Bracket(Counted(cfg, state)) or state.bracket
+	if auto.size and bracket == "SMALL" then
 		Small(cfg.raid)
-	elseif auto.size and state.bracket == "LARGE" then
+	elseif auto.size and bracket == "LARGE" then
 		Large(cfg.raid)
 	end
 	return cfg
@@ -99,26 +111,37 @@ function Settings.Refresh()
 	return AutoLayout.Overlay(refresh())
 end
 
-local function Read()
+local function Read(sizes)
+	local cfg = Settings.current
 	local raid = type(IsInRaid) == "function" and IsInRaid()
 	local members = not Unit.IsSecret(raid) and raid == true and type(GetNumGroupMembers) == "function" and GetNumGroupMembers() or nil
+	if Unit.IsSecret(members) or type(members) ~= "number" then members = nil end
 	local role = type(UnitGroupRolesAssigned) == "function" and UnitGroupRolesAssigned("player") or nil
 	local healer = not Unit.IsSecret(role) and role == "HEALER"
-	return { bracket = AutoLayout.Bracket(members), healer = healer, mythic = not Settings.current.groups.mythicBench and Mythic() }
+	sizes = members and (sizes or (cfg.groups.hideEmpty or cfg.auto.shownOnly) and Unit.GroupSizes(members)) or nil
+	local filled = sizes and ""
+	for g = 1, sizes and 8 or 0 do
+		filled = filled .. ((sizes[g] or 0) > 0 and g or "")
+	end
+	local state = { members = members, sizes = sizes, filled = filled, healer = healer, mythic = not cfg.groups.mythicBench and Mythic() }
+	state.bracket = AutoLayout.Bracket(Counted(cfg, state))
+	return state
 end
 
-local function Settle()
+local function Settle(sizes)
 	queued = false
-	local now, state = Read(), AutoLayout.state
-	if now.bracket == state.bracket and now.healer == state.healer and now.mythic == state.mythic then
+	local cfg, state = Settings.current, AutoLayout.state
+	local now = Read(sizes)
+	AutoLayout.state = now
+	if now.bracket == AutoLayout.Bracket(Counted(cfg, state)) and now.healer == state.healer and now.mythic == state.mythic
+		and (now.filled == state.filled or not cfg.groups.hideEmpty) then
 		return
 	end
-	AutoLayout.state = now
 	K.DevTest.Log(Settings.MODULE, "automatic layout: " .. now.bracket:lower() .. " raid, " .. (now.healer and "healer" or "not healing"))
 	Frames.Apply()
 end
 
-function AutoLayout.Check()
+function AutoLayout.Check(sizes)
 	if InCombatLockdown() then
 		if not queued then
 			queued = true
@@ -126,21 +149,33 @@ function AutoLayout.Check()
 		end
 		return
 	end
-	Settle()
+	Settle(sizes)
+end
+
+local function Recheck()
+	AutoLayout.Check()
+end
+
+local function OnSetting(_, module, key)
+	if module == Settings.MODULE and type(key) == "string" and (key:match("^auto%.") or key:match("^groups%.")) and Frames.Active() then
+		Recheck()
+	end
 end
 
 local enable = Frames.Enable
 function Frames.Enable()
 	AutoLayout.state = Read()
-	return enable()
+	enable()
+	K.Callbacks.Register("SettingChanged", "GroupFrames.AutoLayout", OnSetting)
+	K.Callbacks.Register("ProfileChanged", "GroupFrames.AutoLayout", Recheck)
+	if Settings.current.groups.hideEmpty or Settings.current.auto.shownOnly then Recheck() end
 end
 
-local rosterChanged = Unit.RosterChanged
-function Unit.RosterChanged(...)
-	rosterChanged(...)
-	AutoLayout.Check()
+local flush = Unit.FlushRoster
+function Unit.FlushRoster()
+	AutoLayout.Check(flush())
 end
 
 for _, event in ipairs({ "PLAYER_ROLES_ASSIGNED", "PLAYER_SPECIALIZATION_CHANGED", "PLAYER_DIFFICULTY_CHANGED", "ZONE_CHANGED_NEW_AREA" }) do
-	Frames.events[#Frames.events + 1] = { event = event, fn = AutoLayout.Check }
+	Frames.events[#Frames.events + 1] = { event = event, fn = Recheck }
 end
