@@ -72,12 +72,17 @@ local function NewCard(parent, holder, shape, title)
 	return { frame = card, chrome = K.Widgets.Chrome(card, shape), cap = K.Widgets.RailCap(card, { title = title }) }
 end
 
+local classOrder, classGeneration
 local function ClassOrder()
-	if type(CLASS_SORT_ORDER) == "table" and #CLASS_SORT_ORDER > 0 then
-		return table.concat(CLASS_SORT_ORDER, ",")
+	if classOrder and classGeneration == ns.Settings.generation then return classOrder end
+	local sort, seen, out = ns.Settings.current.sort, {}, {}
+	local function Add(class)
+		if type(class) == "string" and not seen[class] then seen[class], out[#out + 1] = true, class end
 	end
-	Style.LogOnce("noClassOrder", "CLASS_SORT_ORDER is missing; raid frames sorted by class keep group order")
-	return nil
+	for i = 1, #ns.Settings.CLASSES do Add(sort["class" .. i]) end
+	for _, class in ipairs(ns.Settings.CLASSES) do Add(class) end
+	classOrder, classGeneration = table.concat(out, ","), ns.Settings.generation
+	return classOrder
 end
 
 function Headers.Build()
@@ -166,12 +171,9 @@ local function Sort(header, sortBy, groups)
 	elseif sortBy == "GROUP" then
 		header:SetAttribute("groupBy", "GROUP")
 		header:SetAttribute("groupingOrder", groups)
-	elseif sortBy == "CLASS" then
-		local order = ClassOrder()
-		if order then
-			header:SetAttribute("groupBy", "CLASS")
-			header:SetAttribute("groupingOrder", order)
-		end
+	elseif sortBy == "CLASS" or ns.Settings.current.sort.classFirst then
+		header:SetAttribute("groupBy", "CLASS")
+		header:SetAttribute("groupingOrder", ClassOrder())
 	end
 end
 
@@ -397,6 +399,19 @@ local function RaidHeader(header, holder, s)
 	return header, holder
 end
 
+local function Centre(s, geo, shown)
+	local filled, per, first, rows, last = ns.AutoLayout.state.filled, math.min(s.groupsPerRow, #shown), {}, {}, 0
+	if not (s.center and Separate(s) and filled and per > 1) then return 0, 0, 0, rows end
+	for slot, g in ipairs(shown) do
+		local row, col = math.ceil(slot / s.groupsPerRow), (slot - 1) % s.groupsPerRow
+		if filled:find(g, 1, true) then first[row], rows[row], last = first[row] or col, col, slot end
+	end
+	local card = last > 0 and (per - math.min(per, last)) / 2 or 0
+	for row, col in pairs(rows) do rows[row] = (per - 1 - first[row] - col) / 2 - card end
+	local a, b = geo.slots[1], geo.slots[2]
+	return b.x - a.x, b.y - a.y, card, rows
+end
+
 function Headers.ApplyRaid(s)
 	s = OnGrid("raid", s)
 	local numbers = ns.Settings.current.numbers
@@ -407,12 +422,13 @@ function Headers.ApplyRaid(s)
 	geo.height = geo.height + s.numberRoom
 	local width, height, left, top = Seat(card, s, geo, "raid")
 	holder:SetSize(width, height)
-	card.shiftX, card.shiftY = Px("raid", ns.AutoLayout.shiftX), Px("raid", ns.AutoLayout.shiftY)
+	local shown, hidden = ShownGroups(), ns.AutoLayout.state.smallRaid
+	local dx, dy, centre, rows = Centre(s, geo, shown)
+	card.shiftX, card.shiftY = Px("raid", ns.AutoLayout.shiftX + dx * centre), Px("raid", ns.AutoLayout.shiftY + dy * centre)
 	Headers.FitRaid(card.members, card.groups, true)
 	geo.left, geo.top = left, top
 	local x, y = Offset(geo, card, left, top, nil, "raid")
 	x, y = x + card.shiftX, y + card.shiftY
-	local shown, hidden = ShownGroups(), ns.AutoLayout.state.smallRaid
 	if Separate(s) then
 		for g, header in ipairs(Headers.raid) do
 			RaidHeader(header, holder, s)
@@ -420,8 +436,8 @@ function Headers.ApplyRaid(s)
 			Sort(header, "INDEX")
 			Columns(header, nil, nil, nil, nil)
 			Grow(header, geo, "raid")
-			local slot = geo.slots[g]
-			header:SetPoint(geo.corner, holder, geo.corner, slot.x + x, slot.y + y - (geo.corner:find("TOP", 1, true) and s.numberRoom or 0))
+			local slot, row = geo.slots[g], rows[math.ceil(g / s.groupsPerRow)] or 0
+			header:SetPoint(geo.corner, holder, geo.corner, slot.x + x + Px("raid", dx * row), slot.y + y + Px("raid", dy * row) - (geo.corner:find("TOP", 1, true) and s.numberRoom or 0))
 			Precreate(header, GROUP_BUTTONS)
 			Driver(header, shown[g] and not hidden and DRIVER_RAID or DRIVER_HIDE)
 		end

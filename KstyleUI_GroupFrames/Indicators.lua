@@ -104,14 +104,22 @@ end
 local function Layout(f, parts, k)
 	local icons = parts.icons
 	local size = Widgets.Snap(f, icons.size)
-	f.roleInRing = icons.roleInRing == true
+	local health, cfg = parts.health, Settings.current.icons
+	local roleRect = cfg.rolePlace == "AUTO" and icons.role or nil
+	f.roleInRing = icons.roleInRing == true and roleRect ~= nil
 	if f.roleInRing then
 		f.role:Hide()
 	end
 	f.pipped = icons.pip == true
 	local roleSize = f.pipped and Widgets.Snap(f, icons.role.width) or size
-	PlaceIcon(f, f.role, icons.role, roleSize)
-	PlaceIcon(f, f.pipEdge, icons.role, roleSize)
+	if roleRect then
+		PlaceIcon(f, f.role, roleRect, roleSize)
+		PlaceIcon(f, f.pipEdge, roleRect, roleSize)
+	else
+		roleSize = Widgets.Snap(f, math.min(roleSize, health.height))
+		Pin(f, f.role, cfg.rolePlace, roleSize, cfg.roleX, cfg.roleY)
+		Pin(f, f.pipEdge, cfg.rolePlace, roleSize, cfg.roleX, cfg.roleY)
+	end
 	local edge = Widgets.Border(f)
 	f.pipFill:ClearAllPoints()
 	f.pipFill:SetPoint("TOPLEFT", f.pipEdge, "TOPLEFT", edge, -edge)
@@ -126,8 +134,6 @@ local function Layout(f, parts, k)
 	f.assist:ClearAllPoints()
 	f.assist:SetSize(size, size)
 	f.assist:SetPoint("CENTER", f.leader, "CENTER", 0, 0)
-	local health = parts.health
-	local cfg = Settings.current.icons
 	local own = cfg.readySize > 0 and Widgets.Snap(f, math.min(cfg.readySize, health.height)) or nil
 	local ready, status = own or Widgets.Snap(f, math.min(health.height, k.iconSize * READY_SHARE)), own or 14
 	f.ready:ClearAllPoints()
@@ -155,27 +161,30 @@ local function Layout(f, parts, k)
 		Widgets.Size(icon, status, status)
 		icon:ClearAllPoints()
 		Widgets.Point(icon, "TOPLEFT", f, "TOPLEFT", statusLeft, -statusTop)
-		if cfg.readyPlace ~= "AUTO" then Pin(f, icon, cfg.readyPlace) end
+		if cfg.readyPlace ~= "AUTO" then Pin(f, icon, cfg.readyPlace, nil, cfg.readyX, cfg.readyY) end
 	end
 	if cfg.readyPlace ~= "AUTO" then
-		Pin(f, f.ready, cfg.readyPlace)
+		Pin(f, f.ready, cfg.readyPlace, nil, cfg.readyX, cfg.readyY)
 	end
 	if cfg.markerPlace ~= "AUTO" then
-		Pin(f, f.marker, cfg.markerPlace, markerSize)
+		Pin(f, f.marker, cfg.markerPlace, markerSize, cfg.markerX, cfg.markerY)
 	end
 	if cfg.roleText and not f.roleLetter then
 		f.roleLetter = Widgets.FontString(f.text, "OVERLAY")
 		f.roleLetter:SetJustifyH("CENTER")
 	end
 	if f.roleLetter then
-		local rect = icons.role
 		f.roleLetter:ClearAllPoints()
-		f.roleLetter:SetPoint("CENTER", f, "TOPLEFT", Widgets.Snap(f, rect.left + rect.width / 2), -Widgets.Snap(f, rect.top + rect.height / 2))
-		Style.SetFont(f.roleLetter, Settings.current.text.healthFont, math.max(6, rect.height), "OUTLINE")
+		if roleRect then
+			f.roleLetter:SetPoint("CENTER", f, "TOPLEFT", Widgets.Snap(f, roleRect.left + roleRect.width / 2), -Widgets.Snap(f, roleRect.top + roleRect.height / 2))
+		else
+			f.roleLetter:SetPoint("CENTER", f.role, "CENTER", 0, 0)
+		end
+		Style.SetFont(f.roleLetter, Settings.current.text.healthFont, math.max(6, roleRect and roleRect.height or roleSize), "OUTLINE")
 	end
 	if f.combatIcon or cfg.combat then
 		f.combatIcon = f.combatIcon or f.text:CreateTexture(nil, "OVERLAY")
-		Pin(f, f.combatIcon, cfg.combatPlace, Widgets.Snap(f, math.min(cfg.combatSize, health.height)))
+		Pin(f, f.combatIcon, cfg.combatPlace, Widgets.Snap(f, math.min(cfg.combatSize, health.height)), cfg.combatX, cfg.combatY)
 	end
 end
 Style.appliers[#Style.appliers + 1] = Layout

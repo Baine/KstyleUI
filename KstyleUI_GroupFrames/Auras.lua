@@ -817,7 +817,7 @@ local function PlaceType(f)
 	local d, slot = Settings.current.dispel, f.typeFrame
 	if not slot or d.icon == "NONE" then return end
 	slot:SetFrameLevel(f.highlights:GetFrameLevel() + TEXT_ABOVE)
-	Style.Pin(f, f.typeIcon, d.icon, Widgets.Snap(f, math.min(d.iconSize, f.parts.health.height)))
+	Style.Pin(f, f.typeIcon, d.icon, Widgets.Snap(f, math.min(d.iconSize, f.parts.health.height)), d.x, d.y)
 end
 
 local function TypeOptions()
@@ -1229,6 +1229,9 @@ local function HealIcons(f, k)
 	while count > 0 and Geometry.Line(count, size, spacing) > row.width + LINE_SLACK do
 		count = count - 1
 	end
+	if k.buffX ~= 0 or k.buffY ~= 0 then
+		row = { left = row.left + k.buffX, top = row.top - k.buffY, width = row.width, height = row.height, side = row.side }
+	end
 	return row.side or "LEFT", count, size, spacing, inset, nil, row
 end
 Auras.HealIcons = HealIcons
@@ -1269,7 +1272,7 @@ local function ConfigureBuffs(f)
 		local x = side == "RIGHT" and row.left + row.width or row.left
 		clip:SetPoint(corner, f, "TOPLEFT", Widgets.Snap(f, x), -Widgets.Snap(f, row.top))
 	else
-		clip:SetPoint(corner, f, corner, 0, 0)
+		clip:SetPoint(corner, f, corner, Widgets.Snap(f, k.buffX), Widgets.Snap(f, k.buffY))
 	end
 	clip:SetSize(math.max(1, Geometry.Line(count, size, spacing)), size + TimerRoom(f, size))
 	container:ClearAllPoints()
@@ -1651,7 +1654,7 @@ local function PaintSample(f, sample)
 		f.sampleType = f.sampleType or f.text:CreateTexture(nil, "OVERLAY")
 		f.sampleType:SetTexture((Tokens.Texture("dispel" .. sample.dispel:sub(1, 1))))
 		f.sampleType:SetVertexColor(own and own.r or 1, own and own.g or 1, own and own.b or 1)
-		Style.Pin(f, f.sampleType, d.icon, Widgets.Snap(f, math.min(d.iconSize, f.parts.health.height)))
+		Style.Pin(f, f.sampleType, d.icon, Widgets.Snap(f, math.min(d.iconSize, f.parts.health.height)), d.x, d.y)
 	end
 	if f.sampleType then f.sampleType:SetShown(sample.dispel ~= nil and d.icon ~= "NONE") end
 	local dispel = a.dispelHighlight and sample.dispel
