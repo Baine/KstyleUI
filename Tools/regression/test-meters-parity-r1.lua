@@ -243,7 +243,7 @@ for i, part in ipairs(parts) do
 end
 Errors("preview")
 
--- The new elements' default places stay clear of the HUD on every owner screen, style and layout.
+-- The new elements' default places, and the threat card docked beside the damage card in Both, stay clear of the HUD on every owner screen, style and layout.
 for _, screen in ipairs({ { 1920, 1080 }, { 2560, 1440 }, { 5120, 1440 }, { 3840, 2160 } }) do
 	for _, style in ipairs({ "frames", "orbs", "medallions" }) do
 		for _, layout in ipairs({ "DPS", "Tank", "Healer" }) do
@@ -269,6 +269,9 @@ for _, screen in ipairs({ { 1920, 1080 }, { 2560, 1440 }, { 5120, 1440 }, { 3840
 					assert(p == q or lhs.right <= second.left or second.right <= lhs.left or lhs.top <= second.bottom or second.top <= lhs.bottom, p .. " overlaps " .. q)
 				end
 			end
+			M.Write(e, k, "damage2.shown", false)
+			assert(n.Threat.paired, "the threat card docks beside the damage card in Both")
+			mine["docked threat"] = assert(Geometry.Rect(n.Threat.holder, r0))
 			for _, element in ipairs(layouts.ELEMENTS) do
 				local key = element.key
 				if enabled[key] ~= false and places[key] and not (style == "orbs" and key == "unitframes.player") then
