@@ -134,7 +134,7 @@ local function Layout(f, parts)
 		f.healAbsorbLine = Widgets.StatusBar(f.predict, { background = false, smooth = true })
 	end
 	if f.healAbsorbLine then
-		Line(f, f.healAbsorbLine, rect, line, ACROSS[p.shieldPlace], p.healAbsorbColor)
+		Line(f, f.healAbsorbLine, rect, p.healAbsorbLines > 0 and Widgets.Border(f) * p.healAbsorbLines or line, ACROSS[p.shieldPlace], p.healAbsorbColor)
 		f.healAbsorbLine:SetShown(p.healAbsorbLine)
 	end
 	if p.overshield and not f.overClip then

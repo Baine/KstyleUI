@@ -22,11 +22,11 @@ function Preview.Build(...)
 
 	local SAMPLES = {
 		{
-			name = "Thaldren", class = "WARRIOR", health = 0.72, power = 0.35, role = "TANK", leader = true, threat = 3, absorb = 0.05, shield = 0.3,
+			name = "Thaldren", follower = "Thaldren Ironvow", class = "WARRIOR", health = 0.72, power = 0.35, role = "TANK", leader = true, threat = 3, absorb = 0.05, shield = 0.3,
 			healAbsorb = 0.18, debuffs = 2, hots = 2, boss = true, indicators = { EXTERNAL = true }, combat = true, overshield = 0.4,
 		},
 		{ name = "Sylaen", class = "DRUID", health = 0.87, power = 0.8, far = true, role = "HEALER", dispel = "Magic", debuffs = 1, hots = 1, indicators = { CROWD_CONTROL = true } },
-		{ name = "Kragar", class = "SHAMAN", health = 0.76, power = 0.6, target = true, role = "DAMAGER", marker = 1, incoming = 0.12, healAbsorb = 0.1 },
+		{ name = "Kragar", class = "SHAMAN", health = 0.76, power = 0.6, target = true, role = "DAMAGER", marker = 1, incoming = 0.12, healAbsorb = 0.1, maxLoss = 0.15 },
 		{ name = "Lunara", class = "MAGE", health = 0, power = 0, dead = true },
 		{ name = "Vexen", class = "PRIEST", health = 0.94, power = 0.9 },
 		{ name = "Orrin", class = "PALADIN", health = 0.55, power = 0.5, debuffs = 9, dispel = "Curse", hots = 3, shield = 0.2, healAbsorb = 0.12, indicators = { BIG_DEFENSIVE = true } },
@@ -92,7 +92,7 @@ function Preview.Build(...)
 		Style.PlaceRowEnd(f)
 		local cr, cg, cb = Theme.ClassColor(sample.class)
 		f.health:SetBarRange(0, 1)
-		f.health:SetBarValue(sample.health)
+		f.health:SetBarValue(f.missingFill and 1 - sample.health or sample.health)
 		local alpha, source = cfg.health.alpha, cfg.health.colorSource
 		local r, g, b
 		if sample.dead or sample.offline then
@@ -123,7 +123,7 @@ function Preview.Build(...)
 				f.power:SetBarColor(Tokens.Color("rare"))
 			end
 		end
-		ns.Names.Set(f, sample.name)
+		ns.Names.Set(f, cfg[f.kind].nameFormat ~= "FULL" and sample.follower or sample.name)
 		if f.status then
 			f.name:SetTextColor(Tokens.Color("textDisabled"))
 		elseif cfg.text.nameColorSource == "class" then
@@ -204,26 +204,29 @@ function Preview.Build(...)
 		local memberSpacing = Geometry.IsVertical(party.growth) and party.spacing or (party.spacing + partyGeo.lane)
 		local x0 = partyGeo.laneSide == "LEFT" and partyGeo.lane or 0
 		PlaceRun(preview.partyFrames, preview.party, party, party.growth, count, x0, 0, partyGeo.corner, partyGeo.memberWidth, memberSpacing)
+		local total = GROUP_SIZE * RAID_GROUPS_SHOWN
+		local size = raid.sortBy == "GROUP" and raid.merge and math.min(raid.unitsPerColumn, total) or GROUP_SIZE
+		local shownGroups = math.ceil(total / size)
 		local gw, gh
 		if Geometry.IsVertical(raid.growth) then
-			gw, gh = raid.width, Geometry.Line(GROUP_SIZE, raid.height, raid.spacing)
+			gw, gh = raid.width, Geometry.Line(size, raid.height, raid.spacing)
 		else
-			gw, gh = Geometry.Line(GROUP_SIZE, raid.width, raid.spacing), raid.height
+			gw, gh = Geometry.Line(size, raid.width, raid.spacing), raid.height
 		end
 		local groupsWide = not Geometry.IsVertical(Geometry.Perpendicular(raid.growth, raid.groupGrowth))
-		local rw = groupsWide and Geometry.Line(RAID_GROUPS_SHOWN, gw, raid.groupSpacing) or gw
-		local rh = groupsWide and gh or Geometry.Line(RAID_GROUPS_SHOWN, gh, raid.groupSpacing)
+		local rw = groupsWide and Geometry.Line(shownGroups, gw, raid.groupSpacing) or gw
+		local rh = groupsWide and gh or Geometry.Line(shownGroups, gh, raid.groupSpacing)
 		preview.raid:SetSize(rw, rh)
 		preview.raid:ClearAllPoints()
 		preview.raid:SetPoint("TOPLEFT", preview.raidCanvas, "TOPLEFT", 0, 0)
 		local corner = Geometry.Corner(raid.growth, raid.groupGrowth)
-		for g = 1, RAID_GROUPS_SHOWN do
+		for g = 1, shownGroups do
 			local frames = {}
-			for m = 1, GROUP_SIZE do
-				frames[m] = preview.raidFrames[(g - 1) * GROUP_SIZE + m]
+			for m = 1, math.min(size, total - (g - 1) * size) do
+				frames[m] = preview.raidFrames[(g - 1) * size + m]
 			end
 			local ox, oy = Geometry.Offset(Geometry.Perpendicular(raid.growth, raid.groupGrowth), (g - 1) * ((groupsWide and gw or gh) + raid.groupSpacing))
-			PlaceRun(frames, preview.raid, raid, raid.growth, GROUP_SIZE, ox, oy, corner)
+			PlaceRun(frames, preview.raid, raid, raid.growth, #frames, ox, oy, corner)
 		end
 		preview.canvas:SetSize(pw, ph)
 		preview.raidCanvas:SetSize(rw, rh)

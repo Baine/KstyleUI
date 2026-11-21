@@ -4,14 +4,16 @@ local _, ns = ...
 local K = KstyleUI
 local Settings, Unit, Frames, Geometry = ns.Settings, ns.Unit, ns.Frames, ns.Geometry
 
-local AutoLayout = { state = { bracket = "MEDIUM", healer = false } }
+local AutoLayout = { state = { bracket = "MEDIUM", healer = false }, shiftX = 0, shiftY = 0 }
 ns.AutoLayout = AutoLayout
 
 local HEALER_DISPELS = 2
 local HEALER_HEALS = 3
 local HEALER_WIDTH = 20
+local MIN_WIDTH = 40
 local MIN_HEIGHT = 16
 local MIN_NAME = 6
+local SMALL_RAID = 10
 local queued = false
 
 function AutoLayout.Bracket(members)
@@ -66,8 +68,26 @@ local function Counted(cfg, state)
 	return count
 end
 
+local function Custom(cfg, size, base)
+	local auto, raid = cfg.auto, cfg.raid
+	if auto[size .. "Width"] == nil then
+		return
+	end
+	if auto[size .. "Width"] > 0 then raid.width = math.max(MIN_WIDTH, auto[size .. "Width"]) end
+	if auto[size .. "Height"] > 0 then raid.height = math.max(MIN_HEIGHT, auto[size .. "Height"]) end
+	AutoLayout.shiftX, AutoLayout.shiftY = auto[size .. "X"], auto[size .. "Y"]
+	local ratio = raid.height / base
+	local function Scale(t, key) t[key] = math.max(1, math.floor(t[key] * ratio + 0.5)) end
+	if auto.icons then
+		Scale(raid, "auraSize")
+		for i = 1, Settings.INDICATOR_SLOTS do Scale(cfg["indicator" .. i], "size") end
+	end
+	if auto.heals then Scale(raid, "buffSize") end
+end
+
 function AutoLayout.Overlay(cfg, state)
 	state = state or AutoLayout.state
+	AutoLayout.shiftX, AutoLayout.shiftY = 0, 0
 	if cfg.groups and not cfg.groups.mythicBench and Mythic() then
 		for g = 5, 8 do cfg.groups["show" .. g] = false end
 	end
@@ -98,10 +118,15 @@ function AutoLayout.Overlay(cfg, state)
 		cfg.raid.width = cfg.raid.width + HEALER_WIDTH
 	end
 	local bracket = state.members and AutoLayout.Bracket(Counted(cfg, state)) or state.bracket
-	if auto.size and bracket == "SMALL" then
+	local base = cfg.raid.height
+	if state.smallRaid then
+		return cfg
+	elseif auto.size and bracket == "SMALL" then
 		Small(cfg.raid)
+		Custom(cfg, "small", base)
 	elseif auto.size and bracket == "LARGE" then
 		Large(cfg.raid)
+		Custom(cfg, "large", base)
 	end
 	return cfg
 end
@@ -114,7 +139,8 @@ end
 local function Read(sizes)
 	local cfg = Settings.current
 	local raid = type(IsInRaid) == "function" and IsInRaid()
-	local members = not Unit.IsSecret(raid) and raid == true and type(GetNumGroupMembers) == "function" and GetNumGroupMembers() or nil
+	local count = type(GetNumGroupMembers) == "function" and GetNumGroupMembers()
+	local members = not Unit.IsSecret(raid) and raid == true and count or nil
 	if Unit.IsSecret(members) or type(members) ~= "number" then members = nil end
 	local role = type(UnitGroupRolesAssigned) == "function" and UnitGroupRolesAssigned("player") or nil
 	local healer = not Unit.IsSecret(role) and role == "HEALER"
@@ -123,7 +149,12 @@ local function Read(sizes)
 	for g = 1, sizes and 8 or 0 do
 		filled = filled .. ((sizes[g] or 0) > 0 and g or "")
 	end
-	local state = { members = members, sizes = sizes, filled = filled, healer = healer, mythic = not cfg.groups.mythicBench and Mythic() }
+	local party = cfg.party
+	local small = party.smallRaid and members ~= nil and members < SMALL_RAID
+	local kind = small and type(IsInInstance) == "function" and select(2, IsInInstance())
+	local state = { members = members, sizes = sizes, filled = filled, healer = healer, mythic = not cfg.groups.mythicBench and Mythic(),
+		solo = party.centerSolo and party.showSolo and not Unit.IsSecret(count) and count == 0,
+		smallRaid = small and not Unit.IsSecret(kind) and type(kind) == "string" and kind ~= "pvp" }
 	state.bracket = AutoLayout.Bracket(Counted(cfg, state))
 	return state
 end
@@ -134,7 +165,7 @@ local function Settle(sizes)
 	local now = Read(sizes)
 	AutoLayout.state = now
 	if now.bracket == AutoLayout.Bracket(Counted(cfg, state)) and now.healer == state.healer and now.mythic == state.mythic
-		and (now.filled == state.filled or not cfg.groups.hideEmpty) then
+		and (now.filled == state.filled or not cfg.groups.hideEmpty) and now.solo == state.solo and now.smallRaid == state.smallRaid then
 		return
 	end
 	K.DevTest.Log(Settings.MODULE, "automatic layout: " .. now.bracket:lower() .. " raid, " .. (now.healer and "healer" or "not healing"))
@@ -157,7 +188,7 @@ local function Recheck()
 end
 
 local function OnSetting(_, module, key)
-	if module == Settings.MODULE and type(key) == "string" and (key:match("^auto%.") or key:match("^groups%.")) and Frames.Active() then
+	if module == Settings.MODULE and type(key) == "string" and (key:match("^auto%.") or key:match("^groups%.") or key:match("^party%.")) and Frames.Active() then
 		Recheck()
 	end
 end
@@ -168,7 +199,8 @@ function Frames.Enable()
 	enable()
 	K.Callbacks.Register("SettingChanged", "GroupFrames.AutoLayout", OnSetting)
 	K.Callbacks.Register("ProfileChanged", "GroupFrames.AutoLayout", Recheck)
-	if Settings.current.groups.hideEmpty or Settings.current.auto.shownOnly then Recheck() end
+	local cfg = Settings.current
+	if cfg.groups.hideEmpty or cfg.auto.shownOnly or cfg.party.centerSolo or cfg.party.smallRaid then Recheck() end
 end
 
 local flush = Unit.FlushRoster

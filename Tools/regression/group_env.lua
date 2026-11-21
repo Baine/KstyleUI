@@ -234,6 +234,17 @@ local function installRoster(env)
 	for _, name in pairs(roleIcons) do
 		atlases[name] = { width = 21, height = 21 }
 	end
+	-- Blizzard_UnitFrame/Shared/CompactUnitFrame.lua's absorb atlases.
+	for _, name in ipairs({ "RaidFrame-Shield-Overlay", "RaidFrame-Absorb-Overlay", "raidframe-MaximumHealthReduction-Overlay", "RaidFrame-Shield-Overshield" }) do
+		atlases[name] = { width = 32, height = 32 }
+	end
+	function env.GetUnitTotalModifiedMaxHealthPercent(unit)
+		local m = member(unit)
+		return m and m.maxLoss or 0
+	end
+	function env.IsInInstance()
+		return env._instance ~= nil, env._instance or "none"
+	end
 	env.C_Texture = env.C_Texture or {}
 	function env.C_Texture.GetAtlasInfo(name)
 		return atlases[name]
@@ -296,8 +307,10 @@ local function installPrediction(env)
 		function calc.GetIncomingHeals(self)
 			return env.Secret(self.heals), env.Secret(0), env.Secret(self.heals), env.Secret(false)
 		end
+		-- UnitHealPredictionCalculatorSharedDocumentation.lua: MissingHealth subtracts the incoming heals from the missing health.
 		function calc.GetDamageAbsorbs(self)
-			return env.Secret(self.absorbs), env.Secret(false)
+			local heals = self.modes.absorb == env.Enum.UnitDamageAbsorbClampMode.MissingHealth and self.heals or 0
+			return env.Secret(self.absorbs), env.Secret(self.absorbs > (self.missing or 0) - heals)
 		end
 		function calc.SetHealAbsorbClampMode(self, mode)
 			self.modes.healAbsorb = mode
@@ -313,6 +326,7 @@ local function installPrediction(env)
 		calc.heals = m and m.incoming or 0
 		calc.absorbs = m and m.absorb or 0
 		calc.healAbsorbs = m and m.healAbsorb or 0
+		calc.missing = m and (m.maxHealth or 100) - (m.health or 100) or 0
 	end
 	function env.UnitGetTotalHealAbsorbs(unit)
 		local m = env._member(unit)
@@ -533,7 +547,7 @@ local function relativeAnchor(point)
 end
 
 -- Anchors the shown children as configureChildren does in SecureGroupHeaders.lua: the first at the header's
--- point, each next one against the previous at the header's xOffset and yOffset, each new column against the
+-- point and, with more than one column filled, at its columnAnchorPoint too, each next one against the previous at the header's xOffset and yOffset, each new column against the
 -- first of the previous column at columnAnchorPoint and columnSpacing; then sizes the header around them.
 local function anchorChildren(env, header, numDisplayed, perColumn, columns)
 	local a = header._attributes
@@ -541,7 +555,7 @@ local function anchorChildren(env, header, numDisplayed, perColumn, columns)
 	local relativePoint, xSign, ySign = relativeAnchor(point)
 	local xMult, yMult = math.abs(xSign), math.abs(ySign)
 	local xOffset, yOffset = a.xOffset or 0, a.yOffset or 0
-	local columnPoint = a.columnAnchorPoint
+	local columnPoint = columns > 1 and a.columnAnchorPoint or nil
 	local columnSpacing = a.columnSpacing or 0
 	local colRel, colX, colY = relativeAnchor(columnPoint)
 	for i = 1, numDisplayed do
@@ -550,6 +564,9 @@ local function anchorChildren(env, header, numDisplayed, perColumn, columns)
 		local columnNum = math.floor((i - 1) / perColumn) + 1
 		if buttonNum == 1 and columnNum == 1 then
 			button:SetPoint(point, header, point, 0, 0)
+			if columnPoint then
+				button:SetPoint(columnPoint, header, columnPoint, 0, 0)
+			end
 		elseif buttonNum == 1 and columnPoint then
 			button:SetPoint(columnPoint, a["child" .. (i - perColumn)], colRel, colX * columnSpacing, colY * columnSpacing)
 		else
