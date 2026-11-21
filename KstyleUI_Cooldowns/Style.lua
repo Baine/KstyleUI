@@ -91,13 +91,14 @@ function Style.Font(text, choice, size, outline, role)
 	end
 end
 
-local formatter
+local formatters = {}
 
-local function Formatter()
-	if formatter ~= nil then
-		return formatter or nil
+local function Formatter(tenths)
+	local key = tenths or 0
+	if formatters[key] ~= nil then
+		return formatters[key] or nil
 	end
-	formatter = false
+	formatters[key] = false
 	local util, E = C_StringUtil, Enum
 	if not (util and type(util.CreateSecondsFormatter) == "function" and E and E.SecondsFormatterAbbreviation and E.SecondsFormatterRounding and E.SecondsFormatterInterval) then
 		ns.LogOnce("countdown", "C_StringUtil.CreateSecondsFormatter is missing; countdowns keep the engine's numbers")
@@ -113,26 +114,27 @@ local function Formatter()
 		if E.SecondsFormatterIntervalWhitespace and E.SecondsFormatterIntervalWhitespace.Strip ~= nil then
 			f:SetStripIntervalWhitespace(E.SecondsFormatterIntervalWhitespace.Strip)
 		end
+		if tenths then f:SetMillisecondsThreshold(tenths) end
 		return f
 	end)
 	if ok and made then
-		formatter = made
+		formatters[key] = made
 		ns.LogOnce("countdown", "countdowns read with a one-letter seconds formatter (4s, 2m)")
 	else
 		ns.LogOnce("countdown", "the countdown formatter failed (" .. tostring(made) .. "); countdowns keep the engine's numbers")
 	end
-	return formatter or nil
+	return formatters[key] or nil
 end
 
-function Style.Countdown(cooldown, native, bar)
+function Style.Countdown(cooldown, native, bar, tenths)
 	if type(cooldown) ~= "table" or type(cooldown.SetCountdownFormatter) ~= "function" then
 		return false
 	end
 	if not bar and ns.Settings.current.readableCountdown then
-		return pcall(Widgets.CountdownFormat, cooldown)
+		return pcall(Widgets.CountdownFormat, cooldown, tenths)
 	end
-	if native then return pcall(cooldown.SetCountdownFormatter, cooldown, nil) end
-	local f = Formatter()
+	if native and not tenths then return pcall(cooldown.SetCountdownFormatter, cooldown, nil) end
+	local f = Formatter(tenths)
 	if not f then
 		return false
 	end
@@ -141,6 +143,18 @@ function Style.Countdown(cooldown, native, bar)
 		ns.LogOnce("countdown-set", "SetCountdownFormatter failed (" .. tostring(err) .. "); countdowns keep the engine's numbers")
 	end
 	return ok
+end
+
+local coloured = setmetatable({}, { __mode = "k" })
+
+function Style.TextColour(text, colour, token)
+	if not text or not (colour or coloured[text]) then return end
+	coloured[text] = colour and true or nil
+	if colour then
+		text:SetTextColor(ns.Rules.Colour(colour, "timer"))
+	else
+		Widgets.TextColor(text, token)
+	end
 end
 
 local function Custom()
@@ -373,6 +387,7 @@ function Style.Decorate(icon, group)
 			self.countBase = nil
 			Style.Dress(self)
 			Style.PlaceText(self, group)
+			Style.TextColour(self.countdown, self.rule and self.rule.timerColour, "slotNumber")
 		end
 		Style.PlaceText(icon, group)
 	end
@@ -396,6 +411,19 @@ function Style.SetProc(icon, on)
 		return
 	end
 	icon:SetProc(on)
+end
+
+function Style.Glow(store, frame, key, on, r, g, b)
+	local glow = store[key]
+	if on then
+		glow = glow or Widgets.Glow(frame, { kind = "selection" })
+		store[key] = glow
+		local rgb = glow.colorRGB
+		if not (rgb and rgb[1] == r and rgb[2] == g and rgb[3] == b) then glow:SetColorRGB(r, g, b) end
+		glow:Start()
+	elseif glow then
+		glow:Stop()
+	end
 end
 
 function Style.SetReady(icon, on)

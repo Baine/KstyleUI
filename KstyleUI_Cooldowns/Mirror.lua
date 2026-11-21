@@ -16,8 +16,6 @@ local MAX_RETRIES = 10
 local KEYS = { essential = "cooldowns.essential", utility = "cooldowns.utility", buffs = "cooldowns.buffs", bars = "cooldowns.bars" }
 local OTHER = { essential = "utility", utility = "essential" }
 local EMPTY = Rules.EMPTY
-local INTERPOLATION = "Immediate"
-local DIRECTION = "RemainingTime"
 
 local rows = {}
 local lists, scratch, shown, sources = {}, {}, {}, {}
@@ -286,7 +284,7 @@ local function Cooldown(row, icon, cooldownEvent)
 		Fail(row.group, "GetSpellCooldownDuration is missing")
 		return
 	end
-	local ok, duration = pcall(getter, spell, not row.cfg.gcd or (icon.rule or EMPTY).noGcd == true)
+	local ok, duration = pcall(getter, spell, not row.cfg.gcd or (icon.rule or EMPTY).noGcd ~= nil)
 	if not ok then
 		Fail(row.group, "GetSpellCooldownDuration failed: " .. tostring(duration))
 		return
@@ -379,7 +377,7 @@ local function Usable(row, icon)
 		local ok, isUsable, noMana = pcall(api.IsSpellUsable, entry.spell)
 		if ok and not ns.IsSecret(isUsable) then
 			local short = not ns.IsSecret(noMana) and noMana == true
-			usable, castable = isUsable == true or short and rule.noCost == true, isUsable == true or short
+			usable, castable = isUsable == true or short and rule.noCost ~= nil, isUsable == true or short
 		else
 			usable, castable = icon.usable ~= false, icon.castable ~= false
 		end
@@ -481,15 +479,19 @@ local function AssignCooldowns(row, list)
 	row:Settle()
 end
 
+local function Empty(set)
+	for key in pairs(set) do
+		set[key] = nil
+	end
+end
+
 local function Merged(group)
 	local list, other = lists[group], OTHER[group]
 	local extra, cfg = lists[other], Settings.current[other]
 	local cap = Grid.Capacity(cfg)
 	if not (cfg.overflow and extra and #extra > cap and Live(other)) then return list end
 	local out = merged[group]
-	for i = #out, 1, -1 do
-		out[i] = nil
-	end
+	Empty(out)
 	for i = 1, #list do
 		out[i] = list[i]
 	end
@@ -502,6 +504,13 @@ end
 local function ShowAuraIcon(row, icon, entry)
 	icon.entry = entry
 	Rule(row, icon, entry)
+	local blank = row.blank[entry] or false
+	if (icon.blank or false) ~= blank then
+		icon.blank = blank
+		icon:SetAlpha(blank and 0 or 1)
+		Style.Mouse(icon, Settings.current.tooltips and not blank)
+	end
+	Style.SetReady(icon, entry.auraID and icon.rule.activeGlow)
 	Texture(icon.icon, entry)
 	local id = entry.auraID
 	if id then
@@ -541,7 +550,9 @@ end
 local function ShowBar(row, bar, entry)
 	bar.entry = entry
 	Texture(bar.icon, entry)
-	K.Widgets.SetText(bar.name, SpellName(entry))
+	local rule, cfg = Rules.For(entry), row.cfg
+	K.Widgets.SetText(bar.name, type(rule.names) == "string" and rule.names or SpellName(entry))
+	row:ShowCount(bar, rule)
 	local status, timer = bar.status, bar.timer
 	local id = entry.auraID
 	local duration, err
@@ -557,9 +568,9 @@ local function ShowBar(row, bar, entry)
 		status:SetValue(1)
 		timer:Clear()
 	elseif Present(duration) and type(status.SetTimerDuration) == "function" then
-		local interpolation = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation[INTERPOLATION]
-		local direction = Enum and Enum.StatusBarTimerDirection and Enum.StatusBarTimerDirection[DIRECTION]
-		local ok, timerErr = pcall(status.SetTimerDuration, status, duration, interpolation or 0, direction or 1)
+		local interpolation = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation[cfg.smooth and "ExponentialEaseOut" or "Immediate"]
+		local direction = Enum and Enum.StatusBarTimerDirection and Enum.StatusBarTimerDirection[cfg.fillUp and "ElapsedTime" or "RemainingTime"]
+		local ok, timerErr = pcall(status.SetTimerDuration, status, duration, interpolation or 0, direction or (cfg.fillUp and 0 or 1))
 		if not ok then
 			Fail(row.group, "SetTimerDuration failed: " .. tostring(timerErr))
 			return
@@ -578,22 +589,29 @@ local function ShowBar(row, bar, entry)
 	bar:SetAlpha(id and 1 or ns.INACTIVE_ALPHA)
 end
 
+local function Shows(cfg, entry)
+	local rule, active = Rules.For(entry), entry.auraID ~= nil
+	if rule.hide then return false, not rule.shift end
+	if rule.missing then return not active, not rule.shift end
+	return active or cfg.inactive, true
+end
+
 local function AssignAuras(row, list)
-	local out = shown[row.group]
-	for i = #out, 1, -1 do
-		out[i] = nil
-	end
-	for _, entry in ipairs(list) do
-		if entry.auraID then
-			out[#out + 1] = entry
-		end
-	end
-	if row.cfg.inactive then
+	local out, blank, cfg = shown[row.group], row.blank, row.cfg
+	Empty(out)
+	Empty(blank)
+	for pass = 1, (cfg.keepPlace or not (cfg.inactive or Settings.current.rules.missing ~= "")) and 1 or 2 do
 		for _, entry in ipairs(list) do
-			if not entry.auraID then
+			local show, slot = Shows(cfg, entry)
+			if cfg.keepPlace and (show or slot) then
+				out[#out + 1], blank[entry] = entry, not show or nil
+			elseif show and (entry.auraID ~= nil) == (pass == 1) then
 				out[#out + 1] = entry
 			end
 		end
+	end
+	while blank[out[#out]] and #out > Grid.Capacity(cfg) do
+		blank[out[#out]], out[#out] = nil, nil
 	end
 	row.entries = out
 	local count = row:SetCount(#out)
@@ -634,12 +652,6 @@ end
 local function Owe()
 	auraOwed = true
 	ListenAuras(true)
-end
-
-local function Empty(set)
-	for key in pairs(set) do
-		set[key] = nil
-	end
 end
 
 local function Track(spell)
@@ -899,7 +911,7 @@ local function Build(group)
 		row = Row.New(K.Scale.Root(), group, Settings.current[group])
 	end
 	rows[group] = row
-	lists[group], scratch[group], shown[group] = {}, {}, {}
+	lists[group], scratch[group], shown[group], row.blank = {}, {}, {}, {}
 	local key = KEYS[group]
 	local element = K.Setup.Layouts.Element(key)
 	K.Layout.Register(row.holder, key, K.Setup.Layouts.Default(key), {

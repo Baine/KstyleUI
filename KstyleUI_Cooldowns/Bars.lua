@@ -3,7 +3,7 @@ local _, ns = ...
 
 local K = KstyleUI
 local Widgets, Tokens = K.Widgets, K.Tokens
-local Grid, Style = ns.Grid, ns.Style
+local Grid, Style, Rules = ns.Grid, ns.Style, ns.Rules
 
 local BarRow = {}
 BarRow.__index = BarRow
@@ -13,6 +13,7 @@ local ICON_CROP = 0.07
 local ICON_INSET_LINES = 3
 local ICON_INSET_MAX_SHARE = 0.2
 local TEXT_INSET = 10
+local SPARK_EDGE = { HORIZONTAL = { "RIGHT", "LEFT" }, VERTICAL = { "TOP", "BOTTOM" } }
 
 function BarRow.New(parent, cfg)
 	local holder = CreateFrame("Frame", nil, parent)
@@ -30,6 +31,15 @@ end
 
 local function Color(bar)
 	bar.status:SetBarColor(ns.Settings.BarColor())
+end
+
+function BarRow:ShowCount(bar, rule)
+	rule = rule or Rules.For(bar.entry)
+	local alpha = (self.cfg.showCount or rule.count) and not rule.noCount and 1 or 0
+	if bar.countAlpha ~= alpha then
+		bar.countAlpha = alpha
+		bar.count:SetAlpha(alpha)
+	end
 end
 
 function BarRow:StyleBar(bar)
@@ -58,10 +68,15 @@ function BarRow:StyleBar(bar)
 	status:SetOrientation(cfg.orientation)
 	status:SetReverseFill(cfg.reverse)
 	status:SetBarTexture(cfg.texture)
+	status.vertical = cfg.orientation == "VERTICAL"
 	status:Restyle()
+	if status.vertical then Widgets.Size(status.spark, status.opts.width, status.spark:GetHeight()) end
+	status.spark:ClearAllPoints()
+	status.spark:SetPoint("CENTER", status:GetStatusBarTexture(), SPARK_EDGE[cfg.orientation][cfg.reverse and 2 or 1])
+	status:SetSparkShown(cfg.spark)
 	Color(bar)
 	bar.timer:SetHideCountdownNumbers(not cfg.timer)
-	Style.Countdown(bar.timer, false, true)
+	Style.Countdown(bar.timer, false, true, cfg.decimals and cfg.decimalBelow or nil)
 	local countdown = bar.countdown
 	local nameEnd, nameEndPoint = bar, "RIGHT"
 	if countdown then
@@ -81,12 +96,16 @@ function BarRow:StyleBar(bar)
 	end
 	Widgets.Point(bar.name, "RIGHT", nameEnd, nameEndPoint, -TEXT_INSET, 0)
 	bar.name:SetShown(cfg.name)
+	if cfg.nameWrap or bar.nameWrap then
+		bar.nameWrap = cfg.nameWrap
+		bar.name:SetMaxLines(cfg.nameWrap and math.min(2, math.max(1, math.floor(status.opts.height / cfg.nameSize))) or 0)
+	end
 	Style.Font(bar.name, current.nameFont, cfg.nameSize, current.nameOutline, "body")
 	Style.Font(bar.count, current.countFont, cfg.countSize, current.countOutline)
 	bar.count:ClearAllPoints()
 	bar.count:SetPoint("BOTTOMRIGHT", bar.icon, "BOTTOMRIGHT", 0, 0)
 	bar.count:SetShown(cfg.icon)
-	bar.count:SetAlpha(cfg.showCount and 1 or 0)
+	self:ShowCount(bar)
 	Style.Mouse(bar, current.tooltips)
 end
 
@@ -108,7 +127,7 @@ function BarRow:Bar(index)
 	mask:SetAllPoints(icon)
 	icon:AddMaskTexture(mask)
 	bar.icon = icon
-	bar.status = Widgets.StatusBar(bar, { background = false })
+	bar.status = Widgets.StatusBar(bar, { background = false, spark = true })
 	local timer = CreateFrame("Cooldown", nil, bar.status, "CooldownFrameTemplate")
 	timer:SetAllPoints(bar.status)
 	timer:SetDrawSwipe(false)
