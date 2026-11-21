@@ -177,6 +177,7 @@ Under the Medallions HUD style (`HudStyle.Current() == "medallions"`), `Settings
 | `Overflow.lua` | `ns.Overflow`: the `+N` chip over an aura row's last socket. `New(host, unit, filter, cap)` builds a hidden counting container and the chip's window; `Apply(chip, opts)` places it on the last socket and anchors its glass and labels to the counting container; `Enable`. |
 | `Auras.lua` | `ns.Auras`: frame auras. `Apply(view)` builds a view's container and overflow chips on first use and applies its settings, `Sync(view)` follows the button's visibility, `Open()` is the aura gate, `Parts(view)` the frames that fold away with the row, `LastCell` where a group's last socket sits, `Enable`, `Disable`. |
 | `Orbs.lua` | `ns.Orbs`: the Orbs HUD style's health and resource orbs. `Apply()` builds them on first use and shows or hides them for the applied style, `Active()`, `Get(kind)`, `Centres()` (both orbs' centre x and their y in root units), `Enable`, `Disable`. |
+| `Pips.lua` | `ns.Pips`: the class-themed combo point row. `Apply(class, parent, count)` builds `count` `Widgets.ClassPip`s for a rogue or druid (nil hides them), `Layout(cells, size)` centres each on its plain pip, `Set(points, animate)` feeds the count and plays the change. |
 | `Resource.lua` | `ns.Resource`: the class resource element. `Enable`, `Disable`, `Restyle`, `Layout`, `Visibility`, `Points`, `Mana`. |
 | `Frames.lua` | `ns.Frames`: the holders and secure buttons, unit watches, events, `Enable`, `Disable`, `Get(kind)` |
 | `Preview.lua` | `ns.Preview.Build(parent)`: the settings window's live preview. The frame is laid out at its real size while the pane holds it at half scale or more (narrower only below that), then scaled to fill the pane's width, up to 1.5 for a small frame, so the sigil's cast line is the HUD's (round 6, Opus #2, Fable #3). Its sample auras fill the grid (columns by rows) with sample times while Aura timers is on, two stack counts, and the `+N` chip on the last cell as the live row draws it (Astra #3), from `Auras.SampleTile` and `Auras.StyleSample`, the live tile and its text and timer placement |
@@ -227,7 +228,8 @@ The class resource has its own settings, under the player frame's rows:
 | Key | Values | Default |
 | --- | --- | --- |
 | `resource.enabled` | Show the class resource element | on |
-| `resource.comboPoints`, `comboColor`, `comboCustom`, `spacing` | Combo point pips: on or off, `class` (the class accent) or `custom` colour, 0 to 12 units apart | on, `class`, 3 |
+| `resource.comboPoints`, `comboColor`, `comboCustom`, `spacing` | Combo point pips: on or off, `class` (the class accent) or `custom` colour (the plain pips only, so Options shows it while Class-themed pips is off), 0 to 12 units apart | on, `class`, 3 |
+| `resource.classPips` | Class-themed pips: animated daggers for a rogue and claws for a druid (the crest's crown under Medallions); off restores the plain pips and their colour | on |
 | `resource.druidMana`, `manaTexture`, `manaColor`, `manaCustom` | The druid's mana bar in bear and cat form: on or off, texture, `power`, `class` or `custom` colour | on, Glass, `power` |
 | `resource.manaOrientation` | The druid mana bar's fill direction: `RIGHT`, `LEFT`, `UP`, `DOWN` | `RIGHT` |
 
@@ -304,6 +306,14 @@ Each player, target, focus and boss view gets a `CustomAuraContainerTemplate` co
 | Anyone else | Nothing |
 
 Each pip is a status bar from `i - 1` to `i` filled with the `dot` texture, and every pip gets the same count, so the engine decides which pips are full and a secret count never reaches a comparison. Combo points are bound to the target on Forever: the count comes from `GetComboPoints("player", "target")` and refreshes on `UNIT_POWER_FREQUENT`, `PLAYER_TARGET_CHANGED` and `COMBO_TARGET_CHANGED`. `UNIT_POWER_FREQUENT` and `UNIT_MAXPOWER` are registered only while the element shows pips or the mana bar, because `UNIT_POWER_FREQUENT` fires on every mana, energy and rage tick. The mana bar reads `UnitPower("player", Enum.PowerType.Mana)` and refreshes on mana power events, `UNIT_DISPLAYPOWER` and `UPDATE_SHAPESHIFT_FORM`.
+
+### Class-themed pips
+
+**Class-themed pips** (Player > Class resource, on by default) draws each combo point as the class's own piece over the plain pip's place, which hides: daggers for a rogue and claws for a cat-form druid. An empty point is the same piece dormant, in ghost steel. While the Medallions crest's crown shows them ([ActionBars README](../KstyleUI_ActionBars/README.md#crown)), which it reports through `Widgets.SetClassCrown`, the row hides; with no crown (Action Bars off, or its slab off or unable to pair its bars) the row stays. The druid's bar keeps its own texture, colour, direction, text and Mana in forms in every form; in cat form under the crown the element sits on the seat the crown offers just above its tips, so the two never overlap, and has no mover there (bear form has no crown and keeps its place). The art is 1.6 times the pip and overhangs it by whole pixels on each side. Off restores the plain pips exactly.
+
+Each pip is a `Widgets.ClassPip` ([widget kit](../Core/Widgets/README.md#classpip)), shared with the crown: a gain slides the piece out under a white-hot flare, a spend holds, flashes a slash and cools to the dormant art, and at the maximum a glint runs up each piece, 0.05 s apart, and a glow lights under the row. Every lit layer is a one-point status bar fed the raw `GetComboPoints` value now, the value before (stored, never read) or at the maximum, so Lua never compares the count. Motion follows the effects level: Full and Calm play the fades, Off shows the end states and settles a change still playing, and a target change shows the new count at once, as the game's own bar does. A power event that leaves a readable count unchanged plays nothing; a secret count is never compared, so it replays. The row loops nothing.
+
+Forever's own UI draws no other pip resource: at `9dc84f0`, `Blizzard_UnitFrame.toc` loads only `RogueComboPointBar.xml` and `DruidComboPointBar.xml` for `camelot` and excludes `PaladinPowerBar` and `ShardBar` (`[ExcludeLoadGameType camelot]`), so a paladin and a warlock get no pips. The generated `PowerType` enum still lists `SoulShards` (7) and `HolyPower` (9); the crest jewels light those.
 
 ## Blizzard frames
 

@@ -71,12 +71,43 @@ local TARGET = { name = "Riverglade Crocolisk", level = 38, health = 864, health
 -- The race each class's player is drawn as, so the Medallions portrait resolver finds painted art; Frames and Orbs never read it.
 Hud.RACES = { WARRIOR = "Human", PALADIN = "Dwarf", HUNTER = "NightElf", ROGUE = "Human", PRIEST = "Dwarf", SHAMAN = "Dwarf", MAGE = "Gnome", WARLOCK = "Scourge", DRUID = "NightElf" }
 
+-- Pips() -> from, to, off: RENDER_PIPS=from,to, the combo points' change the unit frames' pips play; the crest jewels
+-- show the second count and a druid is in cat form. RENDER_PIPS=off turns the class-themed pips off.
+function Hud.Pips()
+	local value = rawget(_G, "RENDER_PIPS") or os.getenv("RENDER_PIPS") or ""
+	local from, to = value:match("^(%d+),(%d+)$")
+	assert(value == "" or value == "off" or from, "RENDER_PIPS must be from,to, such as 4,5, or off")
+	return tonumber(from), tonumber(to), value == "off"
+end
+
+-- PlayPips(env, K, set) -> note: RENDER_PIPS=from,to moves the combo points from one count to the other RENDER_PIPS_T
+-- seconds before the scene's clock through the addon's own power event (set(n) gives the stubs the count); equal
+-- counts settle there with no change. RENDER_PIPS_MOTION sets Medallions motion (off shows the end states).
+local function PlayPips(env, K, set)
+	local from, to = Hud.Pips()
+	if not from then
+		return nil
+	end
+	local motion, clock = os.getenv("RENDER_PIPS_MOTION"), env._now
+	if motion and motion ~= "" then
+		K.Options.Write("Medallions", "motion", motion)
+	end
+	set(from)
+	env.FireEvent("PLAYER_TARGET_CHANGED")
+	env._now = env._time - (tonumber(os.getenv("RENDER_PIPS_T") or "") or 0)
+	set(to)
+	env.FireEvent(from == to and "PLAYER_TARGET_CHANGED" or "UNIT_POWER_FREQUENT", "player", "COMBO_POINTS")
+	env._now = clock
+	return "pips: " .. from .. " to " .. to .. ", " .. (os.getenv("RENDER_PIPS_T") or "0") .. " s in"
+end
+
 -- Player(opts) -> the player unit for the scene's class, as unitframes_env takes it.
 function Hud.Player(opts)
 	local class, spec = Hud.Class(opts)
+	local power = class == "DRUID" and Hud.Pips() and { type = 3, token = "ENERGY", value = 80, max = 100 } or spec.power
 	local player = {
 		name = spec.name, class = class, level = 38, health = 2750, healthMax = 3350,
-		power = spec.power.value, powerMax = spec.power.max, powerType = spec.power.type, powerToken = spec.power.token,
+		power = power.value, powerMax = power.max, powerType = power.type, powerToken = power.token,
 		isPlayer = true, reaction = 5, race = Hud.RACES[class], sex = 2,
 	}
 	for k, v in pairs(type(opts) == "table" and type(opts.player) == "table" and opts.player or {}) do
@@ -432,10 +463,10 @@ function modules.unitframes(opts)
 	for k, v in pairs(TARGET) do
 		target[k] = v
 	end
-	-- opts.playerCast == false: the player casts nothing (the questing HUD is out of combat; round 6, Opus).
+	-- opts.playerCast == false or RENDER_PLAYER_CAST=off: the player casts nothing (the questing HUD is out of combat; round 6, Opus).
 	-- opts.castLeft: the seconds the player's cast has left at the scene's clock (0.8 when absent).
 	local castEnd = opts.castLeft and (10000 + opts.castLeft * 1000) or CAST_END
-	if spec.cast and opts.playerCast ~= false then
+	if spec.cast and opts.playerCast ~= false and os.getenv("RENDER_PLAYER_CAST") ~= "off" then
 		player.cast = { name = spec.cast[1], texture = spec.cast[2], start = castEnd - spec.cast[4] * 1000, finish = castEnd, spellID = spec.cast[3] }
 	end
 	for k, v in pairs(type(opts.target) == "table" and opts.target or {}) do
@@ -464,7 +495,7 @@ function modules.unitframes(opts)
 			-- the boss targets you, so the target of target shows beside the sigil.
 			env._units.boss1 = opts.boss and opts.target == opts.boss and target or opts.boss
 			env._units.targettarget = opts.boss and target and player or nil
-			env._comboPoints = spec.combo or 0
+			env._comboPoints = opts.combo or spec.combo or 0
 			env._resting = os.getenv("RENDER_RESTING") == "1"
 			env.UnitClass = function(token)
 				local u = env._units[token]
@@ -559,6 +590,23 @@ function modules.unitframes(opts)
 		local who = orbs and "the target lost " or "the player lost " .. LOSS_SHARE.player * 100 .. "% and the target "
 		notes[#notes + 1] = who .. LOSS_SHARE.target * 100 .. "% of their health " .. LOSS_AGO .. " s ago (RENDER_LOSS)"
 	end
+	if select(3, Hud.Pips()) then
+		K.Options.Write("UnitFrames", "resource.classPips", false)
+	end
+	-- The action bars' scene is its own client: under Medallions its crest's crown shows the points, as in the game,
+	-- and a cat-form druid's bar sits on a stand-in of the crown's seat, placed where that scene puts it.
+	if K.HudStyle.Current() == "medallions" then
+		local seat = env.CreateFrame("Frame", nil, env.UIParent)
+		seat:SetSize(1, 1)
+		seat:SetPoint("CENTER")
+		if class == "DRUID" and Hud.Pips() and ns.Resource.state.showMana then
+			local line = select(2, modules.actionbars(opts)).SlabCrown.state.line
+			local r, scale = Scene.RectSolver(line._env):rect(line), env.UIParent:GetScale()
+			seat:SetPoint("CENTER", env.UIParent, "BOTTOMLEFT", (r[1] + r[3]) / 2 / scale, (r[2] + r[4]) / 2 / scale)
+		end
+		K.Widgets.SetClassCrown(seat)
+	end
+	notes[#notes + 1] = PlayPips(env, K, function(n) env._comboPoints = n end)
 	local scene = build(env, opts, { time = env._time }, function()
 		Fx.Apply(env, "unitframes", ns, notes)
 	end)
@@ -621,7 +669,12 @@ function modules.actionbars(opts)
 			end
 			-- The player's combo points, holy power or soul shards, which the Medallions hub's jewels light (spec.combo, else 3 of 5).
 			env.GetComboPoints = env.GetComboPoints or function()
-				return spec.combo or 0
+				return env._pips or spec.combo or 0
+			end
+			if Hud.Pips() then
+				env.UnitPowerType = function()
+					return Hud.Player(opts).powerType
+				end
 			end
 			env.UnitPower = env.UnitPower or function()
 				return spec.combo or 3
@@ -647,6 +700,9 @@ function modules.actionbars(opts)
 	env._time = 10
 	env.GetTime = function()
 		return env._time
+	end
+	if select(3, Hud.Pips()) then
+		K.Store.Profile().UnitFrames = { resource = { classPips = false } }
 	end
 	AB.Enable(env, K)
 	local consumables = tonumber(rawget(_G, "RENDER_CONSUMABLES") or os.getenv("RENDER_CONSUMABLES") or "")
@@ -753,7 +809,7 @@ function modules.actionbars(opts)
 		end
 		env._now = clock
 	end
-	local notes = {}
+	local notes = { PlayPips(env, K, function(n) env._pips = n end) }
 	local scene = build(env, opts, { time = env._time }, function()
 		Fx.Apply(env, "actionbars", ns, notes)
 		if travel then

@@ -141,6 +141,8 @@ local COLORS = {
 	jewelShard = { "a46bff", 1 },
 	jewelShardRim = { "4a2380", 1 },
 	jewelShardCore = { "e6d4ff", 1 },
+	pipDruidGlow = { "ffa62e", 1 },
+	pipDruidCore = { "fff0b8", 1 },
 	jewelSetting = { "7a5a2b", 1 },
 	jewelSocket = { "4a505a", 1 },
 	jewelHawk = { "aad372", 1 },
@@ -479,6 +481,13 @@ local TEXTURES = {
 	logo = { file = "Logo\\Logo64.png" },
 	logoLarge = { file = "Logo\\Logo256.tga" },
 }
+for _, set in ipairs({ "Blade", "Claw" }) do
+	for _, kind in ipairs({ "", "Steel", "Shape", "Glow" }) do
+		for _, angle in ipairs({ 130, 110, 90, 70, 50 }) do
+			TEXTURES["pip" .. set .. kind .. angle] = { file = "Textures\\Pips\\Pip" .. set .. kind .. angle .. ".png" }
+		end
+	end
+end
 
 local RGBA = {}
 for name, spec in pairs(COLORS) do

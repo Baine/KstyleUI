@@ -112,7 +112,9 @@ for _, class in ipairs(Classes.ORDER) do
 	if spec.combo then
 		local pips = 0
 		for _, item in ipairs(uf.items) do
-			if item.kind == "texture" and item.bar and near(item.fraction, 1) and item.rect[3] < 40 and item.rect[4] < 16 then
+			-- A lit class-themed pip draws its class's art (PipBlade90.png, PipClaw90.png) on a full one-point bar.
+			local file = tostring(item.file)
+			if item.kind == "texture" and item.bar and near(item.fraction, 1) and (file:find("/PipBlade%d+%.png$") or file:find("/PipClaw%d+%.png$")) then
 				pips = pips + 1
 			end
 		end
