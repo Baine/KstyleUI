@@ -44,6 +44,8 @@ local MASK_WRAP = "CLAMPTOBLACKADDITIVE"
 local COUNT_SHARE = 0.6
 local TIMER_LINE = 1.3
 local SAMPLE_ICONS = { 136207, 135848, 136139, 136071, 135894, 136207, 135848, 136139, 136071, 135894 }
+local SAMPLE_TYPES = { "magic", "curse", "poison", "disease", "bleed" }
+local SAMPLE_LASTING = 6
 local BUFFS = "buffs"
 local BUFF_FILTER = "HELPFUL|PLAYER"
 local SAMPLE_BUFF_ICONS = { 136081, 135953, 135940 }
@@ -188,17 +190,41 @@ local function GroupCount(f, k, key)
 	return cells + OVERFLOW
 end
 
+local DISPEL_TYPES = { magic = "Magic", curse = "Curse", poison = "Poison", disease = "Disease", bleed = "Bleed" }
+
+local function Narrowed()
+	local a = Settings.current.auras
+	return not (a.magic and a.curse and a.poison and a.disease and a.bleed and a.lasting)
+end
+
+local function Narrow(candidates)
+	if not Narrowed() then
+		return candidates
+	end
+	local a = Settings.current.auras
+	for key, name in pairs(DISPEL_TYPES) do
+		if not a[key] then
+			candidates.excludeDispelTypes = candidates.excludeDispelTypes or {}
+			candidates.excludeDispelTypes[name] = true
+		end
+	end
+	if not a.lasting then
+		candidates.maxDuration = math.huge
+	end
+	return candidates
+end
+
 local function Candidates(key, types, k)
 	if key == BOSS then
-		return { isBossAura = true }
+		return Narrow({ isBossAura = true })
 	elseif key == IMPORTANT then
-		return { isBossAura = false, isPriorityAura = true }
+		return Narrow({ isBossAura = false, isPriorityAura = true })
 	end
 	if key == GROUP and k and DispelCount(k) <= 0 then
-		return { isBossAura = false, isPriorityAura = false }
+		return Narrow({ isBossAura = false, isPriorityAura = false })
 	end
 	local processed = key == DISPELS and types.Dispel or types.Debuff
-	return { processedAuraType = processed, isBossAura = false, isPriorityAura = false }
+	return Narrow({ processedAuraType = processed, isBossAura = false, isPriorityAura = false })
 end
 
 local function Filter()
@@ -286,12 +312,43 @@ local function NewDispel(owner)
 	for _, piece in ipairs(wash) do
 		piece:SetAlpha(WASH_ALPHA)
 	end
+	wash.alpha = WASH_ALPHA
 	return wash, Style.Ring(owner, "OVERLAY")
 end
 
-local function LayoutDispel(wash, ring, owner, chamfer)
+local function DispelStyle()
+	local enum = Enum and Enum.CustomAuraButtonDispelTypeTextureStyle
+	return enum and enum.PreserveAsset
+end
+
+local function LayoutDispel(wash, ring, owner, chamfer, engine)
 	Style.LayoutWash(wash, owner, chamfer)
 	Style.LayoutRing(ring, owner, chamfer)
+	local a = Settings.current.auras
+	if wash.alpha ~= a.dispelAlpha then
+		for _, piece in ipairs(wash) do
+			piece:SetAlpha(a.dispelAlpha)
+		end
+		wash.alpha = a.dispelAlpha
+	end
+	for i, line in ipairs(ring) do
+		local on = i <= a.dispelLines
+		if engine and (line.on ~= false) ~= on and DispelStyle() then
+			for _, piece in ipairs(line) do
+				if on then
+					owner:AddDispelTypeTexture(piece, { style = DispelStyle(), showWhenHarmful = true })
+				else
+					owner:RemoveDispelTypeTexture(piece)
+					piece:Hide()
+				end
+			end
+		elseif not engine then
+			for _, piece in ipairs(line) do
+				piece:SetShown(on)
+			end
+		end
+		line.on = on
+	end
 end
 
 local pending = setmetatable({}, { __mode = "k" })
@@ -330,6 +387,14 @@ local function Defer(f)
 	ScheduleFlush()
 end
 
+local function Zoom(icon, zoom)
+	icon:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
+end
+
+local function Tips(p)
+	return Settings.current[p.buff and "buffs" or "auras"].tooltips
+end
+
 local function StyleIcon(button)
 	local p = parts[button]
 	local f = p and p.owner
@@ -347,7 +412,8 @@ local function StyleIcon(button)
 	local columns = block and (block.columns or block.width)
 	local rows = block and (block.rows or block.height)
 	local side = p.buff and block and block.side
-	if p.styledGeneration == styleGeneration and p.styledSize == size and p.styledBorder == border and p.styledFont == text.healthFont and p.styledSwipe == a.swipe and p.styledR == ar and p.styledG == ag and p.styledB == ab and p.styledMark == mark and p.styledColumns == columns and p.styledRows == rows and p.styledSide == side and p.styledGrowth == k.auraGrowth and p.styledWrap == k.auraWrap and p.styledSpacing == k.auraSpacing and p.styledBuffCount == k.buffCount and p.styledStacks == a.stacks and p.styledTimers == a.timers and (not mark or p.styledPriority == MarkLift(p.group)) then
+	local tips = Tips(p)
+	if p.styledGeneration == styleGeneration and p.styledSize == size and p.styledBorder == border and p.styledFont == text.healthFont and p.styledSwipe == a.swipe and p.styledR == ar and p.styledG == ag and p.styledB == ab and p.styledMark == mark and p.styledColumns == columns and p.styledRows == rows and p.styledSide == side and p.styledGrowth == k.auraGrowth and p.styledWrap == k.auraWrap and p.styledSpacing == k.auraSpacing and p.styledBuffCount == k.buffCount and p.styledStacks == a.stacks and p.styledTimers == a.timers and p.styledZoom == a.zoom and p.styledTips == tips and (not mark or p.styledPriority == MarkLift(p.group)) then
 		return
 	end
 	if p.styledSize ~= size or p.styledBorder ~= border then
@@ -376,6 +442,10 @@ local function StyleIcon(button)
 		p.timer:Hide()
 	end
 	p.cooldown:SetDrawSwipe(Settings.current.auras.swipe)
+	if a.zoom ~= (p.styledZoom or ICON_CROP) then Zoom(p.icon, a.zoom) end
+	if tips ~= (p.styledTips ~= false) and button.SetMouseMotionEnabled then
+		pcall(button.SetMouseMotionEnabled, button, tips)
+	end
 	if p.mark and not p.size then
 		if p.buff or not f.debuffChip then
 			Auras.PlaceMark(p, button, f, k)
@@ -386,6 +456,7 @@ local function StyleIcon(button)
 		end
 	end
 	p.styledFont, p.styledSwipe, p.styledStacks, p.styledTimers = text.healthFont, a.swipe, a.stacks, a.timers
+	p.styledZoom, p.styledTips = a.zoom, tips
 	p.styledR, p.styledG, p.styledB = ar, ag, ab
 	p.styledMark, p.styledColumns, p.styledRows, p.styledSide = mark, columns, rows, side
 	p.styledGrowth, p.styledWrap, p.styledSpacing, p.styledBuffCount = k.auraGrowth, k.auraWrap, k.auraSpacing, k.buffCount
@@ -429,12 +500,12 @@ local function StyleGroup(container, key)
 	local row = f.parts and f.parts.healRow
 	local ar, ag, ab = Style.Accent()
 	local count = container:GetAuraGroupFrameCount(key)
-	local inputs = { styleGeneration, size, spacing, block.columns, block.rows, k.auraGrowth, k.auraWrap, k.buffCount, cfg.text.healthFont, cfg.auras.swipe, Widgets.Border(f), ar, ag, ab, MarkLift(key), f.debuffChip ~= nil, k.buffSize, row and row.width, row and row.height, row and row.side, cfg.auras.typeLetters, cfg.auras.stacks, cfg.auras.timers }
+	local inputs = { styleGeneration, size, spacing, block.columns, block.rows, k.auraGrowth, k.auraWrap, k.buffCount, cfg.text.healthFont, cfg.auras.swipe, Widgets.Border(f), ar, ag, ab, MarkLift(key), f.debuffChip ~= nil, k.buffSize, row and row.width, row and row.height, row and row.side, cfg.auras.typeLetters, cfg.auras.stacks, cfg.auras.timers, cfg.auras.zoom, cfg.auras.tooltips, cfg.buffs.tooltips }
 	local groups = styledGroups[container]
 	local old = groups and groups[key]
 	local changed = f.auraInputsDirty or not old or old.count ~= count
 	if not changed then
-		for i = 1, 23 do
+		for i = 1, #inputs do
 			if old[i] ~= inputs[i] then changed = true; break end
 		end
 	end
@@ -480,7 +551,7 @@ function RestyleNow(f)
 		end
 	end
 	if f.dispelWash then
-		local ok, err = pcall(LayoutDispel, f.dispelWash, f.dispelRing, f.dispelFrame, f.chrome:Chamfer())
+		local ok, err = pcall(LayoutDispel, f.dispelWash, f.dispelRing, f.dispelFrame, f.chrome:Chamfer(), true)
 		if not ok then
 			Style.LogOnce("dispelStyle", "laying out the dispel highlight failed: " .. tostring(err))
 		end
@@ -497,11 +568,6 @@ local function Restyle(f)
 end
 Auras.Restyle = Restyle
 Auras.StyleIcon = StyleIcon
-
-local function DispelStyle()
-	local enum = Enum and Enum.CustomAuraButtonDispelTypeTextureStyle
-	return enum and enum.PreserveAsset
-end
 
 local function GateChrome(chrome, f, p)
 	local restyle = chrome.Restyle
@@ -652,7 +718,6 @@ local function BuildDispel(slot, f)
 	slot:ClearAllPoints()
 	slot:SetAllPoints(f)
 	local wash, ring = NewDispel(slot)
-	LayoutDispel(wash, ring, slot, f.chrome:Chamfer())
 	f.dispelWash, f.dispelRing, f.dispelFrame = wash, ring, slot
 	local style = DispelStyle()
 	if style then
@@ -666,6 +731,7 @@ local function BuildDispel(slot, f)
 	else
 		Style.LogOnce("dispelStyle", "the dispel texture styles are missing; the dispel highlight stays off")
 	end
+	LayoutDispel(wash, ring, slot, f.chrome:Chamfer(), true)
 end
 
 local function GroupOptions(f, k, key, types)
@@ -834,8 +900,11 @@ local function ConfigureDispelGhost(f, k, a, block, filter)
 	local cap = GroupCount(f, k, DISPELS) + OVERFLOW
 	local badge = Widgets.Snap(f, math.max(MARK_MIN, block.size * MARK_SHARE))
 	local pitch = badge * MORE_PITCH
-	ghost:SetAuraProcessingPolicy(Processing(), PolicyOptions())
+	local policy, types = Processing()
+	ghost:SetAuraProcessingPolicy(policy, PolicyOptions())
 	ghost:SetAuraGroupFilterString(MORE, filter)
+	if more.narrowed or Narrowed() then ghost:SetAuraGroupCandidateFilters(MORE, Candidates(DISPELS, types)) end
+	more.narrowed = Narrowed()
 	ghost:SetAuraGroupMaxFrameCount(MORE, cap)
 	ghost:SetAuraGroupLayout(MORE, { elementWidth = 1, elementHeight = pitch, elementSpacing = 0, lineSpacing = 0 })
 	local window = more.window
@@ -1101,6 +1170,7 @@ end
 local function Configure(f)
 	local container = f.auras
 	local k, a = Settings.current[f.kind], Settings.current.auras
+	local narrow = f.narrowed or Narrowed()
 	local size, spacing = Sizes(f, k)
 	local block = Block(f, k)
 	local point, x, y = Anchor(f, block, k)
@@ -1124,13 +1194,15 @@ local function Configure(f)
 		Style.LogOnce("auraAnchor", "AnchorUtil is missing; debuffs keep the engine's default layout")
 	end
 	local filter = Filter()
+	local policy, types = Processing()
 	if f.processed then
-		container:SetAuraProcessingPolicy(Processing(), PolicyOptions())
+		container:SetAuraProcessingPolicy(policy, PolicyOptions())
 		local dispels = DispelCount(k)
 		for _, key in ipairs({ BOSS, IMPORTANT, DISPELS }) do
 			container:SetAuraGroupLayout(key, GroupLayout(f, k, key))
 			container:SetAuraGroupFilterString(key, filter)
 			container:SetAuraGroupMaxFrameCount(key, GroupCount(f, k, key))
+			if narrow then container:SetAuraGroupCandidateFilters(key, Candidates(key, types, k)) end
 		end
 		container:SetAuraGroupEnabled(BOSS, a.enabled)
 		container:SetAuraGroupEnabled(IMPORTANT, a.enabled)
@@ -1142,14 +1214,16 @@ local function Configure(f)
 	end
 	if f.bossSlot then
 		highlights:SetAuraSlotFilterString(BOSS_SLOT, filter)
+		if narrow then highlights:SetAuraSlotCandidateFilters(BOSS_SLOT, Narrow({ isBossAura = true })) end
 		highlights:SetAuraSlotEnabled(BOSS_SLOT, Auras.BossOn(f))
 	end
 	container:SetAuraGroupLayout(GROUP, GroupLayout(f, k, GROUP))
 	container:SetAuraGroupMaxFrameCount(GROUP, GroupCount(f, k, GROUP))
 	container:SetAuraGroupFilterString(GROUP, filter)
 	if f.processed then
-		local _, types = Processing()
 		container:SetAuraGroupCandidateFilters(GROUP, Candidates(GROUP, types, k))
+	elseif narrow then
+		container:SetAuraGroupCandidateFilters(GROUP, Narrow({}))
 	end
 	local methods, directions = AuraContainerSortMethod, AuraContainerSortDirection
 	if methods and directions and type(container.SetAuraGroupSortMethod) == "function" then
@@ -1159,6 +1233,7 @@ local function Configure(f)
 	container:SetAuraGroupEnabled(GROUP, a.enabled)
 	ConfigureDispelGhost(f, k, a, block, filter)
 	ConfigureChip(f, k, a, block, filter)
+	f.narrowed = Narrowed()
 	if f.dispelSlot then
 		highlights:SetAuraSlotFilterString(SLOT, DISPEL_FILTERS[a.dispelFilter] or DISPEL_FILTERS.PLAYER)
 		highlights:SetAuraSlotEnabled(SLOT, a.dispelHighlight)
@@ -1351,6 +1426,7 @@ local function LayoutSamples(f, k)
 		icon.tile.chrome:Restyle()
 		icon.tile.chrome:SetRimAccent(Style.Accent())
 		PlaceIcon(icon.tile)
+		Zoom(icon.art, Settings.current.auras.zoom)
 	end
 	local first, a = f.sampleAuras[1], Settings.current.auras
 	local textSize = math.max(6, math.floor(size * COUNT_SHARE + 0.5))
@@ -1387,6 +1463,7 @@ local function LayoutSamples(f, k)
 		icon.tile.chrome:Restyle()
 		icon.tile.chrome:SetRimAccent(Style.Accent())
 		PlaceIcon(icon.tile)
+		Zoom(icon.art, Settings.current.auras.zoom)
 	end
 	local rect, boss = f.parts and f.parts.boss, f.sampleBoss
 	if rect then
@@ -1396,6 +1473,7 @@ local function LayoutSamples(f, k)
 		boss.tile.chrome:Restyle()
 		boss.tile.chrome:SetRimAccent(Style.Accent())
 		PlaceIcon(boss.tile)
+		Zoom(boss.tile.icon, Settings.current.auras.zoom)
 	end
 	LayoutDispel(f.sampleDispelWash, f.sampleDispelRing, f.sampleDispel, f.chrome:Chamfer())
 end
@@ -1412,11 +1490,19 @@ Style.appliers[#Style.appliers + 1] = Applied
 local function PaintSample(f, sample)
 	local k, a = Settings.current[f.kind], Settings.current.auras
 	local cells = math.min(f.sampleCells or Count(k), #f.sampleAuras)
-	local debuffs = a.enabled and (sample.debuffs or 0) or 0
+	local kept = {}
+	for i = 1, a.enabled and (sample.debuffs or 0) or 0 do
+		local kind = SAMPLE_TYPES[i]
+		if (not kind or a[kind]) and (i ~= SAMPLE_LASTING or a.lasting) then
+			kept[#kept + 1] = i
+		end
+	end
+	local debuffs = #kept
 	local more = cells > 0 and debuffs > cells
 	local shown = more and cells - 1 or math.min(debuffs, cells)
 	for i, icon in ipairs(f.sampleAuras) do
 		icon:SetShown(i <= shown)
+		if kept[i] then icon.art:SetTexture(SAMPLE_ICONS[kept[i]]) end
 	end
 	if more then
 		Widgets.SetText(f.sampleChip.text, MARK .. (debuffs - shown))
@@ -1430,7 +1516,7 @@ local function PaintSample(f, sample)
 	local dispel = a.dispelHighlight and sample.dispel
 	if dispel then
 		local r, g, b = Tokens.Color("rare")
-		Widgets.ColorSlice(f.sampleDispelWash, r, g, b, WASH_ALPHA)
+		Widgets.ColorSlice(f.sampleDispelWash, r, g, b, a.dispelAlpha)
 		Style.ColorRing(f.sampleDispelRing, r, g, b, 1)
 	end
 	f.sampleDispel:SetShown(dispel and true or false)

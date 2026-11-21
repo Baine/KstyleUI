@@ -40,6 +40,18 @@ function Preview.Build(...)
 		return not (sample.dead or sample.offline) and sample.health < K.Widgets.LOW_HEALTH_SHARE
 	end
 
+	local function Gradient(share)
+		local stops = Unit.GradientStops()
+		for i = 2, #stops do
+			local a, b = stops[i - 1], stops[i]
+			if share <= b[1] then
+				local t = (share - a[1]) / (b[1] - a[1])
+				local ca, cb = a[2], b[2]
+				return ca.r + (cb.r - ca.r) * t, ca.g + (cb.g - ca.g) * t, ca.b + (cb.b - ca.b) * t
+			end
+		end
+	end
+
 	local function HealthText(f, sample)
 		local text = f.healthText
 		text:SetAlpha(1)
@@ -81,18 +93,24 @@ function Preview.Build(...)
 		local cr, cg, cb = Theme.ClassColor(sample.class)
 		f.health:SetBarRange(0, 1)
 		f.health:SetBarValue(sample.health)
+		local alpha, source = cfg.health.alpha, cfg.health.colorSource
+		local r, g, b
 		if sample.dead or sample.offline then
-			f.health:SetBarColor(Tokens.Color("textDisabled"))
+			r, g, b = Unit.StatusColor(sample.offline and "offline" or "dead")
+		elseif source == "gradient" then
+			r, g, b = Gradient(sample.health)
 		elseif Low(sample) then
-			f.health:SetBarColor(Tokens.Color("healthLow"))
-		elseif cfg.health.colorSource == "class" then
-			f.health:SetBarColor(cr, cg, cb)
-		elseif cfg.health.colorSource == "reaction" then
-			f.health:SetBarColor(Tokens.Color("friendly"))
+			r, g, b = Tokens.Color("healthLow")
+		elseif source == "class" then
+			r, g, b = cr, cg, cb
+		elseif source == "reaction" then
+			r, g, b = Tokens.Color("friendly")
 		else
 			local c = cfg.health.color
-			f.health:SetBarColor(c.r, c.g, c.b)
+			r, g, b = c.r, c.g, c.b
 		end
+		f.health:SetBarColor(r, g, b, alpha)
+		f.health.fillClip:SetAlpha(alpha)
 		if f.showPower then
 			f.power:SetBarRange(0, 1)
 			f.power:SetBarValue(sample.power)
@@ -114,6 +132,8 @@ function Preview.Build(...)
 		if f.showPortrait then
 			f.ring:SetVertexColor(cr, cg, cb)
 			f.portrait:SetTexture((Tokens.Texture("logo")))
+			local zoom = not ns.Medallions.Active() and cfg[f.kind].portraitZoom or 0
+			f.portrait:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
 			f.level:SetText(SAMPLE_LEVEL)
 		elseif f.showRoleRing then
 			f.ring:SetVertexColor(cr, cg, cb)
@@ -122,7 +142,7 @@ function Preview.Build(...)
 		HealthText(f, sample)
 		local fade = cfg.range.fade and sample.far
 		f:SetAlpha(fade and cfg.range.alpha or 1)
-		f.target:SetAlpha(sample.target and 1 or 0)
+		f.target:SetAlpha(sample.target and cfg.accent.target and 1 or 0)
 		if f.extra1 or f.extra2 then
 			Unit.TextSlots(f, nil, { name = sample.name, health = sample.health * SAMPLE_MAX, healthMax = SAMPLE_MAX,
 				power = sample.power and sample.power * 100 or 0, powerMax = 100, level = sample.level or 60, class = sample.class, own = true })
@@ -230,7 +250,10 @@ function Preview.Build(...)
 			Style.Apply(f, partyGeo.memberWidth, party.height)
 			Paint(f, f.sample)
 		end
-		for _, f in ipairs(preview.raidFrames) do
+		local groups = 0
+		for g = 1, 8 do groups = groups + (cfg.groups["show" .. g] and 1 or 0) end
+		for i, f in ipairs(preview.raidFrames) do
+			f:SetShown(i <= math.min(groups, RAID_GROUPS_SHOWN) * GROUP_SIZE)
 			Style.Apply(f, raid.width, raid.height)
 			Paint(f, f.sample)
 		end

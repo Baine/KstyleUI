@@ -170,6 +170,21 @@ function Style.MemberWidth(kind)
 	return k.width
 end
 
+local POWER_ROLES = { TANK = "tanks", HEALER = "healers", DAMAGER = "damagers" }
+function Style.PowerShown(f)
+	local power = Settings.current.power
+	if not Settings.current[f.kind].power then
+		return false
+	elseif power.tanks and power.healers and power.damagers then
+		return true
+	end
+	local role = f.sample and f.sample.role
+	if not f.sample and f.unit and UnitGroupRolesAssigned then
+		role = UnitGroupRolesAssigned(f.unit)
+	end
+	return (issecretvalue and issecretvalue(role)) or power[POWER_ROLES[role]] ~= false
+end
+
 function Style.Size(f)
 	local k = Settings.current[f.kind]
 	return f.width or Style.MemberWidth(f.kind), f.height or k.height
@@ -493,9 +508,10 @@ function Style.Apply(f, width, height)
 	} or nil
 	local healRow = cfg.buffs.enabled and k.buffCount > 0 and Widgets.Snap(f, k.buffSize) or nil
 	local nameMin = Style.NameMin(k)
+	f.powerShown = Style.PowerShown(f)
 	local parts = Geometry.Button(width, height, {
 		portrait = f.kind == "party" and k.portrait,
-		power = k.power,
+		power = f.powerShown,
 		powerHeight = k.powerHeight,
 		nameAbove = k.textLayout == "ABOVE",
 		nameHeight = k.nameSize + NAME_LINE_EXTRA,
@@ -581,6 +597,10 @@ local function SetHoverT(f, t)
 end
 
 function Style.Paint(f)
+	if not Settings.current.accent.hover and (f.hovered or (f.hoverT or 0) > 0) then
+		f.hovered = false
+		K.Motion.Tween(f, SetHoverT, 0, 0, 0)
+	end
 	local r, g, b = Style.Accent()
 	Style.ColorRing(f.targetRing, r, g, b, 1)
 	f.badgeRing:SetVertexColor(r, g, b, 1)
@@ -596,6 +616,10 @@ function Style.Paint(f)
 end
 
 function Style.SetHovered(f, hovered)
-	f.hovered = hovered and true or false
+	hovered = hovered and Settings.current.accent.hover and true or false
+	if not (hovered or f.hovered or (f.hoverT or 0) > 0) then
+		return
+	end
+	f.hovered = hovered
 	K.Motion.Tween(f, SetHoverT, f.hoverT or 0, f.hovered and 1 or 0, Tokens.Duration("hover"), Tokens.Easing("hover"))
 end

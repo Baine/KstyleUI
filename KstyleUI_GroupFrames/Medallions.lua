@@ -57,7 +57,7 @@ end
 local colorSources = Unit.ColorSources
 function Unit.ColorSources(f)
 	if f and f.kind == "raid" and Medallions.Active() then
-		return "class", "text"
+		return colorSources(f) == "gradient" and "gradient" or "class", "text"
 	end
 	return colorSources(f)
 end
@@ -508,7 +508,10 @@ local function PaintSample(f, sample)
 	if not Medallions.Active() or f.kind ~= "raid" or f.status then
 		return
 	end
-	f.health:SetBarColor(K.Theme.ClassColor(sample.class))
+	if Settings.current.health.colorSource ~= "gradient" then
+		local r, g, b = K.Theme.ClassColor(sample.class)
+		f.health:SetBarColor(r, g, b, Settings.current.health.alpha)
+	end
 	if Widgets.Readability("readableBars") then Unit.NameColored(f, sample.class) else f.name:SetTextColor(Tokens.Color("textEmphasis")) end
 end
 Style.painters[#Style.painters + 1] = PaintSample

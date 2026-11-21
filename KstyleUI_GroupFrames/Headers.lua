@@ -13,7 +13,6 @@ local GROUP_BUTTONS = 5
 local RAID_BUTTONS = 40
 local TEMPLATE = "SecureGroupHeaderTemplate"
 local BUTTON_TEMPLATE = "SecureUnitButtonTemplate"
-local ALL_GROUPS = "1,2,3,4,5,6,7,8"
 local ROLE_ORDER = "TANK,HEALER,DAMAGER,NONE"
 local DRIVER_PARTY = "[group:raid] hide; [group] show; hide"
 local DRIVER_PARTY_SOLO = "[group:raid] hide; show"
@@ -295,7 +294,25 @@ function Headers.SetPartyCount(count)
 	end
 end
 
-local function RaidShown(s, members, groups)
+local function ShownGroups()
+	local cfg, out = ns.Settings.current.groups, {}
+	for g = 1, RAID_GROUPS do
+		if cfg["show" .. g] then out[#out + 1] = g end
+	end
+	return out
+end
+
+local function RaidShown(s, members, sizes)
+	local cfg, groups, slot = ns.Settings.current.groups, nil, 0
+	for g = 1, sizes and RAID_GROUPS or 0 do
+		local size = sizes[g] or 0
+		if cfg["show" .. g] then
+			slot = slot + 1
+			groups = size > 0 and slot or groups
+		elseif members then
+			members = math.max(0, members - size)
+		end
+	end
 	if s.sortBy == "GROUP" then
 		return Geometry.RaidGroups(s, groups or (members and math.ceil(members / GROUP_BUTTONS)))
 	end
@@ -341,29 +358,30 @@ function Headers.ApplyRaid(s)
 	Headers.FitRaid(card.members, card.groups, true)
 	geo.left, geo.top = left, top
 	local x, y = Offset(geo, card, left, top, nil, "raid")
+	local shown = ShownGroups()
 	if s.sortBy == "GROUP" then
 		for g, header in ipairs(Headers.raid) do
 			RaidHeader(header, holder, s)
-			header:SetAttribute("groupFilter", tostring(g))
+			header:SetAttribute("groupFilter", tostring(shown[g] or g))
 			Sort(header, "INDEX")
 			Columns(header, nil, nil, nil, nil)
 			Grow(header, geo, "raid")
 			local slot = geo.slots[g]
 			header:SetPoint(geo.corner, holder, geo.corner, slot.x + x, slot.y + y)
 			Precreate(header, GROUP_BUTTONS)
-			Driver(header, DRIVER_RAID)
+			Driver(header, shown[g] and DRIVER_RAID or DRIVER_HIDE)
 		end
 		return geo
 	end
 	for g, header in ipairs(Headers.raid) do
 		RaidHeader(header, holder, s)
 		if g == 1 then
-			header:SetAttribute("groupFilter", ALL_GROUPS)
+			header:SetAttribute("groupFilter", table.concat(shown, ","))
 			Sort(header, s.sortBy)
 			Columns(header, geo.unitsPerColumn, geo.maxColumns, geo.columnAnchorPoint, geo.columnSpacing)
 			Grow(header, geo, "raid")
 			Precreate(header, RAID_BUTTONS)
-			Driver(header, DRIVER_RAID)
+			Driver(header, #shown > 0 and DRIVER_RAID or DRIVER_HIDE)
 		else
 			Driver(header, DRIVER_HIDE)
 		end

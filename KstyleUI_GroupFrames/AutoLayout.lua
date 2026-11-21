@@ -49,8 +49,17 @@ local function Large(raid)
 	raid.healthText = "NONE"
 end
 
+local function Mythic()
+	local id = DifficultyUtil and DifficultyUtil.ID and DifficultyUtil.ID.PrimaryRaidMythic
+	local difficulty = id and type(GetInstanceInfo) == "function" and select(3, GetInstanceInfo())
+	return id ~= nil and not Unit.IsSecret(difficulty) and difficulty == id
+end
+
 function AutoLayout.Overlay(cfg, state)
 	state = state or AutoLayout.state
+	if cfg.groups and not cfg.groups.mythicBench and Mythic() then
+		for g = 5, 8 do cfg.groups["show" .. g] = false end
+	end
 	if cfg.presets and cfg.presets.raid == "Healer" then
 		local party, raid = cfg.party, cfg.raid
 		party.width, party.height, party.spacing = 200, 44, 6
@@ -95,13 +104,13 @@ local function Read()
 	local members = not Unit.IsSecret(raid) and raid == true and type(GetNumGroupMembers) == "function" and GetNumGroupMembers() or nil
 	local role = type(UnitGroupRolesAssigned) == "function" and UnitGroupRolesAssigned("player") or nil
 	local healer = not Unit.IsSecret(role) and role == "HEALER"
-	return { bracket = AutoLayout.Bracket(members), healer = healer }
+	return { bracket = AutoLayout.Bracket(members), healer = healer, mythic = not Settings.current.groups.mythicBench and Mythic() }
 end
 
 local function Settle()
 	queued = false
 	local now, state = Read(), AutoLayout.state
-	if now.bracket == state.bracket and now.healer == state.healer then
+	if now.bracket == state.bracket and now.healer == state.healer and now.mythic == state.mythic then
 		return
 	end
 	AutoLayout.state = now
@@ -132,6 +141,6 @@ function Unit.RosterChanged(...)
 	AutoLayout.Check()
 end
 
-for _, event in ipairs({ "PLAYER_ROLES_ASSIGNED", "PLAYER_SPECIALIZATION_CHANGED" }) do
+for _, event in ipairs({ "PLAYER_ROLES_ASSIGNED", "PLAYER_SPECIALIZATION_CHANGED", "PLAYER_DIFFICULTY_CHANGED", "ZONE_CHANGED_NEW_AREA" }) do
 	Frames.events[#Frames.events + 1] = { event = event, fn = AutoLayout.Check }
 end
