@@ -165,6 +165,17 @@ function Fit()
 	end
 end
 
+local function Follow()
+	local z = state.z
+	local bar = IsTable(z) and IsTable(z.ActionBar) and z.ActionBar.Frame
+	if not (state.placed and bar and bar.snapped == true) then
+		return
+	end
+	if type(z.ActionBar.SavePosition) == "function" then
+		K.Call(z.ActionBar.SavePosition, z.ActionBar)
+	end
+end
+
 local function Settle()
 	if state.settle then
 		return
@@ -177,6 +188,7 @@ local function Settle()
 			K.Call(z.ResizeFrame, z)
 		end
 		Fit()
+		Follow()
 	end)
 end
 
@@ -321,10 +333,13 @@ local function Patch(z)
 	end
 	state.patched = true
 	local F = z.F
+	local function Ours(region)
+		return region ~= nil and (region == state.master or region == state.frame)
+	end
 	if IsTable(F) and type(F.SaveFrameAnchor) == "function" then
 		local save = F.SaveFrameAnchor
 		F.SaveFrameAnchor = function(frame, name, context)
-			if state.held and name == "frame_anchor" then
+			if state.held and name == "frame_anchor" and Ours(frame) then
 				return
 			end
 			return save(frame, name, context)
@@ -333,7 +348,7 @@ local function Patch(z)
 	if IsTable(F) and type(F.SetFrameAnchor) == "function" then
 		local set = F.SetFrameAnchor
 		F.SetFrameAnchor = function(frame, anchor)
-			if state.held then
+			if state.held and Ours(frame) then
 				return
 			end
 			return set(frame, anchor)

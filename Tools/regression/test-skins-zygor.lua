@@ -195,3 +195,26 @@ do
 	assert(zygor.master._clamped, "Zygors window is its own again once RestedXP holds the card")
 	assert(#env._errors == 0 and K.ErrorCount() == 0, tostring(env._errors[1]))
 end
+
+-- Zygor's action bar is Zygor's to place, and it comes back above the window the rail moved.
+do
+	local env, K, ns, zygor = Boot()
+	local z = env.ZygorGuidesViewer
+	zygor.bar:ClearAllPoints()
+	zygor.bar:SetPoint("BOTTOMLEFT", env.UIParent, "BOTTOMLEFT", 30, 40)
+	z.F.SetFrameAnchor(zygor.bar, zygor.profile.actionbar_anchor)
+	local _, _, _, x, y = zygor.bar:GetPoint(1)
+	assert(x == 100 and y == 100, "the rail leaves the anchors of Zygor's own frames alone")
+	zygor.profile.actionbar_anchor = nil
+	z.F.SaveFrameAnchor(zygor.bar, "actionbar_anchor")
+	assert(type(zygor.profile.actionbar_anchor) == "table", "the rail lets Zygor save the action bar's place")
+	zygor.Step()
+	env.RunTimers()
+	S.W.Settle(env)
+	env.RunTimers()
+	local r = Rect(K, zygor.frame)
+	local top = zygor.bar:GetBottom()
+	assert(zygor.positions and top, "the rail asks Zygor to place its action bar")
+	assert(top * K.Widgets.ScaleFactor(zygor.bar) > r.top, "Zygor's action bar sits above the window once the rail has placed it")
+	assert(#env._errors == 0 and K.ErrorCount() == 0, tostring(env._errors[1]))
+end

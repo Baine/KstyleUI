@@ -140,6 +140,26 @@ function Fake.Install(env, opts)
 		z:SendMessage("ZGV_STEP_CHANGED")
 	end
 
+	-- Zygor's action bar snaps above the viewer and re-saves its place whenever it is shown (ActionBar.lua:491-512, :417-458).
+	local bar = env.CreateFrame("Frame", "ZygorGuidesViewer_ActionBar", env.UIParent)
+	bar:SetSize(32, 32)
+	bar:SetPoint("BOTTOMLEFT", env.UIParent, "BOTTOMLEFT", 100, 100)
+	bar.snapped = true
+	fake.bar = bar
+	profile.actionbar_anchor = { "BOTTOMLEFT", "BOTTOMLEFT", 100, 100 }
+	z.ActionBar = {
+		Frame = bar,
+		SavePosition = function(self)
+			local top = z.Frame:GetTop()
+			if not top then
+				return
+			end
+			fake.positions = (fake.positions or 0) + 1
+			bar:ClearAllPoints()
+			bar:SetPoint("BOTTOMLEFT", env.UIParent, "BOTTOMLEFT", 100, top + 5)
+		end,
+	}
+
 	env._zygor = fake
 	return fake
 end
