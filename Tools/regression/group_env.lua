@@ -184,8 +184,9 @@ local function installRoster(env)
 		local inRange = not m or m.inRange ~= false
 		return env.Secret(inRange), env.Secret(true)
 	end
-	function env.UnitReaction()
-		return 5
+	function env.UnitReaction(unit)
+		local m = member(unit)
+		return m and m.reaction or 5
 	end
 	function env.SetPortraitTexture(texture, unit)
 		texture._portraitUnit = unit
@@ -722,6 +723,9 @@ local function makeAttributeScripts(env, button)
 	local setAttribute, hide = base(button, "SetAttribute"), base(button, "Hide")
 	rawset(button, "SetAttribute", function(self, key, value)
 		setAttribute(self, key, value)
+		if self._wrapped and not tostring(key):match("^_") then
+			self._wrapped(key, value)
+		end
 		runScript(env, self, "OnAttributeChanged", key, value)
 	end)
 	rawset(button, "Hide", function(self)
@@ -845,6 +849,69 @@ local function installMeasure(env)
 			return text
 		end
 		return frame
+	end
+end
+
+-- Secure(env), called from a test's setup: unit watch and secure handlers, as SecureStateDriver.lua and
+-- SecureHandlers.lua run them: a watched frame shows while SecureButton_GetUnit's unit exists (again on
+-- RunStateDrivers); a wrapped OnAttributeChanged runs its snippet as secure code, before the frame's own script,
+-- with GetFrameRef. Only the tests that ask get them, so other modules sharing an environment keep their paths.
+-- env._units["party1target"] = { name, class, reaction, health, maxHealth } gives a member a target.
+function G.Secure(env)
+	env._watched = {}
+	local function unitOf(frame)
+		local a = frame._attributes
+		local unit = a.unit
+		if unit == nil and a["useparent-unit"] and frame._parent then
+			unit = frame._parent._attributes.unit
+		end
+		if unit and a.unitsuffix then
+			unit = unit .. a.unitsuffix
+		end
+		return unit
+	end
+	env.SecureButton_GetUnit = unitOf
+	local function watch(frame)
+		local unit, was = unitOf(frame), env._secure
+		env._secure = true
+		if unit and env.UnitExists(unit) then frame:Show() else frame:Hide() end
+		env._secure = was
+	end
+	function env.RegisterUnitWatch(frame)
+		env._watched[frame] = true
+		watch(frame)
+	end
+	function env.UnregisterUnitWatch(frame)
+		env._watched[frame] = nil
+	end
+	local run = env.RunStateDrivers
+	function env.RunStateDrivers()
+		run()
+		for frame in pairs(env._watched) do
+			watch(frame)
+		end
+	end
+	function env.SecureHandlerSetFrameRef(frame, label, ref)
+		frame:SetAttribute("frameref-" .. label, ref)
+	end
+	function env.SecureHandlerUnwrapScript(frame)
+		frame._wrapped = nil
+	end
+	function env.SecureHandlerWrapScript(frame, script, _, body)
+		assert(script == "OnAttributeChanged", "the stub wraps OnAttributeChanged only")
+		local chunk = assert(loadstring("local self, name, value = ... " .. body))
+		local handle = setmetatable({ GetFrameRef = function(_, label) return frame._attributes["frameref-" .. label] end }, {
+			__index = function(_, key)
+				local v = frame[key]
+				return type(v) == "function" and function(_, ...) return v(frame, ...) end or v
+			end,
+		})
+		frame._wrapped = function(name, value)
+			local was = env._secure
+			env._secure = true
+			chunk(handle, name, value)
+			env._secure = was
+		end
 	end
 end
 
