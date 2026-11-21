@@ -97,20 +97,23 @@ do
 	assert(#env._errors == 0 and K.ErrorCount() == 0, tostring(env._errors[1]))
 end
 
--- A step taller than the card stays inside it, however often Zygor resizes itself.
+-- A step taller than the card grows the window below it rather than clipping the step.
 do
 	local env, K, ns, zygor = Boot({ natural = 600 })
 	local px = K.Scale.Pixel(1) + 0.01
+	local steps = (600 + 91.5) * K.Widgets.ScaleFactor(zygor.frame)
 	local band = K.Setup.Story("DPS", true).guide
 	local room = band.top - band.bottom
 	local window = Rect(K, zygor.frame)
-	assert(math.abs((window.top - window.bottom) - room) <= 2 * px, string.format("a step taller than the card is held to the card: %s in %s", Describe(window), Describe(band)))
+	assert((window.top - window.bottom) > room + 2 * px, string.format("a step taller than the card pushes the window past it: %s in %s", Describe(window), Describe(band)))
+	assert(math.abs((window.top - window.bottom) - steps) <= 2 * px, string.format("and the window is the whole step tall, %s", Describe(window)))
+	assert(math.abs(window.top - band.top) <= 2 * px, string.format("the window still hangs from the card's top, %s in %s", Describe(window), Describe(band)))
 	for i = 1, 3 do
 		zygor.Step()
 		env.RunTimers()
 		S.W.Settle(env)
 		local again = Rect(K, zygor.frame)
-		assert(math.abs((again.top - again.bottom) - room) <= 2 * px, string.format("after step %d the window is still the card's height, %s", i, Describe(again)))
+		assert(math.abs((again.top - again.bottom) - steps) <= 2 * px, string.format("after step %d the window is still the whole step tall, %s", i, Describe(again)))
 	end
 	assert(K.Skin.Parts(zygor.frame).backdrop, "the guide window wears the theme's own window panel")
 	assert(zygor.frame:GetScript("OnSizeChanged"), "Zygors own size script goes back after the rail sizes the window")
@@ -118,14 +121,15 @@ do
 	assert(#env._errors == 0 and K.ErrorCount() == 0, tostring(env._errors[1]))
 end
 
--- Zygor's all-steps mode floors the window's height above a short card; the rail still keeps it inside the card.
+-- In all-steps mode Zygor keeps its own minimum height; the rail only places it, never resizes it.
 do
 	local env, K, ns, zygor = Boot({ natural = 20, allsteps = true })
+	local floor = (91.5 + 80) * K.Widgets.ScaleFactor(zygor.frame)
 	local px = K.Scale.Pixel(1) + 0.01
 	local band = K.Setup.Story("DPS", true).guide
-	local room = band.top - band.bottom
 	local window = Rect(K, zygor.frame)
-	assert((window.top - window.bottom) <= room + 2 * px, string.format("in all-steps mode the window stays inside the card, %s in %s", Describe(window), Describe(band)))
+	assert(math.abs((window.top - window.bottom) - floor) <= 2 * px, string.format("in all-steps mode the window keeps Zygors own minimum, %s", Describe(window)))
+	assert(math.abs(window.top - band.top) <= 2 * px, string.format("and still hangs from the card's top, %s in %s", Describe(window), Describe(band)))
 end
 
 -- Fit off stretches the window over the whole slot.

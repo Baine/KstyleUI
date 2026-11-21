@@ -141,13 +141,10 @@ function Fit()
 	if state.busy or not (placed and frame) then
 		return
 	end
-	local height = placed.room
 	if ns.Skins.Setting(KEY, FIT) == true then
-		local natural = frame:GetHeight()
-		if Plain(natural) and natural > 1 and natural < height then
-			height = natural
-		end
+		return
 	end
+	local height = placed.room
 	if Plain(height) and height > 0 and not Near(frame:GetHeight(), height) then
 		local z = state.z
 		local profile = IsTable(z) and IsTable(z.db) and z.db.profile

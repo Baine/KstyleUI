@@ -359,7 +359,8 @@ Needs Zygor Guides Viewer installed. Before you start, note where the guide wind
 
 - [ ] Load a guide. The window has no Zygor artwork: dark glass with a KstyleUI edge, the tab bar and title bar on the same glass, the step text in KstyleUI's font, and the progress bar in your class colour.
 - [ ] The window sits in the story rail's tall card beside the quest card: the same width, hanging from the card's top, with the quest card keeping its own height.
-- [ ] With **Fit guide to its steps** on, the window is as tall as its steps; turn it off in **Skins** and the window fills the card.
+- [ ] With **Fit guide to its steps** on, the window is as tall as its steps, and a step with more lines than the card has runs past the card's foot rather than clipping; turn Fit off in **Skins** and the window fills the card.
+- [ ] The window's action bar (`ZygorGuidesViewer_ActionBar`) still sits above it and still takes its icons from the current step; drag it, and it keeps the place you drop it.
 - [ ] Wheel over the step list, click a step, take the next step: the window stays in the card and keeps the card's width.
 - [ ] Drag the window away: it stays where you drop it, a printed line says the story rail has let go, and the window is clamped to the screen again. **Story rail** in the Skins settings now reads off. Turn it back on: the window returns to the card.
 - [ ] Close and reopen the guide, switch guides from the tab bar, then reload the game: the window comes back to the card each time.
