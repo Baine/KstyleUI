@@ -112,6 +112,7 @@ do
 		local again = Rect(K, zygor.frame)
 		assert(math.abs((again.top - again.bottom) - room) <= 2 * px, string.format("after step %d the window is still the card's height, %s", i, Describe(again)))
 	end
+	assert(K.Skin.Parts(zygor.frame).backdrop, "the guide window wears the theme's own window panel")
 	assert(zygor.frame:GetScript("OnSizeChanged"), "Zygors own size script goes back after the rail sizes the window")
 	assert(zygor.profile.fullheight == nil, "the tall step writes no height into Zygors settings")
 	assert(#env._errors == 0 and K.ErrorCount() == 0, tostring(env._errors[1]))

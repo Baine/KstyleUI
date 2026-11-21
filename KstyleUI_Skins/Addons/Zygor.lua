@@ -17,7 +17,7 @@ local MIN_WIDTH = 120
 local WHITE = "Interface\\Buttons\\WHITE8X8"
 
 local state = { z = nil, frame = nil, master = nil, holder = nil, placed = nil, original = nil, queued = false, hooked = false, held = false, patched = false, saved = nil }
-local Place, Schedule, Restore, Fit
+local Place, Schedule, Restore, Fit, Dress
 
 local function Log(message)
 	K.DevTest.Log(MODULE, "zygor: " .. message)
@@ -371,6 +371,11 @@ local function Patch(z)
 			Schedule()
 		end)
 	end
+	if type(z.ApplySkin) == "function" then
+		hooksecurefunc(z, "ApplySkin", function()
+			Dress(z)
+		end)
+	end
 end
 
 local function Flat()
@@ -388,6 +393,14 @@ end
 
 local function Clear()
 	return { 0, 0, 0, 0 }
+end
+
+function Dress(z)
+	local frame, Skins = z.Frame, K.Skin
+	if not (frame and IsTable(Skins) and type(Skins.Backdrop) == "function") then
+		return
+	end
+	K.Call(Skins.Backdrop, frame, { shape = "window", fill = "surface", shadow = true, target = frame })
 end
 
 local function Paint(z)
@@ -423,6 +436,13 @@ local function Paint(z)
 	Set("ProgressBarTextureColor", Color("accent"))
 	Set("ProgressBarDecorUse", 0)
 	Set("StepFontSizeMod", 1)
+	Set("Accent", Color("accent"))
+	Set("ScrollBarTexture", WHITE)
+	Set("ScrollBarColor", Color("muted"))
+	Set("TabsTextColor", Color("text"))
+	Set("TabsBackdropActive", Clear())
+	Set("TabsBackdropInactive", Clear())
+	Set("TabsBorderColor", Clear())
 	local path = ns.Style.Font("body")
 	if type(path) == "string" then
 		z.Font = path
@@ -430,6 +450,7 @@ local function Paint(z)
 	if type(z.ApplySkin) == "function" then
 		K.Call(z.ApplySkin, z)
 	end
+	Dress(z)
 end
 
 local function Unpaint(z)
