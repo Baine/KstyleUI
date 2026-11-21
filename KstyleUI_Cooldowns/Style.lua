@@ -1,4 +1,4 @@
--- Style.lua: the fonts, accent tints, glows (the proc glow lowered under the numbers on request), countdown formats (coloured below a threshold), tooltips and the "+N" overflow chip (one socket beyond a full row, on the side away from the combat cluster, listing the hidden buffs on hover) the Cooldowns icons and bars share.
+-- Style.lua: the fonts, accent tints, glows (the proc glow lowered under the numbers on request), countdown formats (coloured below a threshold), text and keybind offsets, crafted-quality pips, tooltips and the "+N" overflow chip (one socket beyond a full row, on the side away from the combat cluster, listing the hidden buffs on hover) the Cooldowns icons and bars share.
 local _, ns = ...
 
 local K = KstyleUI
@@ -274,6 +274,34 @@ function Style.PlaceText(icon, group)
 	if base[1] then
 		icon.count:SetPoint(base[1], base[2], base[3], base[4] + Widgets.Snap(icon, cfg.countX), base[5] + Widgets.Snap(icon, cfg.countY))
 	end
+	if cfg.keybindX and (cfg.keybindX ~= 0 or cfg.keybindY ~= 0 or icon.keyBase) then
+		icon.keyBase = icon.keyBase or { icon.hotkey:GetPoint(1) }
+		base = icon.keyBase
+		if base[1] then icon.hotkey:SetPoint(base[1], base[2], base[3], base[4] + Widgets.Snap(icon, cfg.keybindX), base[5] + Widgets.Snap(icon, cfg.keybindY)) end
+	end
+end
+
+local RANK_DOT, RANK_GAP, RANK_INSET = 4, 1, 2
+
+function Style.Rank(icon, rank)
+	local dots = icon.rankDots or {}
+	icon.rankDots, icon.rank = dots, rank
+	local fit = math.min(1, icon:GetWidth() / (5 * RANK_DOT + 4 * RANK_GAP + 2 * RANK_INSET))
+	local px = K.Scale.Pixel(1) / Widgets.ScaleFactor(icon)
+	local size, step, inset = math.max(px, math.floor(RANK_DOT * fit / px) * px), RANK_GAP * fit, RANK_INSET * fit
+	for i = 1, rank or 0 do
+		local dot = dots[i]
+		if not dot then
+			dot = icon.overlay:CreateTexture(nil, "OVERLAY")
+			dot:SetTexture((Tokens.Texture("dot")))
+			Widgets.Tint(dot, "textEmphasis")
+			dots[i] = dot
+		end
+		Widgets.Size(dot, size, size)
+		Widgets.Point(dot, "TOPRIGHT", icon, "TOPRIGHT", -inset - (i - 1) * (size + step), -inset)
+		dot:Show()
+	end
+	for i = (rank or 0) + 1, #dots do dots[i]:Hide() end
 end
 
 local function ShowTooltip(icon)
@@ -388,9 +416,10 @@ function Style.Decorate(icon, group)
 		local restyle = icon.Restyle
 		icon.Restyle = function(self)
 			restyle(self)
-			self.countBase = nil
+			self.countBase, self.keyBase = nil, nil
 			Style.Dress(self)
 			Style.PlaceText(self, group)
+			if self.rankDots then Style.Rank(self, self.rank) end
 			Style.TextColour(self.countdown, self.rule and self.rule.timerColour, "slotNumber")
 		end
 		Style.PlaceText(icon, group)

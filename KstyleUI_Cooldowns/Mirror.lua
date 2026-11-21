@@ -1,8 +1,8 @@
--- Mirror.lua: runs each group on its path: KstyleUI rows driven by duration objects and the spell rules, or Blizzard's viewer restyled in place when the mirror cannot work, with Setup asked to place Blizzard's essential and utility viewers on KstyleUI's rows.
+-- Mirror.lua: runs each group on its path: KstyleUI rows driven by duration objects and the spell rules (with keybinds, mirrored presses, crafted-quality pips and cooldown bars beside the tracked buff bars), or Blizzard's viewer restyled in place when the mirror cannot work, with Setup asked to place Blizzard's essential and utility viewers on KstyleUI's rows.
 local _, ns = ...
 
 local K = KstyleUI
-local Settings, Data, Path, Row, BarRow, Style, Viewers, Auras, Reskin, Rules, Grid, Focus = ns.Settings, ns.Data, ns.Path, ns.Row, ns.BarRow, ns.Style, ns.Viewers, ns.Auras, ns.Reskin, ns.Rules, ns.Grid, ns.Focus
+local Settings, Data, Path, Row, BarRow, Style, Viewers, Auras, Reskin, Rules, Grid, Focus, Keys = ns.Settings, ns.Data, ns.Path, ns.Row, ns.BarRow, ns.Style, ns.Viewers, ns.Auras, ns.Reskin, ns.Rules, ns.Grid, ns.Focus, ns.Keys
 
 local Mirror = {}
 ns.Mirror = Mirror
@@ -29,6 +29,7 @@ local merged = { essential = {}, utility = {} }
 local fighting = false
 local trinkets = { { equipSlot = 13 }, { equipSlot = 14 } }
 local swingStart, swingDuration, swingLate, swingStamp = nil, 0, false, 0
+local keysQueued, cooldownBars, chargeMax, barStamp = false, {}, {}, 0
 
 local pcall = pcall
 
@@ -422,12 +423,42 @@ local function Proc(row, icon)
 	Style.SetProc(icon, on)
 end
 
+local function Quality(row, icon)
+	local entry, rank = icon.entry, nil
+	if row.cfg.itemQuality and entry and (entry.categoryID or entry.equipSlot) then
+		local item
+		if entry.equipSlot then
+			local ok, id = pcall(GetInventoryItemID, "player", entry.equipSlot)
+			item = ok and id or nil
+		else
+			item = select(2, CategorySpell(entry))
+		end
+		if ns.IsSecret(item) then return end
+		local get = C_TradeSkillUI and C_TradeSkillUI.GetItemCraftedQualityByItemInfo
+		if Finite(item) and type(get) == "function" then
+			local ok, quality = pcall(get, item)
+			rank = ok and Finite(quality) and quality > 0 and math.min(quality, 5) or nil
+		end
+	end
+	if icon.rank ~= rank then Style.Rank(icon, rank) end
+end
+
+local function Hotkey(row, icon)
+	local entry = icon.entry
+	local key = row.cfg.keybind and entry and Keys.For(entry.spellID) or nil
+	if icon.keyText ~= key then
+		icon.keyText = key
+		icon:SetHotkey(key)
+	end
+end
+
 local function RefreshCooldownIcon(row, icon)
 	Texture(icon.icon, icon.entry)
 	Usable(row, icon)
 	Charges(icon)
 	Proc(row, icon)
 	Cooldown(row, icon)
+	Quality(row, icon)
 end
 
 local function OnCooldownDone(cooldown)
@@ -498,6 +529,7 @@ local function Match(row, icon)
 	Range(icon)
 	if icon.rule.swing or icon.swingSweep then Sweep(row, icon) end
 	if icon.rule.swingGlow or icon.lateGlow then SwingGlow(row, icon) end
+	Hotkey(row, icon)
 	row:Visible(icon)
 end
 
@@ -584,7 +616,9 @@ local function SpellName(entry)
 end
 
 local function ShowBar(row, bar, entry)
-	bar.entry = entry
+	bar.entry, bar.cdStamp = entry, nil
+	if bar.sections then row:Hash(bar, nil) end
+	row:Recharge(bar, nil)
 	Texture(bar.icon, entry)
 	local rule, cfg = Rules.For(entry), row.cfg
 	K.Widgets.SetText(bar.name, type(rule.names) == "string" and rule.names or SpellName(entry))
@@ -625,6 +659,63 @@ local function ShowBar(row, bar, entry)
 	bar:SetAlpha(id and 1 or ns.INACTIVE_ALPHA)
 end
 
+local function Charge(spell)
+	local api = C_Spell
+	local ok, info = false, nil
+	if api and api.GetSpellCharges then ok, info = pcall(api.GetSpellCharges, spell) end
+	if not ok or ns.IsSecret(info) or type(info) ~= "table" then return chargeMax[spell], nil end
+	if Finite(info.maxCharges) then chargeMax[spell] = info.maxCharges end
+	return chargeMax[spell], info
+end
+
+local function CooldownTiming(row, bar, cooldownEvent)
+	local cfg, api, entry, status = row.cfg, C_Spell, bar.entry, bar.status
+	local spell = entry.spell
+	local smooth = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation[cfg.cdSmooth and "ExponentialEaseOut" or "Immediate"] or 0
+	local elapsed = Enum and Enum.StatusBarTimerDirection and Enum.StatusBarTimerDirection.ElapsedTime or 0
+	local sections, info
+	if cfg.hashLines and entry.charges then sections, info = Charge(spell) end
+	sections = sections and sections > 1 and sections or nil
+	if bar.sections ~= sections then
+		row:Hash(bar, sections)
+		row:Recharge(bar, nil)
+		bar.full = nil
+		if sections then status:SetMinMaxValues(0, sections) end
+	end
+	local ok, duration = false, nil
+	if sections then
+		if info then status:SetValue(info.currentCharges) end
+		local active = info and info.isActive
+		if active ~= nil and not ns.IsSecret(active) then bar.recharging = active == true end
+		if bar.recharging and api.GetSpellChargeDuration then ok, duration = pcall(api.GetSpellChargeDuration, spell) end
+		row:Recharge(bar, ok and Present(duration) and duration, smooth, elapsed)
+	else
+		local cooling = SpellCooling(spell, cooldownEvent)
+		if cooling ~= nil then bar.cooling = cooling end
+		if bar.cooling ~= false and api.GetSpellCooldownDuration then ok, duration = pcall(api.GetSpellCooldownDuration, spell, true) end
+		if ok and Present(duration) then
+			bar.full = nil
+			local set, err = pcall(status.SetTimerDuration, status, duration, smooth, elapsed)
+			if not set then ns.LogOnce("cooldown-bar", "SetTimerDuration failed for a cooldown bar: " .. tostring(err)) end
+		elseif not bar.full then
+			bar.full = true
+			status:SetMinMaxValues(0, 1)
+			status:SetValue(1)
+		end
+	end
+	if ok and Present(duration) then SetDuration(row.group, bar.timer, duration) else bar.timer:Clear() end
+end
+
+local function CooldownBar(row, bar, entry)
+	bar.entry, bar.cdStamp, bar.cooling, bar.recharging, bar.full = entry, barStamp, nil, nil, nil
+	Texture(bar.icon, entry)
+	local rule = Rules.For(entry)
+	K.Widgets.SetText(bar.name, type(rule.names) == "string" and rule.names or SpellName(entry))
+	K.Widgets.SetText(bar.count, nil)
+	bar:SetAlpha(1)
+	CooldownTiming(row, bar)
+end
+
 local function Shows(cfg, entry)
 	local rule, active = Rules.For(entry), entry.auraID ~= nil
 	if rule.hide then return false, not rule.shift end
@@ -634,20 +725,32 @@ end
 
 local function AssignAuras(row, list)
 	local out, blank, cfg = shown[row.group], row.blank, row.cfg
-	Empty(out)
-	Empty(blank)
-	for pass = 1, (cfg.keepPlace or not (cfg.inactive or Settings.current.rules.missing ~= "")) and 1 or 2 do
-		for _, entry in ipairs(list) do
-			local show, slot = Shows(cfg, entry)
-			if cfg.keepPlace and (show or slot) then
-				out[#out + 1], blank[entry] = entry, not show or nil
-			elseif show and (entry.auraID ~= nil) == (pass == 1) then
-				out[#out + 1] = entry
+	if list then
+		Empty(out)
+		Empty(blank)
+		for pass = 1, (cfg.keepPlace or not (cfg.inactive or Settings.current.rules.missing ~= "")) and 1 or 2 do
+			for _, entry in ipairs(list) do
+				local show, slot = Shows(cfg, entry)
+				if cfg.keepPlace and (show or slot) then
+					out[#out + 1], blank[entry] = entry, not show or nil
+				elseif show and (entry.auraID ~= nil) == (pass == 1) then
+					out[#out + 1] = entry
+				end
 			end
 		end
+		while blank[out[#out]] and #out > Grid.Capacity(cfg) do
+			blank[out[#out]], out[#out] = nil, nil
+		end
 	end
-	while blank[out[#out]] and #out > Grid.Capacity(cfg) do
-		blank[out[#out]], out[#out] = nil, nil
+	if row.group == "bars" then
+		while cooldownBars[out[#out]] do out[#out] = nil end
+		Empty(cooldownBars)
+		for _, group in ipairs(Settings.current.rules.cdBars ~= "" and { "essential", "utility" } or EMPTY) do
+			for _, entry in ipairs(Live(group) and lists[group] or EMPTY) do
+				local rule = Rules.For(entry)
+				if entry.spell and rule.cdBars and not rule.hide and not (type(rule.talent) == "string" and not Rules.Known(rule.talent)) then out[#out + 1], cooldownBars[entry] = entry, true end
+			end
+		end
 	end
 	row.entries = out
 	local count = row:SetCount(#out)
@@ -655,10 +758,13 @@ local function AssignAuras(row, list)
 		if not Live(row.group) then
 			return
 		end
-		if row.group == "bars" then
-			ShowBar(row, row.bars[i], out[i])
-		else
+		local bar = row.bars and row.bars[i]
+		if cooldownBars[out[i]] then
+			if bar.entry ~= out[i] or bar.cdStamp ~= barStamp then CooldownBar(row, bar, out[i]) end
+		elseif not bar then
 			ShowAuraIcon(row, row.icons[i], out[i])
+		elseif list then
+			ShowBar(row, bar, out[i])
 		end
 	end
 end
@@ -849,6 +955,7 @@ local function Assign(group)
 		AssignCooldowns(rows[group], Merged(group))
 	elseif Auras.Secret() then
 		Owe()
+		if group == "bars" then AssignAuras(rows.bars) end
 	else
 		FindAuras(lists[group])
 		AssignAuras(rows[group], lists[group])
@@ -940,6 +1047,8 @@ local ListenRules
 
 local function ApplySettings(key)
 	Settings.Read()
+	Keys.Reset()
+	barStamp = barStamp + 1
 	ListenRules()
 	for _, group in ipairs(GROUPS) do
 		local row = rows[group]
@@ -1109,17 +1218,82 @@ local function OnQueue()
 	if swingLate then EachCooldownIcon(SwingGlow) end
 end
 
+local function RefreshCooldownBars(cooldownEvent)
+	local row = rows.bars
+	if not (next(cooldownBars) and Live("bars")) then return end
+	for i = 1, row.count do
+		local bar = row.bars[i]
+		if cooldownBars[bar.entry] then CooldownTiming(row, bar, cooldownEvent) end
+	end
+end
+
+local function RunKeys()
+	keysQueued = false
+	Keys.Reset()
+	if running then EachCooldownIcon(Hotkey) end
+end
+
+local function OnKeys()
+	if not keysQueued then
+		keysQueued = true
+		C_Timer.After(0, RunKeys)
+	end
+end
+
+local function Release(slot)
+	for group in pairs(COOLDOWN_GROUPS) do
+		for _, icon in ipairs(rows[group] and rows[group].icons or EMPTY) do
+			if icon.pressSlot and (slot == nil or icon.pressSlot == slot) then
+				icon.pressSlot = nil
+				icon:AnimatePress(false)
+			end
+		end
+	end
+end
+
+local function OnPress(slot, down)
+	if type((ns.Plain(slot))) ~= "number" then return end
+	if not down then return Release(slot) end
+	local spell = running and Keys.Spell(slot)
+	if not spell then return end
+	for group in pairs(COOLDOWN_GROUPS) do
+		local row = rows[group]
+		if Live(group) and row.cfg.pressMirror then
+			for i = 1, row.count do
+				local icon = row.icons[i]
+				local entry = icon.entry
+				if entry and (entry.spellID == spell or entry.spell == spell) and icon.AnimatePress then
+					icon.pressSlot = slot
+					icon:AnimatePress(true)
+				end
+			end
+		end
+	end
+end
+
 local function Listen(event, fn, on)
 	if on then K.Events.Register(MODULE, event, fn) else K.Events.Unregister(MODULE, event) end
 end
 
+local KEY_EVENTS = { "UPDATE_BINDINGS", "ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_PAGE_CHANGED", "UPDATE_BONUS_ACTIONBAR", "UPDATE_VEHICLE_ACTIONBAR", "UPDATE_OVERRIDE_ACTIONBAR" }
+
+local function Uses(key)
+	local current = Settings.current
+	return Live("essential") and current.essential[key] or Live("utility") and current.utility[key] or false
+end
+
 function ListenRules()
 	local rules, mirrored = Settings.current.rules, Live("essential") or Live("utility")
-	local form, glow = mirrored and rules.form ~= "", mirrored and rules.swingGlow ~= ""
+	local form, glow, keys = mirrored and rules.form ~= "", mirrored and rules.swingGlow ~= "", Uses("keybind")
 	Listen("UPDATE_SHAPESHIFT_FORM", OnForm, form)
 	Listen("UPDATE_SHAPESHIFT_FORMS", OnForm, form)
 	Listen("PLAYER_SWING", OnSwing, glow or mirrored and rules.swing ~= "")
 	Listen("CURRENT_SPELL_CAST_CHANGED", OnQueue, glow)
+	for _, event in ipairs(KEY_EVENTS) do Listen(event, OnKeys, keys) end
+	K.Widgets.OnActionKeys(keys and OnKeys or nil)
+	local press = Uses("pressMirror")
+	K.Widgets.OnActionPress(press and OnPress or nil)
+	if not press then Release() end
 	if form then ReadForm() end
 end
 
@@ -1136,9 +1310,11 @@ local EVENTS = {
 	end,
 	SPELL_UPDATE_COOLDOWN = function()
 		EachCooldownIcon(CooldownIcon)
+		RefreshCooldownBars(true)
 	end,
 	SPELL_UPDATE_CHARGES = function()
 		EachCooldownIcon(ChargeIcon)
+		RefreshCooldownBars()
 	end,
 	SPELL_UPDATE_USABLE = function()
 		EachCooldownIcon(Usable)
@@ -1157,6 +1333,7 @@ local EVENTS = {
 	COOLDOWN_VIEWER_SPELL_OVERRIDE_UPDATED = function(_, base, override)
 		eventEntry = Data.SetOverride(base, override)
 		if eventEntry then
+			barStamp = barStamp + 1
 			EachCooldownIcon(OverrideIcon)
 			RequestAuras()
 		end
@@ -1173,7 +1350,10 @@ local EVENTS = {
 	end,
 	PLAYER_REGEN_DISABLED = OnCombat,
 	PLAYER_REGEN_ENABLED = OnCombat,
-	SPELLS_CHANGED = Mirror.Schedule,
+	SPELLS_CHANGED = function()
+		Rules.Forget()
+		Mirror.Schedule()
+	end,
 	PLAYER_ENTERING_WORLD = Mirror.Schedule,
 	COOLDOWN_VIEWER_DATA_LOADED = Mirror.Schedule,
 	COOLDOWN_VIEWER_TABLE_HOTFIXED = Mirror.Schedule,
@@ -1227,6 +1407,7 @@ end
 
 function Mirror.Start()
 	Settings.Read()
+	Keys.Reset()
 	running = true
 	retries = 0
 	fighting = InCombatLockdown and InCombatLockdown() == true or false
@@ -1276,6 +1457,9 @@ function Mirror.Stop()
 	pending = false
 	swingStart, swingLate, swingStamp = nil, false, swingStamp + 1
 	auraUnits = nil
+	K.Widgets.OnActionPress(nil)
+	K.Widgets.OnActionKeys(nil)
+	Release()
 	K.Events.UnregisterAll(MODULE)
 	if EventRegistry and EventRegistry.UnregisterCallback then
 		EventRegistry:UnregisterCallback(DATA_EVENT, Mirror)
