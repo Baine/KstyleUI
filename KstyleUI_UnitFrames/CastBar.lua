@@ -306,6 +306,21 @@ local function Hide(cb, instant)
 	if cb.latency then cb.latency:Hide() end
 	if cb.important then cb.important:Hide() end
 	cb.duration = nil
+	if cb.idle then
+		StopFlash(cb)
+		cb.bar:SetMinMaxValues(0, 1)
+		cb.bar:SetValue(0)
+		CastBars.SetName(cb, "")
+		cb.timer:SetText("")
+		cb.icon:SetTexture(nil)
+		cb.bar:SetFillCursor(false)
+		cb.label:Hide()
+		cb.lock:Hide()
+		cb.empty = true
+		cb.frame:SetAlpha(1)
+		cb.frame:SetShown(not cb.noRoom)
+		return
+	end
 	if instant or not cb.frame:IsShown() then
 		StopFlash(cb)
 		cb.frame:Hide()
@@ -482,7 +497,7 @@ end
 
 local function ShowLock(cb)
 	local label, lock, value = cb.label, cb.lock, cb.locked
-	if not cb.line then
+	if not cb.line or cb.empty then
 		label:Hide()
 		lock:Hide()
 		return
@@ -673,7 +688,7 @@ local function LayoutMedal(cb, width, height, column)
 	bar.keyline:Hide()
 	bar:SetTrackBacking(true)
 	bar:SetInnerEdge(true, "black")
-	bar:SetFillCursor(Settings.Value(cb.kind, "castbarSpark"))
+	bar:SetFillCursor(not cb.empty and Settings.Value(cb.kind, "castbarSpark"))
 	Spark(cb)
 	local size = Settings.FontSize(cb.kind, "cast")
 	local timerOn = Settings.Value(cb.kind, "castbarTimer")
@@ -902,7 +917,7 @@ function CastBars.Restyle(cb)
 	if cb.medal then
 		cb.bar:SetBarTexture(Tokens.Texture("barFlat"))
 		cb.bar:SetInnerEdge(true, "black")
-		cb.bar:SetFillCursor(Settings.Value(cb.kind, "castbarSpark"))
+		cb.bar:SetFillCursor(not cb.empty and Settings.Value(cb.kind, "castbarSpark"))
 	else
 		cb.bar:SetBarTexture(Settings.Value(cb.kind, "castbarTexture"))
 		cb.bar:SetInnerEdge(cb.mode ~= nil and cb.bar:FlatTexture(), "castEdge")
@@ -1077,9 +1092,9 @@ end
 
 local function Start(cb, channel, update)
 	local _, text, texture, startMs, endMs, isTradeSkill, notInterruptible, spellID, castBarID
-	if channel then
+	if channel and UnitChannelInfo then
 		_, text, texture, startMs, endMs, isTradeSkill, notInterruptible, spellID, _, _, castBarID = UnitChannelInfo(cb.unit)
-	else
+	elseif not channel and UnitCastingInfo then
 		_, text, texture, startMs, endMs, isTradeSkill, _, notInterruptible, spellID, castBarID = UnitCastingInfo(cb.unit)
 	end
 	if type(isTradeSkill) ~= "boolean" or cb.noRoom then
@@ -1100,6 +1115,11 @@ local function Start(cb, channel, update)
 	cb.duration = nil
 	if not update or not Outcomes() then Motion.FadeIn(cb.frame, Outcomes() and 0.08 or Tokens.Duration("fade")) end
 	Notify(cb)
+	if cb.empty then
+		cb.empty = false
+		cb.bar:SetFillCursor(cb.medal and Settings.Value(cb.kind, "castbarSpark"))
+		Spark(cb)
+	end
 	CastBars.SetName(cb, text, SpellTarget(cb))
 	Icon(cb, texture)
 	if not cb.styled then
@@ -1148,6 +1168,7 @@ local function Land(cb)
 end
 
 local function Casting(unit)
+	if not (UnitCastingInfo and UnitChannelInfo) then return false end
 	local _, _, _, _, _, castTrade = UnitCastingInfo(unit)
 	if type(castTrade) == "boolean" then
 		return true
@@ -1246,7 +1267,7 @@ local function Each(kind, fn)
 end
 
 local function RefreshOne(cb)
-	if Enabled(cb) and UnitExists(cb.unit) then
+	if Enabled(cb) and UnitExists(cb.unit) and UnitCastingInfo and UnitChannelInfo then
 		local _, _, _, _, _, castTrade = UnitCastingInfo(cb.unit)
 		local _, _, _, _, _, channelTrade = UnitChannelInfo(cb.unit)
 		if type(castTrade) == "boolean" then
@@ -1268,7 +1289,9 @@ end
 local function Listen(cb)
 	local owner = Owner(cb)
 	K.Events.UnregisterAll(owner)
-	if not Enabled(cb) then
+	local on = Enabled(cb)
+	cb.idle = on and not Settings.Value(cb.kind, "castbarHideIdle")
+	if not on then
 		Hide(cb, true)
 		return
 	end
@@ -1329,7 +1352,7 @@ end
 function CastBars.Attach(view)
 	local kind = view.kind
 	local cb = New(kind == "target" and view.button or view.body or view.button, kind, view.unit)
-	cb.attached = true
+	cb.attached, cb.noRoom = true, true
 	view.castbar = cb
 	local block = view.health and view.health.ornament
 	if block then
@@ -1425,6 +1448,7 @@ function CastBars.Disable()
 	for _, kind in ipairs(Settings.KINDS) do
 		Each(kind, function(cb)
 			K.Events.UnregisterAll(Owner(cb))
+			cb.idle = false
 			Hide(cb, true)
 		end)
 	end

@@ -1,4 +1,4 @@
--- frames_text_slots.lua: real default frames for base pixel comparisons, with optional extra text or unit-frame parity round 1 and 2 options through Options.
+-- frames_text_slots.lua: real default frames for base pixel comparisons, with optional extra text or unit-frame parity round 1, 2 or 3a options through Options.
 local Common = dofile("Tools/render/scenes/_common.lua")
 local Gallery = dofile("Tools/render/scenes/_gallery.lua")
 local Hud = dofile("Tools/render/scenes/hud.lua")
@@ -75,7 +75,39 @@ return Common.Run(function()
 		end
 		dofile("Tools/regression/aura_fixture_engine.lua").Install(env)
 	end
+	if os.getenv("RENDER_PARITY_R3A") == "1" and module == "UnitFrames" then
+		local U = dofile("Tools/regression/unitframes_env.lua")
+		env._units.target.marker = 8
+		U.SetUnit(env, "focus", env._units.target)
+		U.SetUnit(env, "boss1", { name = "Magmatus", level = -1, classification = "worldboss", health = 72000, healthMax = 100000, reaction = 2, canAttack = true })
+		env.C_PetInfo = { GetPetHappiness = function() return 3 end }
+		env.HasPetUI = function() return true, true end
+		for _, event in ipairs({ "PLAYER_FOCUS_CHANGED", "INSTANCE_ENCOUNTER_ENGAGE_UNIT", "RAID_TARGET_UPDATE" }) do env.FireEvent(event) end
+		for _, pair in ipairs({
+			{ "target.markerSize", 28 }, { "pet.happiness", true }, { "pet.happinessPosition", "LEFT" }, { "pet.castbar", true },
+			{ "pet.castbarHideIdle", false }, { "focus.auraCopy", "target" }, { "target.auraBuffZoom", 0.25 },
+			{ "boss.auraSimple", "LEFT" }, { "boss.castbarHideIdle", false }, { "focus.auraFilter", "both" },
+		}) do
+			K.Options.Write(module, pair[1], pair[2])
+		end
+		local function auras(harmful, helpful)
+			local list = {}
+			for i, icon in ipairs({ 135813, 136026, 136207, 136197 }) do
+				if i <= harmful or i > 4 - helpful then list[#list + 1] = { id = i, icon = icon, left = i * 7, harmful = i <= harmful, mine = true } end
+			end
+			return list
+		end
+		env._units.boss1.auras, env._units.target.auras = auras(3, 0), auras(2, 2)
+		dofile("Tools/regression/aura_fixture_engine.lua").Install(env)
+	end
 	env.RunTimers(); Gallery.Ticks(dofile("Tools/regression/widget_env.lua"), env, 40)
 	assert(not Common.Errors(env, K), tostring(Common.Errors(env, K)))
+	if os.getenv("RENDER_PARITY_R3A") == "1" and module == "UnitFrames" then
+		local W, zoomed = dofile("Tools/regression/widget_env.lua"), false
+		for _, entry in ipairs(ns.Frames.Get("focus").views[1].auras.buttons) do
+			zoomed = zoomed or entry.buff and entry.button:IsVisible() and W.LastCall(entry.icon, "SetTexCoord")[1] == 0.25
+		end
+		assert(zoomed, "the focus shows a buff at the target's buff zoom")
+	end
 	return Gallery.Build(env)
 end)

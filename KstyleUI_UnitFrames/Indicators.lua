@@ -116,13 +116,41 @@ function Indicators.Fit(view)
 	PlaceMarker(view, x)
 end
 
+local EXTRA_SPOT = {
+	TOPLEFT = { "BOTTOMLEFT", "TOPLEFT", 0, 1 }, TOPRIGHT = { "BOTTOMRIGHT", "TOPRIGHT", 0, 1 },
+	LEFT = { "RIGHT", "LEFT", -1, 0 }, RIGHT = { "LEFT", "RIGHT", 1, 0 },
+}
+
 local function PlaceExtra(view)
 	local icon = view.extraIcon
 	icon:ClearAllPoints()
-	if view.form == "row" then
-		local size = Snap(view, view.s.iconSize)
+	local chosen = EXTRA_SPOT[view.s.happinessPosition or ""]
+	local spot = chosen or view.form == "row" and EXTRA_SPOT.TOPRIGHT
+	if spot then
+		local size, gap = Snap(view, view.s.iconSize), Snap(view, ICON_GAP)
+		local x, y = spot[3] * gap, spot[4] * gap
+		local g = chosen and view.geometry
+		local medal, m, left = g and g.medal, g and g.marker, spot[2]:find("LEFT")
+		if medal then
+			x = x + Snap(view, left and math.min(0, medal.x) or math.max(0, medal.x + medal.w - g.glass.w))
+			y = y + Snap(view, spot[4] > 0 and math.max(0, -medal.y) or 0)
+		end
+		if m then
+			local w = g.glass.w
+			local bx = (left and 0 or w) + x - (spot[1]:find("RIGHT") and size or 0)
+			local by = spot[4] > 0 and -y - size or (g.glass.h - size) / 2
+			if bx < m.x + m.w and m.x < bx + size and by < m.y + m.h and m.y < by + size then
+				if spot[4] > 0 then
+					y = gap - Snap(view, m.y)
+				elseif left then
+					x = Snap(view, m.x) - gap
+				else
+					x = Snap(view, m.x + m.w - w) + gap
+				end
+			end
+		end
 		icon:SetSize(size, size)
-		icon:SetPoint("BOTTOMRIGHT", view.parent, "TOPRIGHT", 0, Snap(view, ICON_GAP))
+		icon:SetPoint(spot[1], view.parent, spot[2], x, y)
 	else
 		icon:SetAllPoints(view.icons.resting)
 	end
