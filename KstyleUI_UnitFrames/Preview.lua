@@ -20,6 +20,7 @@ local CAST_ICON = 135846
 local AURA_ICONS = { 135846, 136096, 135813, 136075 }
 local AURA_TIMES = { "12s", "4s", "1m", "25s", "8s", "3m", "40s", "2m" }
 local AURA_STACKS = { [2] = "3", [5] = "2" }
+local AURA_DISPEL = { "debuff", "steal", "buff" }
 local AURA_MORE = 3
 local CHIP_SHARE, CHIP_MIN, CHIP_LEVEL = 0.42, 8, 4
 local THREAT_TANKING = 3
@@ -132,7 +133,7 @@ local function Paint(view, kind)
 	end
 	view.power:SetBarRange(0, sample.powerMax)
 	view.power:SetValue(sample.power)
-	view.power:SetBarColor(SampleColor(s, sample, s.powerColor, s.powerCustom))
+	Style.PowerFill(view, SampleColor(s, sample, s.powerColor, s.powerCustom))
 	Format.Sample(view.powerText, s.powerText, sample.power, sample.powerMax)
 	if s.healPrediction then
 		view.incoming:SetBarRange(0, sample.healthMax)
@@ -245,7 +246,8 @@ local function PaintCast(frame, view, kind, height)
 	ns.CastBars.Layout(cb, w, castH)
 	cb.bar:SetMinMaxValues(0, 1)
 	cb.bar:SetValue(CAST_SHARE)
-	ns.CastBars.SetName(cb, L["Frostbolt"])
+	ns.CastBars.SetName(cb, L["Frostbolt"], Settings.Value(kind, "castbarTarget") and SAMPLES.player.name or nil)
+	ns.CastBars.Important(cb, nil, true)
 	cb.timer:SetFormattedText("%.1fs", CAST_LEFT)
 	cb.icon:SetTexture(CAST_ICON)
 	cb.frame:SetAlpha(1)
@@ -345,7 +347,7 @@ local function PaintAuras(frame, view, kind)
 			tile.icon:SetTexture(AURA_ICONS[(i - 1) % #AURA_ICONS + 1])
 			PlaceTile(tile.skin, host, kind, i, count, size, spacing, size + room + spacing, corner, growth)
 			ns.Auras.LayoutTile(tile)
-			ns.Auras.StyleSample(tile, kind)
+			ns.Auras.StyleSample(tile, kind, AURA_DISPEL[i])
 			tile.timer:SetText(AURA_TIMES[(i - 1) % #AURA_TIMES + 1])
 			tile.timer:SetShown(timers)
 			local stack = AURA_STACKS[i]
@@ -385,7 +387,7 @@ local function Size(frame, kind, s)
 		width, height = saved.width, saved.height
 	end
 	if kind == "boss" then
-		height = Geometry.Slots(Geometry.BOSS_COUNT, Geometry.BOSS_GAP, width, height)[1].h
+		height = Geometry.Slots(Geometry.BOSS_COUNT, s.gap, width, height)[1].h
 	end
 	local room = Room(frame:GetWidth())
 	if room then
