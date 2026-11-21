@@ -11,6 +11,7 @@ local MODULE = Settings.MODULE
 local BOSS_COUNT, BOSS_GAP = Geometry.BOSS_COUNT, Geometry.BOSS_GAP
 local CAST_GAP = { focus = 4, boss = 2 }
 local PET_CAST_GAP = 4
+local SLAB_CAST_GAP, SLAB_CAST_H = 2, 20
 local MIN_FRAME_HEIGHT = 20
 local POLL_INTERVAL = 0.2
 local CHIP_LEVEL, CHIP_GAP, CHIP_HEIGHT, CHIP_PAD, CHIP_EM = 9, 6, 20, 10, 0.62
@@ -725,6 +726,8 @@ function Frames.Relayout(uf)
 		elseif cb and uf.kind == "pet" then
 			cx, cy = g.panel.x, math.max(slot.h, g.medal and g.medal.y + g.medal.h or 0) + PET_CAST_GAP
 			cw, ch = uf.s.castbarWidth > 0 and uf.s.castbarWidth or g.panel.w, uf.s.castbarHeight
+		elseif cb and uf.s.inlineCast and (g.form == "slab" or g.form == "plate") then
+			cx, cy, cw, ch = g.panel.x, slot.h + SLAB_CAST_GAP, g.panel.w, SLAB_CAST_H
 		end
 		if cx then
 			cb.frame:ClearAllPoints()
@@ -931,6 +934,13 @@ end
 
 local REACTION_KEYS = { reactionColors = true, hostileColor = true, neutralColor = true, friendlyColor = true, tappedColor = true }
 
+local function PlaceCasts()
+	for kind in pairs(Settings.CAST_ELEMENTS) do
+		if frames[kind] and frames[kind].active then Frames.Restyle(frames[kind]) end
+	end
+	ns.CastBars.Apply()
+end
+
 local function OnSettingChanged(_, module, key)
 	if module ~= MODULE then
 		return
@@ -979,6 +989,8 @@ local function OnSettingChanged(_, module, key)
 		ns.Blizzard.Apply(running)
 	elseif key == "orbCastRoom" then
 		ns.CastBars.Apply()
+	elseif key == "castbarOnFrame" then
+		K.Combat.Queue(PlaceCasts)
 	elseif key == "castbarRaise" then
 		K.Combat.Queue(ns.CastBars.Apply)
 	elseif key == "unitTooltip" then
@@ -1038,6 +1050,10 @@ local function OnLayoutChanged(_, key, reason)
 	for kind, castKey in pairs(Settings.CAST_ELEMENTS) do
 		if key == castKey then
 			ns.CastBars.LayoutElement(kind)
+			local uf = frames[kind]
+			if uf and uf.active and uf.s and K.HudStyle.Current() == "medallions" and uf.s.inlineCast ~= Settings.CastOnFrame(kind) then
+				K.Combat.Queue(PlaceCasts)
+			end
 		end
 	end
 	ForEach(function(uf)
@@ -1152,6 +1168,7 @@ function Frames.Enable()
 		for _, kind in ipairs(Settings.KINDS) do
 			Build(kind)
 		end
+		ns.CastBars.Build()
 		Log("built " .. #order .. " unit frames")
 	end
 	RegisterEvents()

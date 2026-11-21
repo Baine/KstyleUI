@@ -177,6 +177,12 @@ function Common.ForceScreen(env, completePreset)
 			profile.GroupFrames.layout = { tidyLanes = false }
 		end
 	end
+	if os.getenv("RENDER_CAST_ON_FRAME") == "off" and type(db) == "table" and type(db.profiles) == "table" then
+		for _, profile in pairs(db.profiles) do
+			profile.UnitFrames = profile.UnitFrames or {}
+			profile.UnitFrames.castbarOnFrame = false
+		end
+	end
 	local readability = rawget(_G, "RENDER_READABILITY") or os.getenv("RENDER_READABILITY")
 	if readability == "off" and type(db) == "table" and type(db.profiles) == "table" then
 		for _, profile in pairs(db.profiles) do
