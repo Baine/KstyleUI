@@ -80,8 +80,23 @@ local function NewSection(win, spec, group)
 	return section
 end
 
-local function Grouped(section)
-	return section.groups ~= nil and Settings.Sections()
+function Window:Grouped(section)
+	local view = self.view
+	return section.groups ~= nil and view ~= "grid" and (view == "bags" or Settings.Sections())
+end
+
+function Window:PinState()
+	local main = self.sections[1]
+	if not (self.pinSpec and Settings.Get("pins")) or self.remoteData then
+		return false, false, false
+	end
+	local categories = self:Grouped(main) and self.view ~= "bags"
+	local shown = categories or Settings.Get("pinsInGrid")
+	return shown, categories and Settings.Get("pinsOnly"), shown and not categories and Settings.Get("pinsDim")
+end
+
+function Window:Match(slot, record)
+	return Data.Matches(record, self.query) and not (self.dimPins and not slot.pinned and record.itemID and self.dimPins[record.itemID])
 end
 
 local SLOT_RANK = {}
@@ -147,8 +162,24 @@ function Window.New(spec)
 			end
 		end,
 	})
-	for i, sectionSpec in ipairs(spec.sections) do
-		win.sections[i] = NewSection(win, sectionSpec)
+	win.placed = {}
+	for _, sectionSpec in ipairs(spec.sections) do
+		if sectionSpec.pins then
+			win.pinSpec = sectionSpec
+		else
+			local section = NewSection(win, sectionSpec)
+			section.key = "section" .. #win.sections + 1
+			win.sections[#win.sections + 1], win.placed[#win.placed + 1] = section, section
+		end
+	end
+	if win.pinSpec then
+		win.pin = function(slot)
+			local record = Settings.Get("pins") and not Data.CursorItem() and Data.Read(slot.bag, slot.id, slot.record)
+			if record and record.itemID then
+				Data.TogglePin(record.itemID)
+				win:Refresh()
+			end
+		end
 	end
 	win.footerLine = panel:CreateTexture(nil, "ARTWORK")
 	win.footerLine:SetTexture((Tokens.Texture("divider")))
@@ -190,7 +221,7 @@ function Window:Drop(preferredBag)
 	end
 	local bags = {}
 	for _, section in ipairs(self.sections) do
-		for _, bag in ipairs(section.spec.bags()) do
+		for _, bag in ipairs(section ~= self.pinSection and section.spec.bags() or {}) do
 			bags[#bags + 1] = bag
 		end
 	end
@@ -256,7 +287,7 @@ function Window:QueueCreate(reason)
 	end)
 end
 
-function Window:Group(section, key, label, rank)
+function Window:Group(section, key, label, rank, category)
 	local group = section.groups[key]
 	if not group then
 		group = NewSection(self, { caption = label, bags = section.spec.bags, free = section.spec.free }, key)
@@ -265,18 +296,24 @@ function Window:Group(section, key, label, rank)
 		group.spec.caption = label
 		group.cap:SetText(label)
 	end
-	group.rank = rank
+	group.rank, group.key, group.category = rank, key, category
 	return group
 end
 
 function Window:Key(record, o, ranks, labels)
+	if o.byBag then
+		local key = "bag" .. record.bag
+		labels[key] = labels[key] or Data.BagName(record.bag)
+		return key, labels[key], record.bag
+	end
 	local key = Data.Category(record)
+	local category = key
 	if o.recent and record.isNew and not (o.carried and o.carried[record.itemID]) then
 		return "recent", L["Recent items"], 0
 	end
 	local label, rank = labels[key] or key, ranks[key] or 0
 	if record.empty or not (o.sets or o.slot or o.types or o.nest) then
-		return key, label, rank
+		return key, label, rank, key
 	end
 	local info = Data.Info(record)
 	local sub, subRank = nil, 0
@@ -304,7 +341,7 @@ function Window:Key(record, o, ranks, labels)
 	if expansion or sub then
 		key = key .. "|" .. tostring(expansion or "") .. "|" .. (sub or "")
 	end
-	return key, label, rank
+	return key, label, rank, category
 end
 
 function Window:Adopt(home, slot)
@@ -330,7 +367,7 @@ function Window:Sort(section)
 		end
 		group.total, group.value = 0, 0
 	end
-	if not Grouped(section) then
+	if not self:Grouped(section) then
 		for _, slot in ipairs(section.order) do
 			slot.packed, slot.shownCount = nil, nil
 			self:Adopt(section, slot)
@@ -338,12 +375,15 @@ function Window:Sort(section)
 		return
 	end
 	local o = self.opts
-	o.recent = self.spec.recent and Settings.Get("recentItems")
-	local busy = ns.Busy and ns.Busy()
+	o.byBag = self.view == "bags"
+	o.recent = self.spec.recent and Settings.Get("recentItems") and not o.byBag
+	local busy = ns.Busy and ns.Busy() or o.byBag
 	o.gained = Settings.Get("recentGained") and not busy
 	o.sets, o.slot, o.types = Settings.Get("splitSets"), Settings.Get("gearBySlot"), Settings.Get("splitTypes")
 	o.nest = Settings.Get(self.spec.nest or "nestExpansion")
 	o.merge = Settings.Get("mergeStacks") and not busy
+	local _, leave = self:PinState()
+	local pinned = leave and Data.Pins()
 	o.carried = nil
 	if o.recent and Settings.Get("recentNewOnly") then
 		o.carried = {}
@@ -364,10 +404,11 @@ function Window:Sort(section)
 	for _, slot in ipairs(section.order) do
 		local record = Data.Read(slot.bag, slot.id, slot.record)
 		slot.shownCount = nil
-		local key, label, rank = self:Key(record, o, ranks, labels)
-		local group = self:Group(section, key, label, rank)
-		group.total = group.total + 1
-		local price = o.value and not record.empty and not record.noValue and Data.Info(record).price
+		local out = pinned and record.itemID and pinned[record.itemID]
+		local key, label, rank, category = self:Key(record, o, ranks, labels)
+		local group = self:Group(section, key, label, rank, category)
+		group.total = group.total + (out and 0 or 1)
+		local price = not out and o.value and not record.empty and not record.noValue and Data.Info(record).price
 		if price then
 			group.value = group.value + price * (record.count or 1)
 		end
@@ -378,8 +419,10 @@ function Window:Sort(section)
 		local stack = family and stacks[family]
 		local into = not record.empty and record.itemID and (key == "recent" and o.gained or key ~= "recent" and o.merge and Data.BuiltinCategory(record) ~= "equipment") and (key .. "#" .. record.itemID) or nil
 		local first = into and merged[into]
-		if stack or first then
-			if stack then
+		if out or stack or first then
+			if out then
+				slot.packed = nil
+			elseif stack then
 				stack.packed = stack.packed + 1
 			elseif key ~= "recent" then
 				first.shownCount = (first.shownCount or first.record.count or 1) + (record.count or 1)
@@ -439,24 +482,26 @@ function Window:TrackRecent(section, recent)
 end
 
 function Window:Panels()
-	local list = {}
+	local list, only, listed = {}, self.only, self.listed or {}
+	for key in pairs(listed) do
+		listed[key] = nil
+	end
+	self.listed = listed
 	for _, section in ipairs(self.sections) do
-		if Grouped(section) then
+		if self:Grouped(section) then
 			local shown = {}
 			for _, group in pairs(section.groups) do
 				if group.total > 0 then
+					listed[group.key] = group
+				end
+				if group.total > 0 and (not only or only == group.key) then
 					shown[#shown + 1] = group
 				else
 					group.view:Hide()
 					group.cap:Hide()
 				end
 			end
-			table.sort(shown, function(a, b)
-				if a.rank ~= b.rank then
-					return a.rank < b.rank
-				end
-				return tostring(a.spec.caption) < tostring(b.spec.caption)
-			end)
+			table.sort(shown, ns.List.ByRank)
 			for _, group in ipairs(shown) do
 				list[#list + 1] = group
 			end
@@ -472,15 +517,84 @@ function Window:Panels()
 			list[#list + 1] = section
 		end
 	end
+	if only and not listed[only] and not Settings.Get("sidebarEmpty") then
+		local plain = self.sections[tonumber(only:match("^section(%d+)$") or 0)]
+		if not (plain and #plain.order > 0) then
+			self.only = nil
+			return self:Panels()
+		end
+	end
 	return list
 end
 
+function Window:EnsurePins(section)
+	local order, probe = section.order, {}
+	for i = #order, 1, -1 do
+		order[i] = nil
+	end
+	local shown = self:PinState()
+	local pins = shown and Data.Pins()
+	for _, frame in pairs(section.bagFrames) do
+		frame:Hide()
+	end
+	for _, bag in ipairs(pins and next(pins) and section.spec.bags() or {}) do
+		local frame = self:BagFrame(section, bag)
+		frame:Show()
+		local clones = section.clones[bag] or {}
+		section.clones[bag] = clones
+		local size = Data.NumSlots(bag)
+		for slotID = 1, size do
+			local record = Data.Read(bag, slotID, probe)
+			local slot = clones[slotID]
+			if record.itemID and pins[record.itemID] then
+				if not slot and InCombatLockdown() then
+					self:QueueCreate()
+				elseif not slot then
+					slot = Slot.New(frame, slotID, { secure = true, bag = bag, pin = self.pin })
+					slot.pinned, clones[slotID] = true, slot
+				end
+				order[#order + 1] = slot
+			elseif slot and Widgets.MayMove(slot.button) then
+				slot.button:Hide()
+			end
+		end
+		for slotID, slot in pairs(clones) do
+			if slotID > size then
+				slot.button:Hide()
+			end
+		end
+	end
+	return order
+end
+
+local function Bottom(order, up)
+	local rest, n = {}, 0
+	for _, slot in ipairs(order) do
+		if (not Data.Read(slot.bag, slot.id, slot.record).empty) == up then
+			n = n + 1
+			order[n] = slot
+		else
+			rest[#rest + 1] = slot
+		end
+	end
+	for _, slot in ipairs(rest) do
+		n = n + 1
+		order[n] = slot
+	end
+end
+
 function Window:Ensure(section)
+	if section.clones then
+		return self:EnsurePins(section)
+	end
 	local order = section.order
 	for i = #order, 1, -1 do
 		order[i] = nil
 	end
 	local shownBags, groups = self.shownBags, section.groups
+	local _, leave = self:PinState()
+	local pinned = leave and not groups and Data.Pins()
+	section.hidden = 0
 	for bag in pairs(shownBags) do
 		shownBags[bag] = nil
 	end
@@ -500,11 +614,16 @@ function Window:Ensure(section)
 				if InCombatLockdown() then
 					self:QueueCreate()
 				else
-					slot = Slot.New(frame, slotID, { secure = true, bag = bag, drop = function(targetBag) self:Drop(targetBag) end })
+					slot = Slot.New(frame, slotID, { secure = true, bag = bag, pin = self.pin, drop = function(targetBag) self:Drop(targetBag) end })
 					bagSlots[slotID] = slot
 				end
 			end
-			if slot then
+			if slot and pinned and pinned[Data.Read(bag, slotID, slot.record).itemID] then
+				section.hidden = section.hidden + 1
+				if Widgets.MayMove(slot.button) then
+					slot.button:Hide()
+				end
+			elseif slot then
 				order[#order + 1] = slot
 				if not groups then
 					slot.shownCount, slot.packed = nil, nil
@@ -524,6 +643,9 @@ function Window:Ensure(section)
 		if not shownBags[bag] then
 			frame:Hide()
 		end
+	end
+	if Settings.Get("sortBottom") and not self.remoteData and (self.view == "bags" or not self:Grouped(section)) then
+		Bottom(order, Data.GROWTH[Settings.Get("growth")][2])
 	end
 	if groups then
 		self:Sort(section)
@@ -605,6 +727,8 @@ function Window:Layout(force)
 	self.opts.bind, self.opts.sets = Settings.Get("bindText"), Settings.Get("setNames")
 	self.opts.mark = Settings.Get("reagentMark") and not Settings.ReagentApart()
 	self.opts.labels = self.opts.bind or self.opts.sets or self.opts.mark
+	local _, _, dim = self:PinState()
+	self.dimPins = dim and Data.Pins() or nil
 	local gold = Settings.Get("goldTooltip")
 	if self.goldHover ~= gold then
 		self.goldHover = gold
@@ -662,6 +786,13 @@ function Window:Layout(force)
 	local content = panel.content
 	local _, _, _, _, offsetY = content:GetPoint(1)
 	local contentTop = -(Plain(offsetY) or 0)
+	local screen = self:ScreenHeight()
+	local tallest = screen and min(screen - Snap(self, SCREEN_MARGIN), screen * Settings.Get("maxHeight") / 100 - gap)
+	local listWidth, tall = ns.List.Update(self, pad, contentTop, tallest and tallest - contentTop - pad)
+	local hold = self.open and not Settings.Get("shrink") and self.held
+	if hold then
+		contentWidth = max(contentWidth, hold[1] - 2 * pad - listWidth)
+	end
 	local top = 0
 	if self.spec.above then
 		top = self.spec.above(self, content, top, contentWidth)
@@ -695,12 +826,10 @@ function Window:Layout(force)
 	local footer = Snap(self, FOOTER_HEIGHT)
 	local currencies = self.spec.currencies and Settings.Get("currencies") and not remote
 	local footerBlock = border + Snap(self, Tokens.Size("gapSmall")) + footer * (currencies and 2 or 1)
-	local screen = self:ScreenHeight()
-	local tallest = screen and min(screen - Snap(self, SCREEN_MARGIN), screen * Settings.Get("maxHeight") / 100 - gap)
 	local budget = tallest and (tallest - contentTop - top - footerBlock - pad) or nil
 	local plainHeight = 0
 	for _, section in ipairs(panels) do
-		if not section.group and #section.order > 0 then
+		if not section.group and #section.order > 0 and (not self.only or self.only == section.key) then
 			section.height = select(2, self:Extent(section.cols, section.visibleRows))
 			plainHeight = plainHeight + (section.spec.caption and capBlock or 0) + section.height + gap
 		end
@@ -711,10 +840,9 @@ function Window:Layout(force)
 		self.geometry.columns, self.geometry.rows = columns, rowsLimit
 		top = self.remote:Layout(remote, content, top, contentWidth, self.geometry, capBlock, gap, budget and max(step, budget) or nil)
 	end
-	for _, section in ipairs(remote and {} or self.sections) do
-		if Grouped(section) then
+	for _, section in ipairs(remote and {} or self.placed) do
+		if self:Grouped(section) then
 			if not placedStack then
-				placedStack = true
 				local groups = {}
 				for _, group in ipairs(panels) do
 					if group.group then
@@ -722,10 +850,13 @@ function Window:Layout(force)
 					end
 				end
 				local room = budget and max(step, budget - used - plainHeight) or nil
-				local placed = self:PlaceStack(groups, content, top, contentWidth, room, rowsLimit, capBlock, gap)
-				used, top = used + placed - top, placed
+				if #groups > 0 then
+					placedStack = true
+					local placed = self:PlaceStack(groups, content, top, contentWidth, room, rowsLimit, capBlock, gap)
+					used, top = used + placed - top, placed
+				end
 			end
-		elseif #section.order > 0 then
+		elseif #section.order > 0 and (not self.only or self.only == section.key) then
 			local reserved = (section.spec.caption and capBlock or 0) + section.height + gap
 			plainHeight = plainHeight - reserved
 			local room = budget and max(step, budget - used - plainHeight) or nil
@@ -740,6 +871,16 @@ function Window:Layout(force)
 	end
 	if not placedStack then
 		self.viewport:Hide()
+	end
+	if hold then
+		top = max(top, hold[2] - contentTop - footerBlock - pad)
+	end
+	top = max(top, tall - footerBlock)
+	if listWidth > 0 or self.room then
+		self.room = listWidth > 0 and listWidth or nil
+		content:ClearAllPoints()
+		content:SetPoint("TOPLEFT", panel, "TOPLEFT", pad + listWidth, -contentTop)
+		content:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -pad, pad)
 	end
 	self.footerLine:ClearAllPoints()
 	self.footerLine:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -top)
@@ -764,8 +905,12 @@ function Window:Layout(force)
 			top = top + footer
 		end
 	end
-	Widgets.Size(panel, contentWidth + 2 * pad, contentTop + top + pad)
+	Widgets.Size(panel, contentWidth + 2 * pad + listWidth, contentTop + top + pad)
 	panel.chrome:SetHeader(Settings.Get("readableHeaders") and panel.titleBar:GetHeight() or self.originalHeader)
+	if self.open then
+		self.held = self.held or {}
+		self.held[1], self.held[2] = contentWidth + 2 * pad + listWidth, contentTop + top + pad
+	end
 	self:Paint(force)
 end
 
@@ -897,10 +1042,13 @@ function Window:Paint(force)
 		return
 	end
 	self.styleKey = key
-	for _, bagSlots in pairs(self.slots) do
-		for _, slot in pairs(bagSlots) do
-			Slot.Style(slot)
-			Slot.Paint(slot)
+	local tables = { self.slots, self.pinSection and self.pinSection.clones }
+	for _, slots in pairs(tables) do
+		for _, bagSlots in pairs(slots) do
+			for _, slot in pairs(bagSlots) do
+				Slot.Style(slot)
+				Slot.Paint(slot)
+			end
 		end
 	end
 end
@@ -919,7 +1067,7 @@ function Window:UpdateSlot(slot)
 		extra.set = o.sets and not unbound and not record.empty and Data.SetName(record.itemID) or nil
 		extra.mark = o.mark and slot.bag == Data.ReagentBag()
 	end
-	Slot.Update(slot, record, level, Data.Matches(record, self.query), slot.packed, extra, slot.shownCount)
+	Slot.Update(slot, record, level, self:Match(slot, record), slot.packed, extra, slot.shownCount)
 	local container = C_Container
 	if not record.empty and container and container.GetContainerItemCooldown then
 		Slot.SetCooldown(slot, container.GetContainerItemCooldown(slot.bag, slot.id))
@@ -928,12 +1076,16 @@ function Window:UpdateSlot(slot)
 	end
 end
 
-function Window:UpdateLock(bag, slotID)
-	local slot = self:Slot(bag, slotID)
+local function Lock(slot, bag, slotID)
 	if slot then
-		local record = Data.Read(bag, slotID, slot.record)
-		Slot.SetLocked(slot, record.locked)
+		Slot.SetLocked(slot, Data.Read(bag, slotID, slot.record).locked)
 	end
+end
+
+function Window:UpdateLock(bag, slotID)
+	local clones = self.pinSection and self.pinSection.clones[bag]
+	Lock(self:Slot(bag, slotID), bag, slotID)
+	Lock(clones and clones[slotID], bag, slotID)
 end
 
 function Window:UpdateCooldowns()
@@ -971,6 +1123,7 @@ function Window:UpdateFooter()
 	local free, total = 0, 0
 	for _, section in ipairs(self.sections) do
 		if section.spec.free then
+			total = total + (section.hidden or 0)
 			for _, slot in ipairs(section.order) do
 				total = total + 1
 				if slot.state.empty then
@@ -985,22 +1138,11 @@ function Window:UpdateFooter()
 end
 
 function Window:UpdateCurrencies()
-	local text, info = self.currency, C_CurrencyInfo
+	local text = self.currency
 	if not text or not (self.spec.currencies and Settings.Get("currencies")) then
 		return
 	end
-	local parts = {}
-	for i = 1, 10 do
-		local entry = info and type(info.GetBackpackCurrencyInfo) == "function" and info.GetBackpackCurrencyInfo(i)
-		if type(entry) ~= "table" or Data.IsSecret(entry) then
-			break
-		end
-		local amount, icon = Plain(entry.quantity), Plain(entry.iconFileID)
-		if amount then
-			parts[#parts + 1] = (icon and ("|T" .. icon .. ":0|t ") or "") .. amount
-		end
-	end
-	text:SetText(#parts > 0 and table.concat(parts, "   ") or L["Track currencies on the backpack to see them here."])
+	text:SetText(Data.CurrencyText() or L["Track currencies on the backpack to see them here."])
 end
 
 function Window:GoldTooltip(owner)
@@ -1062,6 +1204,19 @@ function Window.MoneyText(copper, coins)
 end
 
 function Window:Refresh(force)
+	local list = Settings.Get("sidebar")
+	if not (list and Settings.Get("sidebarTabs")) then
+		self.onlyBag = nil
+	end
+	if not list then
+		self.only, self.view = nil, self.spec.views and Settings.Get("openTo") or nil
+	end
+	if not self.pinSection and self:PinState() then
+		local section = NewSection(self, self.pinSpec)
+		section.key, section.clones = "section" .. #self.sections + 1, {}
+		self.sections[#self.sections + 1], self.pinSection = section, section
+		table.insert(self.placed, 1, section)
+	end
 	for _, section in ipairs(self.sections) do
 		self:Ensure(section)
 	end
@@ -1110,7 +1265,7 @@ function Window:SetQuery(text)
 	self.query = query
 	for _, section in ipairs(self.sections) do
 		for _, slot in ipairs(section.order) do
-			Slot.SetMatch(slot, Data.Matches(slot.record, query))
+			Slot.SetMatch(slot, self:Match(slot, slot.record))
 		end
 	end
 	if self.remote then
@@ -1144,6 +1299,9 @@ function Window:Open()
 		return
 	end
 	self.open = true
+	if self.spec.views then
+		self.view, self.only = Settings.Get("openTo"), nil
+	end
 	self:Refresh()
 	self.panel:Open()
 end
@@ -1156,12 +1314,12 @@ function Window:Close()
 end
 
 function Window:Hide()
-	self.open = false
+	self.open, self.held = false, nil
 	self.panel:Hide()
 end
 
 function Window:Closed()
-	self.open = false
+	self.open, self.held, self.only = false, nil, nil
 	if self.search:HasFocus() then
 		self.search:ClearFocus()
 	end

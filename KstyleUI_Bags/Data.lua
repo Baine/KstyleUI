@@ -655,6 +655,74 @@ function Data.Drop(bags, itemID, preferredBag)
 	return false
 end
 
+function Data.BagName(bag)
+	local container = C_Container
+	local name = container and type(container.GetBagName) == "function" and Plain(container.GetBagName(bag), "string")
+	return name or string.format(L["Bag %d"], bag)
+end
+
+function Data.CurrencyText()
+	local parts, picked, info = {}, false, C_CurrencyInfo
+	local function add(entry)
+		local amount, icon = Plain(entry.quantity, "number"), Plain(entry.iconFileID, "number")
+		if amount then
+			parts[#parts + 1] = (icon and ("|T" .. icon .. ":0|t ") or "") .. amount
+		end
+	end
+	for _, key in ipairs(ns.Settings.CURRENCIES) do
+		local id = ns.Settings.Get(key)
+		picked = picked or id > 0
+		local entry = id > 0 and info and type(info.GetCurrencyInfo) == "function" and Plain(info.GetCurrencyInfo(id), "table")
+		if entry then add(entry) end
+	end
+	for i = 1, picked and 0 or 10 do
+		local entry = info and type(info.GetBackpackCurrencyInfo) == "function" and info.GetBackpackCurrencyInfo(i)
+		if type(entry) ~= "table" or IsSecret(entry) then
+			break
+		end
+		add(entry)
+	end
+	return #parts > 0 and table.concat(parts, "   ") or nil
+end
+
+function Data.Pins(create)
+	local store = KstyleUI.Store
+	if not (store and store.IsLoaded and store.IsLoaded()) then
+		return NONE
+	end
+	local account = store.Account()
+	local pins = account.bagPins
+	if type(pins) ~= "table" or type(pins.shared) ~= "table" or type(pins.characters) ~= "table" then
+		if not create then
+			return NONE
+		end
+		pins = { shared = {}, characters = {} }
+		account.bagPins = pins
+	end
+	if not ns.Settings.Get("pinsPerCharacter") then
+		return pins.shared
+	end
+	local key = tostring(store.CharacterKey())
+	local own = pins.characters[key]
+	if type(own) ~= "table" and not create then
+		return pins.shared
+	elseif type(own) ~= "table" then
+		own = {}
+		for id in pairs(pins.shared) do
+			own[id] = true
+		end
+		pins.characters[key] = own
+	end
+	return own
+end
+
+function Data.TogglePin(itemID)
+	local pins = Data.Pins(true)
+	if itemID and pins ~= NONE then
+		pins[itemID] = not pins[itemID] or nil
+	end
+end
+
 function Data.FreeSlots(bags)
 	local free, total = 0, 0
 	local probe = {}
