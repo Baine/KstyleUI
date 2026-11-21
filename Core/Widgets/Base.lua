@@ -2329,7 +2329,7 @@ function Chrome:PaintMaterial()
 	self.grain:SetShown(self.visible)
 end
 
-function Chrome:Paint()
+function Chrome:Paint(skipEdge)
 	if not self.fill then
 		return
 	end
@@ -2357,7 +2357,9 @@ function Chrome:Paint()
 	if self.gilt then
 		ShowOnce(self, "giltState", self.gilt, self.visible and self.ticksShown and not self.steel and not (self.frameReady and material and material.brackets))
 	end
-	self:PaintEdge()
+	if not skipEdge then
+		self:PaintEdge()
+	end
 end
 
 function Chrome:PaintEdge()

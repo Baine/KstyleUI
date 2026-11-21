@@ -57,7 +57,7 @@ local function PaintRim(chrome)
 	chrome:SetEdgeRGBA(r, g, b, a)
 end
 
-local function SetRim(chrome, r, g, b, a)
+local function SetRim(chrome, r, g, b, a, defer)
 	chrome.rimAccent = false
 	if Plain(r) and Plain(g) and Plain(b) then
 		local c = chrome.rimColor
@@ -66,7 +66,9 @@ local function SetRim(chrome, r, g, b, a)
 	else
 		chrome.rimSet = false
 	end
-	PaintRim(chrome)
+	if not defer then
+		PaintRim(chrome)
+	end
 end
 
 local function SetRimAccent(chrome, r, g, b, strength)
@@ -89,7 +91,7 @@ function Widgets.IconChrome(owner, opts)
 	chrome.rimSet, chrome.rimAccent = false, false
 	local paint = chrome.Paint
 	chrome.Paint = function(self)
-		paint(self)
+		paint(self, true)
 		PaintRim(self)
 	end
 	chrome.SetRim, chrome.SetRimAccent = SetRim, SetRimAccent
@@ -126,7 +128,7 @@ local function Accent(self)
 	return r, g, b
 end
 
-function IconButton:Paint()
+function IconButton:Paint(rim)
 	local hover, press = self.hoverT or 0, self.pressT or 0
 	local usable = self.usable and self:IsEnabled() ~= false
 	local cooling = self.cooling and self.realCooldown
@@ -150,7 +152,10 @@ function IconButton:Paint()
 		r, g, b, a = Widgets.Mix(r, g, b, a, pr, pg, pb, pa, press)
 		lift = DIM_FILL_LIFT * press
 	end
-	chrome:SetRim(r, g, b, a)
+	if rim then
+		r, g, b, a = Tokens.Color(rim)
+	end
+	SetRim(chrome, r, g, b, a, true)
 	local fr, fg, fb, fa = Tokens.Color(self.opts.fill or "buttonFill")
 	if lift > 0 then
 		local xr, xg, xb, xa = Tokens.Color("raised")
