@@ -41,7 +41,6 @@ local function New(class, opts)
 		return register(owner, event, fn)
 	end
 	AB.Enable(env, K)
-	K.Options.Write("HudStyle", "style", "medallions")
 	env.RunTimers()
 	return env, K, ns
 end
@@ -245,7 +244,7 @@ for _, size in ipairs(SIZES) do
 	local ring = hub:GetWidth() * hub:GetEffectiveScale() / root / 2
 	local units = {}
 	for _, key in ipairs({ "unitframes.player", "unitframes.target" }) do
-		local p = Place(key) or layouts.Style("medallions", K.Layout.Setting("preset"), key)
+		local p = Place(key) or layouts.Style(K.Layout.Setting("preset"), key)
 		units[#units + 1] = { hx + p.x - p.width / 2, p.y, p.width, p.height }
 	end
 	for _, b in ipairs(state.sockets) do

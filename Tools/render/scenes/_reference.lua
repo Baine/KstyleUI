@@ -270,7 +270,6 @@ end
 
 function Reference.Build(opts)
 	opts = opts or {}
-	local style = os.getenv("RENDER_HUD_STYLE") or "Frames"
 	local layout = opts.layout or "DPS"
 	assert(layout == "DPS" or layout == "Tank" or layout == "Healer", "reference layout must be DPS, Tank or Healer")
 	local previous, previousMeter = rawget(_G, "RENDER_SCREEN"), rawget(_G, "RENDER_METER_CHOICE")
@@ -333,10 +332,10 @@ function Reference.Build(opts)
 			class = opts.class or "SHAMAN",
 			settings = os.getenv("RENDER_COMBAT_LEGACY") == "1" and {
 				UnitFrames = { player = { powerText = "legacy", powerSeparate = false }, target = { percentLead = false } },
-				Nameplates = { cast = { showName = false, combatCues = false, nameBelow = false, textSize = 13 }, debuffs = { size = style == "Medallions" and 17 or 29, textSize = style == "Medallions" and 10 or 13, showTime = false, readableText = false, expiring = 0 } },
+				Nameplates = { cast = { showName = false, combatCues = false, nameBelow = false, textSize = 13 }, debuffs = { size = 17, textSize = 10, showTime = false, readableText = false, expiring = 0 } },
 				CombatText = { clearLanes = false },
 			} or os.getenv("RENDER_PARITY_ENABLED") == "1" and {
-				UnitFrames = { player = { castbarIconRight = true, castbarTotal = true, castbarInside = false } },
+				UnitFrames = { player = { castbarTotal = true } },
 				Cooldowns = { essential = { edge = false }, utility = { edge = false } },
 				Meters = os.getenv("RENDER_METERS_PARITY") == "2" and {
 					damage = { report = true, englishUnits = false }, damage2 = { shown = true }, roles = opts.meterChoice and { DAMAGER = opts.meterChoice } or nil,

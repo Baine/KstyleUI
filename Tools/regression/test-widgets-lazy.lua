@@ -181,8 +181,6 @@ end
 
 local function exercise(lazy, style)
 	local env, K = W.New()
-	K.Options.Write("HudStyle", "style", style)
-	assert(K.HudStyle.Current() == style, "the state comparison must exercise its requested HUD style")
 	local parent = env.CreateFrame("Frame", nil, K.Scale.Root())
 	if lazy then parent:Hide() end
 	local slot = K.Widgets.Slot(parent, { size = 36, icon = 135489 })
@@ -213,7 +211,6 @@ local function card(lazy, style, material)
 	local env, K = W.New({ setup = function(e)
 		e.CreateColor = function(r, g, b, a) return { r = r, g = g, b = b, a = a } end
 	end })
-	K.Options.Write("HudStyle", "style", style)
 	K.Options.Write("Widgets", "cardMaterial", material)
 	local owner = env.CreateFrame("Frame", nil, K.Scale.Root())
 	owner:SetSize(240, 150)
@@ -257,7 +254,7 @@ for _, kind in ipairs({ "proc", "selection" }) do
 	same(firstGlow(false, kind), firstGlow(true, kind), kind .. " first Start before a later restyle")
 end
 
-for _, style in ipairs({ "frames", "orbs", "medallions" }) do
+for _, style in ipairs({ "medallions" }) do
 	same(exercise(false, style), exercise(true, style), style .. " slot")
 	for _, material in ipairs({ "Glass", "ForgedBrackets" }) do
 		same(card(false, style, material), card(true, style, material), style .. " " .. material .. " card")
@@ -296,9 +293,9 @@ do
 		end
 		return result
 	end
-	local screen, style, lib = _G.RENDER_SCREEN, _G.RENDER_HUD_STYLE, _G.RENDER_SCENE_LIB
+	local screen, lib = _G.RENDER_SCREEN, _G.RENDER_SCENE_LIB
 	_G.RENDER_SCREEN = { width = 5120, height = 1440, size = "auto" }
-	_G.RENDER_HUD_STYLE, _G.RENDER_SCENE_LIB = "Medallions", true
+	_G.RENDER_SCENE_LIB = true
 	local Hud = dofile("Tools/render/scenes/hud.lua")
 	local limits = { unitframes = 4300, actionbars = 4900, databars = 1400, tooltips = 300 }
 	for _, module in ipairs({ "unitframes", "actionbars", "databars", "tooltips" }) do
@@ -310,7 +307,7 @@ do
 		print("lazy regions " .. module .. ": " .. created)
 	end
 	_G.dofile = original
-	_G.RENDER_SCREEN, _G.RENDER_HUD_STYLE, _G.RENDER_SCENE_LIB = screen, style, lib
+	_G.RENDER_SCREEN, _G.RENDER_SCENE_LIB = screen, lib
 end
 
 print("widgets lazy ok")

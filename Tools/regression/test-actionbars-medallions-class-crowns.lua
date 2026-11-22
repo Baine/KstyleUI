@@ -36,7 +36,6 @@ local function New(class, opts)
 		return opts.known ~= false and (id == KNOWN[class] or class == "HUNTER" and id == 1293241)
 	end
 	AB.Enable(env, K)
-	K.Options.Write("HudStyle", "style", "medallions")
 	env.RunTimers()
 	return env, K, ns
 end
@@ -140,8 +139,6 @@ for _, class in ipairs(ORDER) do
 	K.Store.Profile().UnitFrames.resource.classPips = true
 	K.Callbacks.Fire("SettingChanged", "UnitFrames", "resource.classPips", true)
 	assert(crown.holder:IsShown() and crown.container._enabled == true, class .. ": on again")
-	K.Options.Write("HudStyle", "style", "frames")
-	assert(not crown.holder:IsShown(), class .. ": Frames has no crest")
 	Clean(env, K, class)
 
 	-- No source, no crown: the spell unknown, or the game's aura slots missing.

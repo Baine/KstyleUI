@@ -37,7 +37,6 @@ local function New(class, known, size)
 		return unregister(event, owner)
 	end
 	AB.Enable(env, K)
-	K.Options.Write("HudStyle", "style", "medallions")
 	env.RunTimers()
 	return env, K, ns
 end

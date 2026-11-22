@@ -76,13 +76,11 @@ function Lumen.Preset(layout)
 	local settings = Hud.PresetSettings(layout)
 	local rootHeight = Layouts.HEIGHT
 	local width = K.Scale.CanvasWidth(Common.SCREEN.width, Common.SCREEN.height)
-	local style = Hud.Style() and Hud.Style():lower() == "medallions" and "medallions" or nil
 	K.Store.Module("Minimap").enabled = true
 	K.Store.Module("Minimap").frame = os.getenv("RENDER_MINIMAP_FRAME")
-	local story = Layouts.Story(layout, rootHeight, true, style, rootHeight * width / Common.SCREEN.height)
-	local crest = style == "medallions" and Layouts.MinimapCrest()
-	local slot = crest and story.guide or Layouts.Slot(layout, rootHeight)
-	local column = crest and story.quests or Layouts.Story(layout, rootHeight, true, nil, rootHeight * width / Common.SCREEN.height).quests
+	local story = Layouts.Story(layout, rootHeight, true, rootHeight * width / Common.SCREEN.height)
+	local slot = Layouts.MinimapCrest() and story.guide or Layouts.Slot(layout, rootHeight)
+	local column = story.quests
 	local k = HEIGHT / rootHeight
 	local origin = (Common.SCREEN.width - width) / 2 / Common.SCREEN.height * HEIGHT
 	local function Screen(spec)
@@ -298,18 +296,6 @@ function Lumen.Build(state, opts)
 	end
 	QuestCard()
 	local guide, R = Hud.Module("restedxp", base)
-	-- The rail asks the quest card for the room the guide's current step needs beside RestedXP's docked boxes; the
-	-- card renders in its own environment here, so it is drawn again giving that room, and the guide placed again.
-	local give = R and R.ns.Quests and R.ns.Quests.Given() or 0
-	if give > 0 and built.tracker then
-		base.questGive = give
-		local scene, ns, extra = Hud.Module("tracker", base)
-		scenes[at.tracker] = scene
-		built.tracker = { scene = scene, ns = ns, extra = extra }
-		QuestCard()
-		guide, R = Hud.Module("restedxp", base)
-		log[#log + 1] = string.format("tracker: drawn again giving the guide %.1f units for its current step", give)
-	end
 	table.insert(scenes, 1, guide)
 	if state == "combat" then
 		scenes[#scenes + 1] = (Encounter.Build(Hud, { layout = layout, guide = true, saved = Hud.Saved(base, "Skins") }))

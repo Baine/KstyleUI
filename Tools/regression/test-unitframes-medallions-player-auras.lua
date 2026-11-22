@@ -30,6 +30,6 @@ for reload = 1, 2 do
 	assert(value == true and shown, "a player who turns the Medallions player auras on after the update keeps them, reload " .. reload)
 end
 for _, style in ipairs({ "frames", "orbs" }) do
-	assert(Boot(Old(style, nil)) == false and Boot(Old(style, { auras = true })) == true, style .. " keeps its own player aura setting")
+	assert(Boot(Old(style, { auras = true })) == false, style .. " profiles move to Medallions, whose player frame leaves buffs to the Auras rows")
 end
-print("medallions player auras ok: off by default, old saved defaults and imports move to off, new choices kept, Frames and Orbs unchanged")
+print("medallions player auras ok: off by default, old saved defaults and imports move to off, new choices kept, Frames and Orbs profiles move to Medallions")

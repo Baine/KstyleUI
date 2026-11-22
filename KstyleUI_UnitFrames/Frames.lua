@@ -780,11 +780,12 @@ local function TargetChange(view)
 		view.targetSeen = true
 		if view.deathTween then K.Motion.Stop(view.deathTween); view.deathTween = nil end
 		if on and seen then
-			K.Motion.Tween(view.body, "SetAlpha", view.body:GetAlpha(), 0, 0.06, "inOutSine", function()
+			view.flipIn = view.flipIn or function()
 				RefreshKind("target", true)
 				ns.Slab.FlipIn(view)
 				K.Motion.FadeIn(view.body, 0.06)
-			end)
+			end
+			K.Motion.Tween(view.body, "SetAlpha", view.body:GetAlpha(), 0, 0.06, "inOutSine", view.flipIn)
 			return
 		elseif on then
 			K.Motion.FadeIn(view.body, 0.12)
@@ -881,7 +882,7 @@ local function RegisterUnitEvents(view)
 end
 
 function Frames.Apply(uf)
-	local want = running and Settings.Value(uf.kind, "enabled") and not (uf.kind == "player" and ns.Orbs.Active())
+	local want = running and Settings.Value(uf.kind, "enabled")
 	if Protected() then
 		Queue(uf, "applyQueued", Frames.Apply)
 		return
@@ -987,8 +988,6 @@ local function OnSettingChanged(_, module, key)
 		end)
 	elseif key == "hideBlizzard" then
 		ns.Blizzard.Apply(running)
-	elseif key == "orbCastRoom" then
-		ns.CastBars.Apply()
 	elseif key == "castbarOnFrame" then
 		K.Combat.Queue(PlaceCasts)
 	elseif key == "castbarRaise" then
@@ -1024,15 +1023,7 @@ local function RestyleAll()
 	ns.CastBars.Apply()
 end
 
-local function OnHudStyleChanged()
-	ns.Orbs.Apply()
-	Frames.Apply(frames.player)
-	RestyleAll()
-	ns.Blizzard.Apply(running)
-end
-
 local function OnProfileChanged()
-	ns.Orbs.Apply()
 	ForEach(Frames.Apply)
 	ns.Resource.Restyle()
 	ns.CastBars.Apply()
@@ -1051,7 +1042,7 @@ local function OnLayoutChanged(_, key, reason)
 		if key == castKey then
 			ns.CastBars.LayoutElement(kind)
 			local uf = frames[kind]
-			if uf and uf.active and uf.s and K.HudStyle.Current() == "medallions" and uf.s.inlineCast ~= Settings.CastOnFrame(kind) then
+			if uf and uf.active and uf.s and uf.s.inlineCast ~= Settings.CastOnFrame(kind) then
 				K.Combat.Queue(PlaceCasts)
 			end
 		end
@@ -1064,9 +1055,7 @@ local function OnLayoutChanged(_, key, reason)
 end
 
 local function RefreshRestricted()
-	if K.HudStyle.Current() == "medallions" then
-		EachShown(ns.Slab.Refresh)
-	end
+	EachShown(ns.Slab.Refresh)
 	EachShown(Indicators.Threat)
 end
 
@@ -1159,7 +1148,6 @@ local function RegisterEvents()
 	Callbacks.Register("ScaleChanged", MODULE, RestyleAll)
 	Callbacks.Register("ProfileChanged", MODULE, OnProfileChanged)
 	Callbacks.Register("LayoutChanged", MODULE, OnLayoutChanged)
-	Callbacks.Register("HudStyleChanged", MODULE, OnHudStyleChanged)
 end
 
 function Frames.Enable()
@@ -1173,7 +1161,6 @@ function Frames.Enable()
 	end
 	RegisterEvents()
 	ns.Auras.Enable()
-	ns.Orbs.Enable()
 	ForEach(Frames.Apply)
 	ns.Resource.Enable()
 	ns.CastBars.Enable()
@@ -1182,7 +1169,6 @@ end
 
 function Frames.Disable()
 	running = false
-	ns.Orbs.Disable()
 	ForEach(function(uf)
 		Frames.Apply(uf)
 		if not Protected() then

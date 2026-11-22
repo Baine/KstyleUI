@@ -13,7 +13,7 @@ The setting is `Widgets.ornaments`, with three values:
 | Full | Forged rails with rivets, clawed, winged and crested ends, the portrait band with its rank pendants, corners, crests and the full action-bar tray. |
 
 - **Default.** Full, for a new profile and for a profile saved before the setting existed: `Widgets.Setting` returns the default for a missing or invalid stored value, so no Store migration is needed. An invalid or secret stored value also reads as Full. The owner asked for ornaments and changes the level in the settings window.
-- **Where it is chosen.** The first-run setup's ornaments step (step 5 of 6, Full picked) and the General page of the settings window (a three-way control, `segmented` row type).
+- **Where it is chosen.** Nowhere any more: Medallions draws no ornaments, so the setup step and the General control are gone; `RENDER_ORNAMENTS` still sets the level for render scenes.
 - **Glass.** The Glass card material draws no ornaments at any level, because the painted pieces are forged metal.
 - **Full is never less than Subtle.** On the same block, Full never draws a smaller end piece than Subtle. On forged unit frames the end is chosen by weight: when Subtle's pointed pair outweighs the claws that fit (a claw fits on one end only, say), Full draws Subtle's pointed ends with Full's rail, so the two ends match. A smaller end at Full than at Subtle is a defect, not a note.
 
@@ -49,12 +49,12 @@ A piece is dropped, never forced, when:
 - Every ornament keeps at least **1 physical pixel** from text, fills, tracks, icons, discs and the white cast cursor.
 - A rail lies flush against the bar or block it frames, and the portrait band lies flush against the gilt ring it frames: neither covers a single drawn pixel of what it frames, and the 1 px rule above is for everything else (Captain, 2026-11-11). A plate's rail at Full is the one exemption, named below.
 - At Subtle a bar's `Rail1` hairlines lie flush outside its border, never on it, and cover no pixel of it (Captain, 2026-11-11, LEE-167). Plates drew rails under this rule and the Full plate rail exemption until KSTY-48 took every ornament off them (see Nameplates below).
-- Between two groups of the centre column, the guard (`Tools/regression/centre_clearance_lib.lua`) keeps the gap #260 set: **4 root units or 3 physical pixels**, whichever is larger.
+- Between two groups of the centre column, the gap #260 set is **4 root units or 3 physical pixels**, whichever is larger.
 - The exempt pairs, where an ornament may enter that gap and keeps only the 1 px rule:
   - **Full plate rail**: retired with the plate ornaments (KSTY-48); no plate draws a rail.
   - **crest seat**: a window's or tooltip's crest frames its own surface and may cover that window's top edge line and the bare surface directly under it, 1 px clear of its title, close button, tabs, search box, icons and a tooltip's first line (Captain, 2026-11-11, as for the minimap's plaque). Above the edge it may stand over a window or panel flush against that edge, because the window is on top and the crest belongs to it. It keeps 1 px from any other visible KstyleUI window or card standing above with a gap, including that window's shadow when shadows are on, and steps down a tier or drops where it cannot (Captain, 2026-11-11, on #282).
 - A bottom rail that does not fit is dropped, never thinned.
-- The clearance matrices run the HUD at Full on nine screens for 12 class and form presets, for normal, elite and world boss targets.
+- The centre clearance guard, its matrices and its shape proof measured the Frames HUD and went with it; the Medallions HUD draws no ornaments.
 
 ## Ink shapes (ruling A)
 
@@ -64,7 +64,7 @@ Clearance is measured on the drawn ink only for round and tapered art, and only 
 - **Row spans**: the rank pendants (`BossPendantR`, `ElitePendantR`), one ink run per texel row.
 - **One generated file.** `Tools/media/ornament_ink.py` reads the PNG alpha (any non-zero alpha is ink) and writes `Core/Widgets/OrnamentInk.lua`: each circle's radius, and each pendant's row runs widened by 1 texel. The registry and the guard both read that file. `python3 Tools/media/ornament_ink.py --check` and `Tools/tests/test_ornament_ink.py` fail when it is stale against the PNGs.
 - **Widening.** Each circle is widened by 1 physical pixel in both the registry and the guard. A texture resampled to a 15 px badge antialiases past its geometric circle; the drawn-pixel proof measured 2.0 px where the model passed 3.
-- **Proof.** `test-centre-clearance-shapes.lua` mutates each shape (the badge, a band ring and a pendant, plain and mirrored): a piece beside the empty corner passes on ink where a box would fail, and fails once moved closer to the ink than the rule allows. The drawn-pixel proof rasterized every texture's alpha at its placed rect for every clearance-matrix case: 6,669 pairs per target class, 0 failures, the tightest at exactly 3.00 px and 1.00 px.
+- **Proof.** The shape proof (`test-centre-clearance-shapes.lua`) went with the Frames HUD; `Tools/media/ornament_ink.py` still writes the registry.
 
 ## Shared registry
 
@@ -134,7 +134,7 @@ Each surface's pull request adds its section here.
 | --- | --- | --- |
 | Setup step and Options control | foundation | shipped |
 | Unit frames and their cast bars | 2 | shipped |
-| Action-bar tray | 3 | removed (KSTY-49): the Frames tray card replaces it |
+| Action-bar tray | 3 | removed (KSTY-49); the Medallions slab holds bars 1 and 2 |
 | Nameplates | 4 | shipped |
 | Minimap and data bars | 5 | shipped |
 | Window and card crests | 6 | shipped |
@@ -164,7 +164,7 @@ The level badge and its number are measured as one circle (ruling A). The block 
 
 ### Action-bar tray
 
-Removed (KSTY-49, 2026-11-12). The KSTY-44 design bible (section 3.3) allows ornament only at card corners, heading rules, portrait rings and the level diamond, never around a bar, so bar 1 no longer owns a `row` handle and no `Tray` finial or `Keystone` draws. The Frames tray card behind bars 1 and 2 (`KstyleUI_ActionBars/Tray.lua`, the quest card's material and its corner brackets) replaces it at every ornament level.
+Removed (KSTY-49, 2026-11-12). The KSTY-44 design bible (section 3.3) allows ornament only at card corners, heading rules, portrait rings and the level diamond, never around a bar, so bar 1 no longer owns a `row` handle and no `Tray` finial or `Keystone` draws. The Medallions slab holds bars 1 and 2 at every ornament level.
 
 ### Nameplates
 
