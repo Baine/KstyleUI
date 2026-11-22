@@ -8,6 +8,7 @@ local min, max, floor, sin, cos, rad, abs = math.min, math.max, math.floor, math
 local Slab = {}
 ns.Slab = Slab
 
+local STYLE = "medallions"
 local OWNER = "ActionBars.Slab"
 local STRATA = "LOW"
 local RING, CREST, OPENING = 150, 150, 118
@@ -56,7 +57,7 @@ local function Plain(v)
 end
 
 function Slab.Active()
-	return ns.running == true
+	return ns.running == true and K.HudStyle.Current() == STYLE
 end
 
 local function Layouts()
@@ -68,7 +69,7 @@ function Slab.Spec()
 end
 
 local function Grouped(def)
-	return (def.key == "bar1" or def.key == "bar2") and ns.Config("slab") ~= false
+	return (def.key == "bar1" or def.key == "bar2") and K.HudStyle.Current() == STYLE and ns.Config("slab") ~= false
 end
 Slab.Grouped = Grouped
 
@@ -96,7 +97,7 @@ function Slab.TextSize(key, cfg, size, text)
 	if not (bar and Plain(cfg.size) and cfg.size > 0) then
 		return size
 	end
-	if text == "hotkey" then
+	if text == "hotkey" and K.HudStyle.Current() == STYLE then
 		return (ns.Config("readableCountdown") and K.Scale.TEXT_FLOOR or KEYBIND) * K.Theme.FontScale()
 	end
 	local cell = Grouped(bar.def) and bar.buttons[1] and bar.buttons[1].opts.size or cfg.size
@@ -115,7 +116,7 @@ end
 
 function Slab.TextFlags(text, flags)
 	if text == "cooldown" and ns.Config("readableCountdown") then return "OUTLINE" end
-	if text == "hotkey" then
+	if text == "hotkey" and K.HudStyle.Current() == STYLE then
 		return "OUTLINE"
 	end
 	return flags
@@ -760,7 +761,7 @@ function Slab.Refresh()
 			if bar and bar:Shown() and not bar.holderHidden and not bar.gateHidden then
 				local l, r, t, b = Edges(bar.holder)
 				local bl, br, bt = Edges(base.holder)
-				local _, _, _, spacing = Layouts().ActionBarGrid(K.Scale.Aspect(), base.def.element)
+				local _, _, _, spacing = Layouts().ActionBarGrid(K.Scale.Aspect(), base.def.element, nil, STYLE)
 				local unit = K.Scale.Root():GetEffectiveScale()
 				local slack = 2 * K.Scale.Pixel(1) * unit
 				if l and abs(l - bl) <= slack and abs(r - br) <= slack and abs(b - bt - spacing * unit) <= slack then
@@ -1169,6 +1170,7 @@ function Slab.Enable()
 	K.Events.Register(OWNER, "PLAYER_REGEN_ENABLED", OnCombat)
 	K.Events.Register(OWNER, "PLAYER_LEVEL_UP", OnLevel)
 	K.Events.Register(OWNER, "PLAYER_ENTERING_WORLD", OnStyle)
+	K.Callbacks.Register("HudStyleChanged", OWNER, OnStyle)
 	K.Callbacks.Register("SettingChanged", OWNER, OnMotion)
 	if K.Effects then
 		K.Callbacks.Register("EffectsLevelChanged", OWNER, function() OnMotion() end)
@@ -1178,6 +1180,7 @@ end
 
 function Slab.Disable()
 	K.Events.UnregisterAll(OWNER)
+	K.Callbacks.Unregister("HudStyleChanged", OWNER)
 	K.Callbacks.Unregister("SettingChanged", OWNER)
 	if K.Effects then
 		K.Callbacks.Unregister("EffectsLevelChanged", OWNER)

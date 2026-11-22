@@ -121,11 +121,11 @@ local function Native(group)
 end
 
 local function Positions(name)
-	return Layouts.Positions(name, "medallions", ns.Scale.Aspect(), ns.Scale.Band())
+	return Layouts.Positions(name, ns.HudStyle and ns.HudStyle.Current(), ns.Scale.Aspect(), ns.Scale.Band())
 end
 
 local function Box(name, key, rw, rh)
-	local position = Layouts.Place(name, "medallions", ns.Scale.Aspect(), key, ns.Scale.Band())
+	local position = Layouts.Place(name, ns.HudStyle.Current(), ns.Scale.Aspect(), key, ns.Scale.Band())
 	local w, h, offsetX = Layouts.Footprint(name, key)
 	local styled = Layouts.Style(name, key)
 	if styled and styled.width then
@@ -217,7 +217,7 @@ local function Spots(group, boxes, icons)
 			list[1] = { x = edge - Layouts.GAP, y = essential.b, right = true, across = true, gaps = { 3 } }
 		end
 		list[#list + 1] = { x = slot.r, y = slot.b + 14, right = true, across = true, gaps = { 3 } }
-		table.insert(list, 1, { x = (slot.l + slot.r) / 2, top = slot.t, center = true, across = true, gaps = { 3 } })
+		if ns.HudStyle.Current() == "medallions" then table.insert(list, 1, { x = (slot.l + slot.r) / 2, top = slot.t, center = true, across = true, gaps = { 3 } }) end
 		local low = boxes["chat.main"] and boxes["chat.main"].b or slot.b
 		local edges, rail = {}, boxes["meters.damage"]
 		edges[#edges + 1] = focus and focus.l
@@ -373,7 +373,7 @@ local function RowRect(point, slot, n, lines, item, pad)
 end
 
 local function RowFit(row, slot, n, k, others, rw, rh)
-	local height, gap = Layouts.CooldownGrid(row.key)
+	local height, gap = Layouts.CooldownGrid(row.key, ns.HudStyle.Current())
 	for lines = 1, ROW_LINES do
 		for _, point in ipairs(row.spots) do
 			for step = VIEWER_SIZE_MAX, VIEWER_SIZE_MIN, -VIEWER_SIZE_STEP do

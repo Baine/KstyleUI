@@ -32,6 +32,7 @@ GALLERY = [
     ("06-meter.jpg", "crop_meter.jpg", None),
     ("07-quests.jpg", "crop_rail.jpg", None),
     ("08-medallion-closeup.gif", "game_medallions_target.gif", None),
+    ("09-frames-combat.jpg", "hud_frames_1080.jpg", None),
 ]
 
 # Core/Tokens.lua colours.

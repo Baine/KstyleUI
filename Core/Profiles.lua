@@ -441,11 +441,12 @@ end
 function Profiles.FromPreset(layout, name)
 	local setup = K.Setup
 	if not (setup and setup.Layouts.Get(layout)) then return false, L["Choose a preset."] end
+	local style = K.HudStyle.Current()
 	local ok, result = Store.CreateProfile(name)
 	if not ok then return false, result end
 	Store.SetProfile(result)
 	local choice = setup.NewChoice(true)
-	choice.layout = layout
+	choice.layout, choice.hudStyle = layout, style
 	return setup.Apply(choice), result
 end
 

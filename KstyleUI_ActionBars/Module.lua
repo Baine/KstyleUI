@@ -68,7 +68,7 @@ local function RefreshSlab()
 	ns.slabHeld = false
 	local main = ns.bars.bar1
 	if main then
-		main:RefreshSlab()
+		main:RefreshSlab(true)
 	end
 end
 
@@ -361,7 +361,7 @@ local function OnSetting(_, module, key)
 		end
 		ApplyAll()
 		return
-	elseif key == "slab" or key == "safeDragging" then
+	elseif key == "trayColumn" or key == "useTray" or key == "slab" or key == "safeDragging" then
 		ApplyAll()
 		return
 	elseif barKey and ns.BAR[barKey] then
