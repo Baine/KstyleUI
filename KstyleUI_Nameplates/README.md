@@ -193,10 +193,10 @@ The target's plate gets a glow and an edge in the accent, or a custom colour. Th
 
 ## Medallions
 
-`Medallions.lua` adds a component and wraps five plate methods, `Plates.ReadSize` and `Settings.Get`. The look is KSTY-110's (section 3, nameplates). The game keeps Blizzard's own nameplate size and the plate still hangs from its base as `Plate:PlaceOnBase` puts it (#373); `test-nameplates-restyle.lua` checks that the Medallions plate holds its place through restyles.
+`Medallions.lua` adds a component and wraps five plate methods and `Plates.ReadSize`. The look is KSTY-110's (section 3, nameplates). The game keeps Blizzard's own nameplate size and the plate still hangs from its base as `Plate:PlaceOnBase` puts it (#373); `test-nameplates-restyle.lua` checks that the Medallions plate holds its place through restyles.
 
 - **Size.** The plate is 120 by 9 units unless the player resized it in Edit Mode, whose size always wins.
-- **Settings the player left alone.** `Medallions.LOOK` gives the name 11 units with an outline (the spec's 9 is under the kit's 11 px text floor, #361), the level 12 units with an outline, and debuffs 22 units with 11-unit timers. A setting the player changed keeps the player's value.
+- **Defaults.** The module's defaults are the look: the name 11 units with an outline (the spec's 9 is under the kit's 11 px text floor, #361), the level 12 units with an outline, and debuffs 22 units with 11-unit timers. Any value the player saves, including the 2026-11-09 sizes and no outline, is kept.
 - **Type.** With the module's font following the kit, the name is Inter SemiBold in capitals and the level and health text are the Medallions number face, Barlow Semi Condensed (`Tokens.Font("number")`).
 - **Level.** No diamond: the number stands 7 units off the bar's left end, clear of the target tick so it never moves when the target changes, in the classification marker's colour when there is one, else the creature's difficulty colour (`GetCreatureDifficultyColor`, defined in `Blizzard_FrameXMLUtil/Mainline/DifficultyUtil.lua`, which Forever loads: its camelot-only `Camelot/DifficultyUtilOverrides.lua` writes into the `DifficultyUtil` table that only the mainline-tagged `Mainline/DifficultyUtil_Base.lua` creates; lifted by `Theme.Brighten`) for an enemy, red for the skull and `medText` otherwise. A secret level reads in `medText`.
 - **Target.** Two gunmetal (`medGunLit`) ticks, 2 units wide, 3 units off each end of the bar and 2 units past it above and below. No arms, no glow and no slide: they appear in place.
@@ -238,9 +238,9 @@ Every setting is on the module's page. Text sizes run from 6 to 20 units; outlin
 | `types.elite`, `types.eliteColor` | off, `neutral` | toggle, colour |
 | `types.caster`, `types.casterColor` | off, `epic` | toggle, colour |
 | `types.boss`, `types.miniBoss`, `types.neutral`, `types.minor`, `types.normal` and their `...Color` | off; `hostile`, `legendary`, `neutral`, `poor`, `plateHostile` | toggle, colour |
-| `name.show`, `name.size`, `name.outline`, `name.upper`, `name.classColor` | on, 12, none, on, off | toggle, slider, dropdown, toggle, toggle |
+| `name.show`, `name.size`, `name.outline`, `name.upper`, `name.classColor` | on, 11, thin, on, off | toggle, slider, dropdown, toggle, toggle |
 | `name.afk`, `name.dnd` | off, off | toggle, toggle |
-| `level.show`, `level.size`, `level.outline` | off, 16, thin | toggle, slider, dropdown |
+| `level.show`, `level.size`, `level.outline` | on, 12, thin | toggle, slider, dropdown |
 | `level.colorMode`, `level.color` | current style, `giltLit` | dropdown: current, difficulty, custom; colour |
 | `healthText.show`, `healthText.size`, `healthText.outline`, `healthText.format` | off, 9, thin, percent | toggle, slider, dropdown, dropdown |
 | `cast.enabled`, `cast.height` | on, 6 | toggle, slider 6 to 24 |
@@ -251,10 +251,10 @@ Every setting is on the module's page. Text sizes run from 6 to 20 units; outlin
 | `cast.showIcon`, `cast.showName`, `cast.showTime`, `cast.textSize`, `cast.outline` | off, off, off, 10, thin | toggle, toggle, toggle, slider, dropdown |
 | `cast.iconRight`, `cast.offsetY`, `cast.inFront`, `cast.nameAlign`, `cast.showTarget` | off, 0, off, left, off | toggle, slider 0 to 20, toggle, dropdown, toggle |
 | `debuffs.enabled`, `debuffs.includePlateOnly` | on, on | toggle, toggle |
-| `debuffs.size`, `debuffs.spacing`, `debuffs.columns`, `debuffs.rows` | 26, 2, 5, 1 | sliders: 10 to 40, 0 to 10, 1 to 10, 1 to 4 |
+| `debuffs.size`, `debuffs.spacing`, `debuffs.columns`, `debuffs.rows` | 22, 2, 5, 1 | sliders: 10 to 40, 0 to 10, 1 to 10, 1 to 4 |
 | `debuffs.order` | important | dropdown: important, longest, expiring, default |
 | `debuffs.growthX`, `debuffs.growthY` | right, up | dropdown, dropdown |
-| `debuffs.showTime`, `debuffs.showCount`, `debuffs.textSize`, `debuffs.outline` | on, on, 12, thin | toggle, toggle, slider, dropdown |
+| `debuffs.showTime`, `debuffs.showCount`, `debuffs.textSize`, `debuffs.outline` | on, on, 11, thin | toggle, toggle, slider, dropdown |
 | `threat.display`, `threat.role`, `threat.groupOnly` | glow, auto, on | dropdown, dropdown, toggle |
 | `threat.safe`, `threat.warning`, `threat.danger` | `friendly`, `neutral`, `hostile` | colour |
 | `threat.name`, `threat.calm`, `threat.overTypes` | off, off, on | toggle |
