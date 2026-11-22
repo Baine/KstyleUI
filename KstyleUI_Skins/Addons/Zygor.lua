@@ -527,6 +527,14 @@ local function Caption(z, panel)
 	caption:Show()
 end
 
+local facedTabs = setmetatable({}, { __mode = "k" })
+
+local function Refont(text)
+	if state.saved then
+		Face(text)
+	end
+end
+
 local function Fonts(z)
 	if not state.saved then
 		return
@@ -535,7 +543,12 @@ local function Fonts(z)
 	Face(IsTable(controls) and IsTable(controls.StepNum) and controls.StepNum.Step)
 	local pool = IsTable(z.Tabs) and z.Tabs.Pool
 	for _, tab in pairs(IsTable(pool) and pool or {}) do
-		Face(IsTable(tab) and tab.Text)
+		local text = IsTable(tab) and tab.Text
+		Face(text)
+		if IsTable(text) and type(text.SetFont) == "function" and not facedTabs[text] then
+			facedTabs[text] = true
+			hooksecurefunc(text, "SetFont", T("SetFont", Refont))
+		end
 	end
 end
 
@@ -599,13 +612,46 @@ local function ArrowText(arrow)
 	end
 end
 
+local abs = math.abs
+
+local OWN = {
+	{ "arr", "SetVertexColor", function(set)
+		local r, g, b, a = Tokens.Color("textEmphasis")
+		return function(texture)
+			local cr, cg, cb, ca = texture:GetVertexColor()
+			if not (Plain(cr) and Plain(ca) and abs(cr - r) + abs(cg - g) + abs(cb - b) + abs(ca - a) < 0.01) then
+				set(texture, r, g, b, a)
+			end
+		end
+	end },
+	{ "arrspecular", "SetAlpha", function(set)
+		return function(texture)
+			local a = texture:GetAlpha()
+			if not (Plain(a) and abs(a) < 0.01) then
+				set(texture, 0)
+			end
+		end
+	end },
+}
+local held = {}
+
 local function FlatArrow(frame)
 	local arrow = state.saved and IsTable(frame) and frame.arrow
-	if IsTable(arrow) and IsTable(arrow.arr) then
-		arrow.arr:SetVertexColor(Tokens.Color("textEmphasis"))
-	end
-	if IsTable(arrow) and IsTable(arrow.arrspecular) then
-		arrow.arrspecular:SetAlpha(0)
+	arrow = IsTable(arrow) and arrow
+	for i = 1, #OWN do
+		local own, pin = OWN[i], held[i]
+		local method, texture = own[2], arrow and arrow[own[1]]
+		if not (pin and pin.texture == texture) then
+			if pin and rawget(pin.texture, method) == pin.keep then
+				pin.texture[method] = pin.native
+			end
+			held[i] = nil
+			if IsTable(texture) then
+				pin = { texture = texture, native = rawget(texture, method), keep = own[3](texture[method]) }
+				held[i], texture[method] = pin, pin.keep
+				pin.keep(texture)
+			end
+		end
 	end
 end
 
@@ -691,8 +737,19 @@ local function Paint(z)
 			hooksecurefunc(z.Frame, "ApplySkin", T("ApplySkin", function() Fonts(z) end))
 		end
 		if IsTable(z.Tabs) and type(z.Tabs.ReanchorTabs) == "function" then
-			hooksecurefunc(z.Tabs, "ReanchorTabs", T("ReanchorTabs", function() Fonts(z) end))
+			hooksecurefunc(z.Tabs, "ReanchorTabs", T("ReanchorTabs", function()
+				local pool = state.saved and z.Tabs.Pool
+				if not IsTable(pool) then
+					return
+				end
+				for _, tab in pairs(pool) do
+					if IsTable(tab) and IsTable(tab.Text) and not facedTabs[tab.Text] then
+						return Fonts(z)
+					end
+				end
+			end))
 		end
+		state.restyle = ns.Style.Track({ Restyle = function() Fonts(z) end })
 		local bar = z.ProgressBar
 		if IsTable(bar) and type(bar.SetColor) == "function" then
 			hooksecurefunc(bar, "SetColor", T("SetColor", AccentBar))
@@ -712,6 +769,7 @@ local function Unpaint(z)
 		style[name] = value[1]
 	end
 	state.saved = nil
+	FlatArrow(state.arrow)
 	if type(z.ApplySkin) == "function" then
 		K.Call(z.ApplySkin, z)
 	end
