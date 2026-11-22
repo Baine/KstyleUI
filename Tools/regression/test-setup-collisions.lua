@@ -165,16 +165,14 @@ for _, mode in ipairs({ { bar3 = false }, { bar3 = true }, { bar3 = false, threa
 		local width, height = screen[1], screen[2]
 		local record = { string.format("fit cap %dx%d bar3=%s threat=%s:", width, height, tostring(bar3), tostring(threat)) }
 		for _, name in ipairs(Layouts.Names()) do
-			local enabled = {}
-			for _, element in ipairs(Layouts.ELEMENTS) do enabled[element.key] = Layouts.Shown(name, element.key) ~= false end
+			local enabled = Layouts.Enabled(name)
 			enabled["consumables.bar"] = false
 			enabled["actionbars.bar3"] = bar3
 			if threat ~= nil then enabled["meters.threat"] = threat end
 			local cap = Layouts.ScaleLimit(K.Scale.CanvasWidth(width, height), height, name, enabled)
 			local label = string.format("%s at %dx%d, bar3 %s", name, width, height, tostring(bar3))
-			assert(cap >= K.Scale.MIN_USER_SCALE and cap <= K.Scale.MAX_USER_SCALE, label .. ": cap is in the supported range")
-			-- Medallions Tank on 3:2 screens caps below the shipped default (0.80 at 2383 x 1540, as on staging).
-			assert(cap < K.Scale.DEFAULT_USER_SCALE or Layouts.Fits(name, K.Scale.CanvasWidth(width, height), height, K.Scale.DEFAULT_USER_SCALE, enabled), label .. ": the shipped default fits live placement")
+			assert(cap >= K.Scale.DEFAULT_USER_SCALE and cap <= K.Scale.MAX_USER_SCALE, label .. ": cap is in the supported range")
+			assert(Layouts.Fits(name, K.Scale.CanvasWidth(width, height), height, K.Scale.DEFAULT_USER_SCALE, enabled), label .. ": the shipped default fits live placement")
 			assert(Layouts.Fits(name, K.Scale.CanvasWidth(width, height), height, cap, enabled), label .. ": cap fits the snapped footprints")
 			local measured, why = PhysicalFit(name, width, height, cap, enabled)
 			assert(measured, label .. ": " .. tostring(why) .. "; keep the independent snapped footprints apart")
@@ -221,13 +219,35 @@ for _, mode in ipairs({ { bar3 = false }, { bar3 = true }, { bar3 = false, threa
 	end
 end
 
--- The threat meter tightens the Healer cap at 1080p; compare enabled sets on either side of that boundary.
+-- Tank's threat card docks beside the damage card at the 180-unit slot width (KstyleUI_Meters/Threat.lua), so Tank fits
+-- the MacBook and 3:2 screens at the size DPS does; a 250-unit plan once capped it at 0.80 at 2383 x 1540.
+for _, screen in ipairs({ { 3456, 2234 }, { 3024, 1964 }, { 2560, 1600 }, { 2383, 1540 }, { 1920, 1200 } }) do
+	local dps = Layouts.ScaleLimit(screen[1], screen[2], "DPS")
+	local tank = Layouts.ScaleLimit(screen[1], screen[2], "Tank")
+	assert(math.abs(tank - dps) < 1e-9, string.format("Tank with both meter cards caps at %.4f at %dx%d, under DPS's %.4f", tank, screen[1], screen[2], dps))
+end
+
+-- The second data bar's spare slot clears the target's medallion on small, MacBook and 3:2 screens, so turning the bar
+-- on never shrinks the HUD there, and the shipped size fits.
+for _, screen in ipairs({ { 2383, 1540 }, { 2642, 1651 }, { 1366, 768 } }) do
+	for _, name in ipairs(Layouts.Names()) do
+		local enabled = Layouts.Enabled(name)
+		local without = Layouts.ScaleLimit(screen[1], screen[2], name, enabled)
+		enabled["databars.strip2"] = true
+		local with = Layouts.ScaleLimit(screen[1], screen[2], name, enabled)
+		local label = string.format("%s at %dx%d", name, screen[1], screen[2])
+		assert(math.abs(with - without) < 1e-9, label .. ": the second data bar shrinks the HUD from " .. without .. " to " .. with)
+		assert(without >= K.Scale.DEFAULT_USER_SCALE, label .. ": caps at " .. without .. ", under the shipped size")
+	end
+end
+
+-- The boss frames tighten the Healer cap at 1080p; compare enabled sets on either side of that boundary.
 do
-	assert(Layouts.Fits("Healer", 1920, 1080, 0.95), "the hidden threat meter must not collide at a size above its own cap")
 	local enabled = Layouts.Enabled("Healer")
-	enabled["meters.threat"] = true
-	assert(not Layouts.Fits("Healer", 1920, 1080, 0.95, enabled), "the same meter counts when the player shows it")
-	assert(Layouts.ScaleLimit(1920, 1080, "Healer", enabled) < Layouts.ScaleLimit(1920, 1080, "Healer"), "the cache distinguishes enabled-element sets")
+	enabled["unitframes.boss"] = false
+	assert(Layouts.Fits("Healer", 1920, 1080, 0.9685, enabled), "hidden boss frames must not collide at a size above their own cap")
+	assert(not Layouts.Fits("Healer", 1920, 1080, 0.9685), "the same frames count when the player shows them")
+	assert(Layouts.ScaleLimit(1920, 1080, "Healer") < Layouts.ScaleLimit(1920, 1080, "Healer", enabled), "the cache distinguishes enabled-element sets")
 end
 
 do
@@ -244,19 +264,26 @@ do
 	profile.UnitFrames.target.style = "plate"
 	active = Layouts.Enabled("Tank", profile)
 	assert(active["unitframes.castbar.target"], "a configured separate target cast bar counts even though the preset draws it inline")
+	profile.DataBars.strip = { second = true }
+	assert(Layouts.Enabled("Tank", profile)["databars.strip2"], "Show a second data bar (strip.second) counts the second bar")
 end
 
--- Exercise live resizing when the shown threat meter tightens the cap.
+-- Exercise live resizing when the shown boss frames tighten the cap.
 do
+	local function Boss(requested, shown)
+		local profile = Profile("Healer", requested)
+		profile.UnitFrames.boss.enabled = shown
+		return profile
+	end
 	local menv, MK = CoreEnv.New({
 		width = 1920, height = 1080, fit = true,
 		saved = { version = K.Store.DB_VERSION, account = { setupSeen = true }, profiles = {
-			Default = Profile("Healer", 1.5, nil, false), WithThreat = Profile("Healer", 1.5, nil, true), Small = Profile("Healer", 0.7, nil, true),
+			Default = Boss(1.5, false), WithBoss = Boss(1.5, true), Small = Boss(0.7, true),
 		} },
 	})
-	local defaults = CoreEnv.DeepCopy(Profile("Healer", 1.5, nil, false).Meters)
+	local defaults = Boss(1.5, false).UnitFrames
 	defaults.enabled = nil
-	MK.Modules.Register(CoreEnv.Module("Meters", { defaults = defaults }))
+	MK.Modules.Register(CoreEnv.Module("UnitFrames", { defaults = defaults }))
 	CoreEnv.Boot(menv)
 	local root = MK.Scale.Root()
 	local setScale, resized = root.SetScale, 0
@@ -267,49 +294,49 @@ do
 	end
 	local off = MK.Scale.AppliedUserScale()
 	menv._printed = {}
-	MK.Options.Write("Meters", "threat.shown", true)
+	MK.Options.Write("UnitFrames", "boss.enabled", true)
 	local on = MK.Scale.AppliedUserScale()
-	assert(on < off and resized == 1, "showing a colliding meter recomputes the cap and resizes once")
+	assert(on < off and resized == 1, "showing colliding boss frames recomputes the cap and resizes once")
 	assert(#menv._printed == 1 and CoreEnv.Printed(menv, "to keep enabled elements on screen and apart"), "one line explains the resize")
 	assert(CoreEnv.Printed(menv, string.format("%.1f%%", on * 100)), "the explanation names the new size")
-	assert(MK.Scale.UserScale() == 1.5 and MK.Appearance.Get("uiScale") == 1.5, "showing a meter preserves the saved request")
-	MK.Options.Write("Meters", "threat.shown", true)
+	assert(MK.Scale.UserScale() == 1.5 and MK.Appearance.Get("uiScale") == 1.5, "showing boss frames preserves the saved request")
+	MK.Options.Write("UnitFrames", "boss.enabled", true)
 	assert(resized == 1 and #menv._printed == 1, "a duplicate show neither resizes nor prints")
-	MK.Options.Write("Meters", "threat.shown", false)
-	assert(math.abs(MK.Scale.AppliedUserScale() - off) < 1e-9, "hiding the meter restores the larger saved size up to its cap")
+	MK.Options.Write("UnitFrames", "boss.enabled", false)
+	assert(math.abs(MK.Scale.AppliedUserScale() - off) < 1e-9, "hiding them restores the larger saved size up to its cap")
 	assert(#menv._printed == 1, "growing after a hide needs no warning")
 	menv._printed, resized = {}, 0
 	menv.SetCombat(true)
-	MK.Options.Write("Meters", "threat.shown", true)
+	MK.Options.Write("UnitFrames", "boss.enabled", true)
 	assert(MK.Scale.AppliedUserScale() == off and resized == 0 and #menv._printed == 0, "showing in combat leaves the root and messages unchanged")
 	menv.FireEvent("PLAYER_REGEN_ENABLED")
 	assert(resized == 0, "a regen event while still locked cannot flush the clamp")
 	menv.SetCombat(false)
 	assert(math.abs(MK.Scale.AppliedUserScale() - on) < 1e-9 and resized == 1 and #menv._printed == 1, "after combat the pending clamp resizes and explains it once")
-	MK.Options.Write("Meters", "threat.shown", false)
+	MK.Options.Write("UnitFrames", "boss.enabled", false)
 	menv.SetCombat(true)
-	MK.Options.Write("Meters", "threat.shown", true)
-	MK.Options.Write("Meters", "threat.shown", false)
+	MK.Options.Write("UnitFrames", "boss.enabled", true)
+	MK.Options.Write("UnitFrames", "boss.enabled", false)
 	menv._printed, resized = {}, 0
 	menv.SetCombat(false)
 	assert(MK.Scale.AppliedUserScale() == off and resized == 0 and #menv._printed == 0, "a show reverted during combat causes no resize or stale warning")
-	MK.Options.Write("Meters", "threat.shown", true)
-	MK.Modules.Disable("Meters")
+	MK.Options.Write("UnitFrames", "boss.enabled", true)
+	MK.Modules.Disable("UnitFrames")
 	assert(MK.Scale.AppliedUserScale() == off, "direct module disable recomputes the active set")
 	menv._printed = {}
-	MK.Modules.Enable("Meters")
+	MK.Modules.Enable("UnitFrames")
 	assert(MK.Scale.AppliedUserScale() == on and #menv._printed == 1, "direct module enable reapplies the clamp and one explanation")
-	MK.Modules.Disable("Meters")
+	MK.Modules.Disable("UnitFrames")
 	menv.SetCombat(true)
 	menv._printed, resized = {}, 0
-	MK.Options.Write("Meters", "enabled", true)
+	MK.Options.Write("UnitFrames", "enabled", true)
 	assert(MK.Scale.AppliedUserScale() == off and resized == 0 and #menv._printed == 0, "module enable and its clamp both wait for combat")
 	menv.SetCombat(false)
 	assert(MK.Scale.AppliedUserScale() == on and resized == 1 and #menv._printed == 1, "the module-start and scale queues do not duplicate the post-combat clamp")
-	MK.Options.Write("Meters", "threat.shown", false)
+	MK.Options.Write("UnitFrames", "boss.enabled", false)
 	menv._printed = {}
-	MK.Store.SetProfile("WithThreat")
-	assert(MK.Scale.AppliedUserScale() == on and #menv._printed == 1, "switching to a profile with the meter shown recomputes the cap")
+	MK.Store.SetProfile("WithBoss")
+	assert(MK.Scale.AppliedUserScale() == on and #menv._printed == 1, "switching to a profile with the boss frames shown recomputes the cap")
 	MK.Store.SetProfile("Default")
 	menv._printed = {}
 	MK.Store.SetProfile("Small")
@@ -592,8 +619,7 @@ for _, name in ipairs(Layouts.Names()) do
 		local tw, th = Layouts.Footprint(name, "unitframes.target")
 		local _, _, _, sigilTop = Layouts.Rect({ width = tw, height = th }, layout["unitframes.target"], width, HEIGHT)
 		for _, element in ipairs(Layouts.ELEMENTS) do
-			-- Medallions bar 3, off by default, stands left of the casts across the band (as on staging).
-			if element.key:find("^actionbars%.") and element.key ~= "actionbars.bar3" then
+			if element.key:find("^actionbars%.") then
 				local w, h = Layouts.Footprint(name, element.key, aspect[1])
 				local r = { Layouts.Rect({ width = w, height = h }, layout[element.key], width, HEIGHT) }
 				local where = string.format("%s at %s: %s (%.0f,%.0f-%.0f,%.0f)", name, aspect[1], element.key, r[1], r[2], r[3], r[4])

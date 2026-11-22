@@ -178,7 +178,7 @@ local DPS = {
 	["meters.damage"] = { anchor = "BOTTOMRIGHT", x = -EDGE, y = EDGE },
 	["meters.threat"] = { anchor = "BOTTOMRIGHT", x = -263, y = 217.5 + LIFT + 102.5 + GAP },
 	["databars.strip"] = { anchor = "BOTTOMRIGHT", x = -EDGE, y = READOUT_Y },
-	["databars.strip2"] = { anchor = "BOTTOMRIGHT", x = -308, y = 184 },
+	["databars.strip2"] = { anchor = "BOTTOMRIGHT", x = -SPARE_X, y = TIP_Y + select(2, ElementSize("tooltips.anchor")) + GAP },
 	["databars.micro"] = { anchor = "BOTTOMRIGHT", x = -SPARE_X, y = RAIL_BARS_Y },
 	["databars.bags"] = { anchor = "BOTTOMRIGHT", x = -SPARE_X, y = RAIL_BARS_Y + MICRO_H },
 	["databars.xp"] = { anchor = "BOTTOM", x = 0, y = TRAY_BOTTOM - TRAY_STRIP_GAP - XP_H + 9 },
@@ -805,6 +805,7 @@ end
 
 Layouts.MAP_FRAME = MAP_FRAME
 Layouts.GAP = GAP
+Layouts.METER_SLOT = 180
 Layouts.SPLIT_GAP = 198.55
 
 function Layouts.DataBarBelowDock(name, key, class)
@@ -966,7 +967,7 @@ function Layouts.BuildMedallions()
 		local _, petW, petH = Layouts.MedallionsSide(class, "actionbars.pet")
 		local sideY = strip - slab.bottom + side.pad - 2 * TIGHT
 		if class == ASPECTS[1] then sideY = DPS["meters.damage"].y + DAMAGE_H + GAP + 3 * side.pad end
-		local petBar = { anchor = "BOTTOM", x = -(ends + petW / 2 - (class == ASPECTS[1] and petH - GAP - TIGHT or 0)), y = sideY }
+		local petBar = { anchor = "BOTTOM", x = -(ends + petW / 2 - (class == ASPECTS[1] and petH - GAP - TIGHT + side.pad + 1 or 0)), y = sideY }
 		local stanceBar = { anchor = "BOTTOM", x = petBar.x, y = sideY + petH + 2 * side.pad + side.clear }
 		local frame, tot, pet, cast = unit.frame, unit.mini, unit.mini, unit.cast
 		local focus, boss = layouts.DPS["unitframes.focus"], layouts.DPS["unitframes.boss"]
@@ -989,7 +990,7 @@ function Layouts.BuildMedallions()
 			["auras.debuffs"] = { anchor = "TOPRIGHT", x = -(AURAS_X + 16), y = -DEBUFFS_Y },
 			["auras.extraBuffs"] = { anchor = "TOPRIGHT", x = -(AURAS_X + 16), y = DPS["auras.extraBuffs"].y },
 			["auras.extraDebuffs"] = { anchor = "TOPRIGHT", x = -(AURAS_X + 16), y = DPS["auras.extraDebuffs"].y },
-			["actionbars.bar3"] = { anchor = "BOTTOM", x = -692, y = 378 + side.clear },
+			["actionbars.bar3"] = { anchor = "BOTTOM", x = -(0.2 * HEIGHT * (ns.Scale.CANVAS[class] or class:match("%d+") / 9) + GridSize("actionbars.bar3") / 2 + slab.pad + side.clear), y = 378 + side.clear },
 			["actionbars.bar1"] = { anchor = "BOTTOM", x = -(hub / 2 + width / 2), y = baseline },
 			["actionbars.bar2"] = { anchor = "BOTTOM", x = hub / 2 + width / 2, y = baseline },
 			["actionbars.pet"] = petBar,
@@ -1379,6 +1380,8 @@ function Layouts.Enabled(name, profile)
 					local role = ns.Specialization.Role()
 					local choice = section.roles and section.roles[role] or (role == "TANK" and "threat" or "damage")
 					on = choice == "both" or choice == id
+				elseif key == "databars.strip2" then
+					on = type(section.strip) == "table" and section.strip.second == true
 				elseif cast then
 					on = type(entry) == "table" and entry.castbar ~= false
 					if on and entry.enabled ~= false then
@@ -1396,6 +1399,8 @@ function Layouts.Enabled(name, profile)
 		end
 		enabled[key] = on
 	end
+	local meters = profile and profile.Meters
+	enabled["meters.damage2"] = type(meters) == "table" and type(meters.damage2) == "table" and meters.damage2.shown == true or nil
 	return enabled
 end
 
@@ -1416,7 +1421,8 @@ function Layouts.PrepareFits(name, physicalWidth, physicalHeight, enabled, posit
 	if not layout then
 		return nil
 	end
-	if enabled["meters.damage"] ~= false and enabled["meters.threat"] ~= false then
+	local paired = enabled["meters.damage"] ~= false and enabled["meters.threat"] ~= false and not enabled["meters.damage2"]
+	if paired then
 		local damage = layout["meters.damage"]
 		layout["meters.threat"] = { anchor = damage.anchor, x = damage.x - DAMAGE_W - GAP, y = damage.y }
 	end
@@ -1449,8 +1455,10 @@ function Layouts.PrepareFits(name, physicalWidth, physicalHeight, enabled, posit
 		if bars.extraBarsApplied == "beside" and (key == "actionbars.bar4" or key == "actionbars.bar5") then
 			local pad, point = Layouts.MEDALLIONS_SLAB.pad, OFFSETS[layout[key].anchor]
 			width, height, offsetX, offsetY = width + 2 * pad, height + 2 * pad, (2 * point[1] - 1) * pad, (2 * point[2] - 1) * pad
+		elseif bars.slab ~= false and (key == "actionbars.pet" or key == "actionbars.stance") then
+			width, offsetX = width + 2 * Layouts.MEDALLIONS_SIDE.pad, (2 * OFFSETS[layout[key].anchor][1] - 1) * Layouts.MEDALLIONS_SIDE.pad
 		end
-		if key == "meters.threat" and enabled["meters.damage"] ~= false then height = DAMAGE_H end
+		if key == "meters.threat" and paired then width, height = Layouts.METER_SLOT, DAMAGE_H end
 		state.sizes[i] = { width, height, offsetX, offsetY, OFFSETS[layout[key].anchor] or OFFSETS.CENTER, key }
 	end
 	local rectCount = #ELEMENTS + 2
@@ -1601,7 +1609,7 @@ function Layouts.ScaleLimit(physicalWidth, physicalHeight, preset, enabled)
 	for i, element in ipairs(ELEMENTS) do
 		flags[i] = element.key ~= "consumables.bar" and enabled[element.key] ~= false and "1" or "0"
 	end
-	local signature = (Layouts.ThirdBarFinished() and "finished" or "legacy") .. table.concat(flags) .. Layouts.ActionBarSignature()
+	local signature = (Layouts.ThirdBarFinished() and "finished" or "legacy") .. table.concat(flags) .. (enabled["meters.damage2"] and "2" or "") .. Layouts.ActionBarSignature()
 		.. Layouts.CrestKey()
 	local cached = limits[preset]
 	if cached and cached.width == physicalWidth and cached.height == physicalHeight and cached.signature == signature then

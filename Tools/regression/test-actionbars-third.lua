@@ -124,6 +124,19 @@ for _, screen in ipairs({ { 1920, 1080 }, { 5120, 1440 } }) do
 		collectgarbage()
 	end
 end
+-- At the shipped size, bar 3's visible slab, not only its button grid, ends before the central play band.
+for _, screen in ipairs({ { 1920, 1080 }, { 5120, 1440 } }) do
+	local env, K, ns = AB.New({ width = screen[1], height = screen[2], size = "default" })
+	root, base = K.Scale.Root(), env.UIParent
+	AB.Enable(env, K)
+	assert(K.Setup.Apply({ layout = "DPS", modules = { ActionBars = true } }))
+	K.Scale.SetUserScale(K.Scale.DEFAULT_USER_SCALE)
+	K.Options.Write("ActionBars", "bar3.enabled", true)
+	env.RunTimers()
+	AB.W.Settle(env)
+	local plate, band = Rect(ns.Slab.sides.bar3), K.Layout.RootSize() * 0.3
+	assert(plate[3] <= band, string.format("%dx%d: bar 3's slab ends at %.1f, inside the central play band from %.1f", screen[1], screen[2], plate[3], band))
+end
 print("third action bar ok")
 
 for _, style in ipairs({ "medallions" }) do
@@ -140,5 +153,5 @@ for _, style in ipairs({ "medallions" }) do
 	assert(K.Store.CreateProfile("Fresh") and K.Store.SetProfile("Fresh"))
 	assert(K.Store.Layout()[key] == nil, "a fresh profile inherits the new style default")
 	local position = K.Setup.Layouts.Positions("DPS", style, "16:9")["actionbars.bar3"]
-	assert(position.anchor == "BOTTOM" and position.x == -692)
+	assert(position.anchor == "BOTTOM" and position.x == -717.5, "bar 3's slab ends 8 units before the central play band")
 end
