@@ -67,8 +67,9 @@ local function Rects(K, name)
 			boxes[key] = { l = l, b = b, r = r, t = t }
 		end
 	end
-	local story = Layouts.Story(name, rh, true, rw)
-	local gl, gb, gr, gt = Layouts.Rect(story.guide, story.guide, rw, rh)
+	local guide = Layouts.Story(name, rh, true, rw).guide
+	guide.x = Layouts.Band(guide.key, guide.anchor, guide.x, K.Scale.Band())
+	local gl, gb, gr, gt = Layouts.Rect(guide, guide, rw, rh)
 	return boxes, { l = gl, b = gb, r = gr, t = gt }
 end
 
@@ -96,8 +97,8 @@ for _, screen in ipairs(SCREENS) do
 		assert(lane.t <= rh, where .. ": the warnings stay on the screen")
 		local boxes, guide = Rects(K, name)
 		assert(lane.b > boxes["unitframes.target"].t, where .. ": the warnings sit above the target, never on it")
-		-- The left rail's widest card is the chat card (owner pass 1); the right rail's column is the guide card's.
-		assert(lane.l > boxes["chat.main"].r and lane.r < guide.l, where .. ": the warnings stay between the rails")
+		-- The left rail's widest card is the chat card (owner pass 1); the right rail starts at the minimap.
+		assert(lane.l > boxes["chat.main"].r and lane.r < boxes["minimap.main"].l, where .. ": the warnings stay between the rails")
 		local centred = { l = rw / 2 - half, r = rw / 2 + half, b = lane.b, t = lane.t }
 		local free = true
 		for key, box in pairs(boxes) do
@@ -166,6 +167,28 @@ do
 	end
 	assert(K.Setup.EditMode.WarningLane() == 443 and count <= 9, "the 3:2 lane takes " .. count .. " element lookups")
 	K.Setup.Layouts.Place = place
+end
+
+-- Edit Mode keeps its tracked viewers and the warnings off the guide card where it stands: on ultrawide Spread the card
+-- moves into the band with the party and raid frames (the review of #713: Edit Mode reserved its unshifted place).
+do
+	local state = { saved = { { layoutName = "Mine", layoutType = ACCOUNT, systems = Modern().systems } }, active = 1 }
+	local env, K = Boot(state, SCREENS[#SCREENS])
+	local Layouts = K.Setup.Layouts
+	local rect, seen = Layouts.Rect, {}
+	Layouts.Rect = function(element, position, ...)
+		if element.key == "skins.guide" then seen[#seen + 1] = position.x end
+		return rect(element, position, ...)
+	end
+	assert(K.Setup.Apply({ layout = "DPS", modules = {} }))
+	Layouts.Rect = rect
+	local card = Layouts.Story("DPS", select(2, K.Layout.RootSize()), true).guide
+	local want = Layouts.Band(card.key, card.anchor, card.x, K.Scale.Band())
+	assert(K.Scale.Band() > 0 and #seen > 0, "Spread moves the guide's card, and Edit Mode measures it")
+	for _, x in ipairs(seen) do
+		assert(math.abs(x - want) < 1e-6, "Edit Mode reserves the guide's card where Spread puts it, x " .. x .. " for " .. want)
+	end
+	assert(#env._errors == 0, tostring(env._errors[1]))
 end
 
 print("test-setup-warnings: ok")
