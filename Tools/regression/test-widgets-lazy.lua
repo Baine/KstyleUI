@@ -90,24 +90,6 @@ do
 	assert(#env._errors == 0, table.concat(env._errors, "\n"))
 end
 
-do
-	local env, K = W.New()
-	K.Widgets.Ornament = function(parent)
-		local ornament = { texture = parent:CreateTexture() }
-		function ornament:Restyle() self.texture:SetShown(self.enabled ~= false) end
-		return ornament
-	end
-	local owner = env.CreateFrame("Frame", nil, K.Scale.Root())
-	owner:Hide()
-	local chrome = K.Widgets.Chrome(owner, { ornament = "crest" })
-	chrome:SetShown(false)
-	chrome.ornament:Restyle()
-	assert(not chrome.ornament.texture:IsShown(), "a deferred Chrome must pass its hidden state to an ornament before a later wake")
-	chrome:SetShown(true)
-	chrome.ornament:Restyle()
-	assert(chrome.ornament.texture:IsShown() and not chrome.fill, "a deferred Chrome must also pass its wanted visible state without building hidden slices")
-end
-
 local REGION = { Texture = true, FontString = true, MaskTexture = true, Line = true }
 local function snapshot(owner, chrome, glow)
 	local names, regions = {}, {}
@@ -132,10 +114,9 @@ local function snapshot(owner, chrome, glow)
 	for _, key in ipairs({ "icon", "mask", "well", "bevelTop", "bevelBottom", "hotkey", "count", "countdown", "readyWash" }) do
 		name(owner[key], key)
 	end
-	for _, key in ipairs({ "shadow", "fill", "rim", "line", "gilt", "bevel", "header", "materialFrame", "materialEdge", "materialBrackets" }) do
+	for _, key in ipairs({ "shadow", "fill", "rim", "line", "gilt", "bevel", "header" }) do
 		for i, region in ipairs(chrome[key] or {}) do name(region, "chrome/" .. key .. i) end
 	end
-	name(chrome.grain, "chrome/grain")
 	for _, key in ipairs({ "innerLine", "hoverRim", "pressRim", "pressHalo", "procHalo" }) do
 		for i, region in ipairs(owner[key] or {}) do name(region, key .. i) end
 	end
@@ -179,7 +160,7 @@ local function snapshot(owner, chrome, glow)
 	return out
 end
 
-local function exercise(lazy, style)
+local function exercise(lazy)
 	local env, K = W.New()
 	local parent = env.CreateFrame("Frame", nil, K.Scale.Root())
 	if lazy then parent:Hide() end
@@ -199,7 +180,6 @@ local function exercise(lazy, style)
 	W.Enter(slot); W.Down(slot); slot:SetProc(true); glow:Start()
 	env.RunTimers()
 	local first = snapshot(slot, chrome, glow)
-	K.Options.Write("Widgets", "cardMaterial", "Glass")
 	slot:Restyle(); chrome:Restyle(); glow:Restyle()
 	assert(#env._errors == 0, table.concat(env._errors, "\n"))
 	local final = snapshot(slot, chrome, glow)
@@ -207,11 +187,10 @@ local function exercise(lazy, style)
 	return final
 end
 
-local function card(lazy, style, material)
+local function card(lazy)
 	local env, K = W.New({ setup = function(e)
 		e.CreateColor = function(r, g, b, a) return { r = r, g = g, b = b, a = a } end
 	end })
-	K.Options.Write("Widgets", "cardMaterial", material)
 	local owner = env.CreateFrame("Frame", nil, K.Scale.Root())
 	owner:SetSize(240, 150)
 	if lazy then owner:Hide() end
@@ -227,7 +206,7 @@ local function card(lazy, style, material)
 	owner:SetSize(260, 170)
 	chrome:SetHeader(35)
 	chrome:Restyle(); glow:Restyle()
-	if style == "medallions" then assert(chrome.bevel and chrome.headerSplit, "the card comparison must include the steel bevel and header") end
+	assert(chrome.bevel and chrome.headerSplit, "the card comparison must include the steel bevel and header")
 	assert(#env._errors == 0, table.concat(env._errors, "\n"))
 	return snapshot(owner, chrome, glow)
 end
@@ -254,12 +233,8 @@ for _, kind in ipairs({ "proc", "selection" }) do
 	same(firstGlow(false, kind), firstGlow(true, kind), kind .. " first Start before a later restyle")
 end
 
-for _, style in ipairs({ "medallions" }) do
-	same(exercise(false, style), exercise(true, style), style .. " slot")
-	for _, material in ipairs({ "Glass", "ForgedBrackets" }) do
-		same(card(false, style, material), card(true, style, material), style .. " " .. material .. " card")
-	end
-end
+same(exercise(false), exercise(true), "medallions slot")
+same(card(false), card(true), "medallions card")
 
 do
 	local env, K = W.New()

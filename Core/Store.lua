@@ -8,7 +8,7 @@ local L = ns.L
 local Codec = ns.Codec
 local format, sub, floor, huge = string.format, string.sub, math.floor, math.huge
 
-Store.DB_VERSION = 45
+Store.DB_VERSION = 46
 Store.migrations = {}
 
 Store.migrations[38] = function(data)
@@ -1059,6 +1059,15 @@ Store.migrations[45] = function(data, live)
 		DropStyledPositions(positions)
 	end
 	if moved and live then ns.Print(L["KstyleUI is now Medallions only; your HUD moved to Medallions."]) end
+end
+
+Store.migrations[46] = function(data)
+	for _, profile in pairs(data.profiles) do
+		if type(profile) == "table" then
+			local widgets, options = Table(profile.Widgets), Table(profile.OptionsPresentation)
+			widgets.ornaments, widgets.cardMaterial, options.samples = nil, nil, nil
+		end
+	end
 end
 
 local PREFIX = "KSUI1:"
