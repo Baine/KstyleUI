@@ -198,6 +198,12 @@ function Common.ForceScreen(env, completePreset)
 			profile.Appearance.oneVoice, profile.Appearance.softBacking = false, false
 		end
 	end
+	if os.getenv("RENDER_GLASS") == "off" and type(db) == "table" and type(db.profiles) == "table" then
+		for _, profile in pairs(db.profiles) do
+			profile.Appearance = profile.Appearance or {}
+			profile.Appearance.litBars = false
+		end
+	end
 	if style and style ~= "" and type(db) == "table" and type(db.profiles) == "table" then
 		for _, profile in pairs(db.profiles) do
 			if type(profile) == "table" and profile.HudStyle == nil then
