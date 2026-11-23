@@ -624,14 +624,25 @@ do
 	Clean(env, K, "frames riposte")
 end
 
--- Stack numbers sit above the bezel and inside the medal; a foot too small for a digit shows pips (review dd9bddac #10).
-do
-	local env, K, ns = New("WARRIOR", { 6673, 12292 })
-	local hip = Pieces(ns)[7]
-	local count = hip.lit.count
-	local _, _, _, x, y = count:GetPoint(1)
-	assert(count:GetParent():GetFrameLevel() > hip.enamel:GetParent():GetFrameLevel() and x <= 0 and y >= 0, "the count draws over the bezel, inside the medal's corner")
-	Clean(env, K, "count")
+-- Stack numbers sit above the bezel, inside the round icon at every screen and at the smallest Interface size; a foot too small for a digit shows pips (review dd9bddac #10).
+for _, size in ipairs(SIZES) do
+	for _, ui in ipairs({ 1, 0.6 }) do
+		for _, frames in ipairs({ false, true }) do
+			local env, K, ns = New("WARRIOR", { 6673, 12292 }, { size = size, frames = frames, setup = function(e) e._size = ui end })
+			env._resolveRects = true
+			local hip, where = Pieces(ns, frames and "row")[7], size[1] .. "x" .. size[2] .. " at " .. ui .. (frames and " Frames" or " crest")
+			hip.lit.count:SetText("15")
+			local l, b, w, h = hip.lit.count:GetRect()
+			local il, ib, iw = hip.steel:GetRect()
+			assert(hip.lit.count:GetParent():GetFrameLevel() > hip.enamel:GetParent():GetFrameLevel(), where .. ": the count draws over the bezel")
+			for _, x in ipairs({ l, l + w }) do
+				for _, y in ipairs({ b, b + h }) do
+					assert((x - il - iw / 2) ^ 2 + (y - ib - iw / 2) ^ 2 <= (iw / 2) ^ 2 + 0.01, where .. ": a two-digit count stays inside the medal's round icon; inset it from the icon's centre and size its font to fit")
+				end
+			end
+			Clean(env, K, "count " .. where)
+		end
+	end
 end
 
 do
