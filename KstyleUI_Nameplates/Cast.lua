@@ -791,7 +791,7 @@ function Component.Restyle(plate)
 		Widgets.ShowSlice(plate.castTargetGlow, false)
 		plate.castAtMeOn = false
 	end
-	StyleFont(plate.castName, "caps")
+	StyleFont(plate.castName, Widgets.Medallions() and Widgets.Readability("oneVoice") and "number" or "caps")
 	StyleFont(plate.castTime, "time")
 	if plate.castWait then StyleFont(plate.castWait, "time") end
 	local glyph = plate.castGlyph
