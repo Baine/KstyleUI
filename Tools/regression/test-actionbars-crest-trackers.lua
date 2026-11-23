@@ -71,14 +71,6 @@ local function Updating(frame)
 	return n
 end
 
--- Other classes: nothing at all (a hunter, mage and warlock register their own rows, test-actionbars-crest-ranged).
-for _, class in ipairs({ "SHAMAN", "PRIEST", "DRUID" }) do
-	local env, K, ns = New(class, { 6673, 25289, 7384, 20271, 20154, 5171, 1943, 2842 })
-	assert(next(ns.SlabTrackers.state.forms) == nil and next(env._trackerEvents) == nil, class .. ": no tracker frame or event")
-	assert(ns.SlabJewels.state.feed == nil, class .. ": no aura-fed jewels")
-	Clean(env, K, class)
-end
-
 -- A level 1 warrior: Battle Shout only.
 do
 	local env, K, ns = New("WARRIOR", { 6673 })
@@ -300,6 +292,7 @@ end
 do
 	local env, K, ns = New("PRIEST", { 10060 })
 	local painted, moved = 0, 0
+	ns.SlabTrackers.CLASSES.PRIEST = nil
 	ns.SlabTrackers.Register("PRIEST", {
 		{ key = "crestCooldowns", seat = "cooldowns", color = "gilt", families = { { spells = { 10060 } } } },
 		{ key = "crestTest", seat = { 0, 100 }, build = function(parent, spec, level)
@@ -682,12 +675,12 @@ end
 
 -- A class with no rows does no tracker work; a stance swap reuses the prepared seats without asking the spellbook (review dd9bddac #13).
 do
-	local env, K, ns = New("PRIEST", {})
+	local env, K, ns = New("DEATHKNIGHT", {})
 	local reads = 0
 	env.GetShapeshiftFormID = function() reads = reads + 1 end
 	env.FireEvent("SPELLS_CHANGED")
-	assert(reads == 0 and not ns.SlabTrackers.state.resting and ns.SlabTrackers.CLASSES.WARRIOR == nil, "a priest reads no form, holds no rest watcher and loads no melee rows")
-	Clean(env, K, "priest")
+	assert(reads == 0 and not ns.SlabTrackers.state.resting and ns.SlabTrackers.CLASSES.WARRIOR == nil, "a class with no rows reads no form, holds no rest watcher and loads no melee rows")
+	Clean(env, K, "no rows")
 end
 
 do
