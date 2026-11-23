@@ -24,6 +24,8 @@ local CLEANUP_BUTTON = "RXPQuestLogCleanupButton"
 local IMPORT_BUTTONS = { "importButton", "importSplicedString", "purgeButton", "reloadButton", "deleteButton" }
 local IMPORT_POPUPS = { "purgeConfirmation", "deleteConfirmation" }
 local CONFIGURATOR_BUTTONS = { "backbutton", "resetbutton", "submitbutton" }
+local BADGE = { button = 24, inset = 3, chip = "gapSmall", noteDrop = 7, v2Title = 43 }
+local BANNERS = { "ZoneTextFrame", "SubZoneTextFrame" }
 local OPTION_WIDGET = "RXPV2GuideConfiguratorOption"
 local RXP_MARGIN = 4
 local GUTTER_GAP = "gapTiny"
@@ -64,7 +66,7 @@ local tips = setmetatable({}, WEAK)
 local hooks = {}
 local menu = { active = false, hooked = setmetatable({}, WEAK) }
 local dress = { panels = setmetatable({}, WEAK), veiled = setmetatable({}, WEAK), hooked = setmetatable({}, WEAK), dropped = setmetatable({}, WEAK) }
-local state = { rxp = nil, tracked = false, guide = nil }
+local state = { rxp = nil, tracked = false, guide = nil, chips = setmetatable({}, WEAK) }
 
 local function Active()
 	return K.Modules.IsRunning(MODULE) and Skins.IsOn(KEY)
@@ -83,6 +85,11 @@ end
 
 local function Plain(value)
 	return type(value) == "number" and not Widgets.IsSecret(value)
+end
+
+local function Shown(frame)
+	local shown = frame:IsShown()
+	return not Widgets.IsSecret(shown) and shown == true
 end
 
 local function IsTexture(region)
@@ -468,13 +475,6 @@ local function PaintCaption(text, entry)
 		Widgets.Fitted(caption, entry.room ~= nil and entry.room < size)
 		size = math.max(entry.own, math.min(size, entry.room or size))
 	end
-	if entry.compact then
-		Style.ApplyFont(caption, "caps", size)
-		local width = Widgets.TextWidth(caption, 0)
-		if Plain(width) and width > entry.compact then
-			size = size * entry.compact / width
-		end
-	end
 	Style.ApplyFont(caption, "caps", size)
 	Widgets.TextColor(caption, "capsGold")
 	if headings then caption:SetTextColor(Tokens.Color("capsGold")) end
@@ -549,9 +549,8 @@ local function CaptionFor(text, title, sized, heading)
 	end)
 	PaintCaption(text, entry)
 	local function word(value)
-		caption:SetText(K.Locale.Upper(entry.label or PlainText(value)))
+		caption:SetText(K.Locale.Upper(PlainText(value)))
 	end
-	entry.word = word
 	hooksecurefunc(text, "SetText", function(_, value)
 		word(value)
 		if sized and Active() then
@@ -560,7 +559,7 @@ local function CaptionFor(text, title, sized, heading)
 	end)
 	word(text:GetText())
 	if heading and heading.panel then
-		Parts.Heading(heading.panel, caption, { row = entry.row or text, close = heading.close })
+		Parts.Heading(heading.panel, caption, { row = entry.row or text, close = heading.close, inset = heading.inset })
 	end
 end
 
@@ -568,15 +567,35 @@ function Chrome.Caption(text)
 	return captions[text] and captions[text].caption
 end
 
-function Chrome.Label(f, label, room)
-	local text = IsTable(f.title) and f.title.text
-	local entry = text and captions[text]
-	if not entry or entry.label == label and entry.compact == room then
+local function ChipIcons(f)
+	local l, r, t, b
+	for _, child in ipairs({ f:GetChildren() }) do
+		if child ~= f.title and child:GetObjectType() == "Button" and Shown(child) then
+			local cl, cr, ct, cb = child:GetLeft(), child:GetRight(), child:GetTop(), child:GetBottom()
+			if Plain(cl) and Plain(cr) and Plain(ct) and Plain(cb) then
+				l, r, t, b = math.min(l or cl, cl), math.max(r or cr, cr), math.max(t or ct, ct), math.min(b or cb, cb)
+			end
+		end
+	end
+	return l, r, t, b
+end
+
+function Chrome.ChipWidth(f)
+	local l, r = ChipIcons(f)
+	local fl = f:GetLeft()
+	if l and Plain(fl) then return r - l + 2 * Tokens.Size(BADGE.chip), r - fl + l - fl end
+end
+
+function Chrome.Chip(f, on)
+	local title = IsTable(f.title) and f.title
+	local shown = title and title:IsShown()
+	if title and (Widgets.IsSecret(shown) or shown == on) then title:SetShown(not on) end
+	if (state.chips[f] == true) == on then
 		return
 	end
-	entry.label, entry.compact = label, room
-	entry.word(text:GetText())
-	PaintCaption(text, entry)
+	state.chips[f] = on or nil
+	local heading = title and IsTable(title.text) and Parts.HeadingOf(Chrome.Caption(title.text))
+	if heading then heading.holder:SetShown(not on) end
 	Chrome.IconInset(f)
 end
 
@@ -883,8 +902,28 @@ local function PaintArrow(arrow)
 	end
 end
 
+local function Yield()
+	local text = state.yielding and state.yielding.text
+	if not IsTable(text) then return end
+	local up = false
+	for _, name in ipairs(BANNERS) do
+		local banner = rawget(_G, name)
+		up = up or IsTable(banner) and Shown(banner)
+	end
+	local hide = up and Active() and Skins.Setting(KEY, "arrowYields") == true
+	if hide and state.alpha == nil then
+		local alpha = text:GetAlpha()
+		state.alpha = Plain(alpha) and alpha or 1
+		text:SetAlpha(0)
+	elseif not hide and state.alpha ~= nil then
+		text:SetAlpha(state.alpha)
+		state.alpha = nil
+	end
+end
+
 function Chrome.SwitchArrow()
 	for arrow in pairs(arrows) do PaintArrow(arrow) end
+	Yield()
 end
 
 local function Restyle()
@@ -1212,7 +1251,7 @@ local function GuideWindowV2(rxp)
 	CloseButton(window.closebutton)
 	local scroll = IsTable(window.guideSteps) and window.guideSteps.scroll
 	ScrollBar(IsTable(scroll) and scroll.scrollbar or nil)
-	CaptionFor(window.title, nil, true, { panel = upper, close = window.closebutton })
+	CaptionFor(window.title, nil, true, { panel = upper, close = window.closebutton, inset = BADGE.v2Title - Parts.CAP_PAD })
 	Readable(window.subtitle, "body", 0)
 	Hook(window.frame, "SetScale", "guideWindow.frame.SetScale", Rescaled)
 end
@@ -1358,6 +1397,17 @@ local function Arrow(rxp)
 	Hook(rxp, "SetupArrow", "SetupArrow", function()
 		PaintArrow(arrow)
 	end)
+	if not state.yielding then
+		for _, name in ipairs(BANNERS) do
+			local banner = rawget(_G, name)
+			if IsTable(banner) and type(banner.HookScript) == "function" then
+				banner:HookScript("OnShow", Yield)
+				banner:HookScript("OnHide", Yield)
+			end
+		end
+	end
+	state.yielding = arrow
+	Yield()
 end
 
 local function Highlight(button)
@@ -1462,10 +1512,6 @@ function Chrome.TipCaption(step)
 end
 
 local function CaptionReach(f, title)
-	local entry = IsTable(title) and IsTable(title.text) and captions[title.text]
-	if entry and entry.compact then
-		return nil
-	end
 	local caption = IsTable(title) and IsTable(title.text) and Chrome.Caption(title.text)
 	local x = caption and HangsLeft(title)
 	local width = f:GetWidth()
@@ -1481,12 +1527,24 @@ end
 
 function Chrome.IconInset(f)
 	local glass, title = Panel(f), f.title
-	local rise = TitleRise(f, title)
-	local top = rise > 0 and -(rise + Tokens.Size(TITLE_AIR)) or nil
-	local right = CaptionReach(f, title)
-	local inset = glass and type(glass.inset) == "table" and glass.inset or {}
-	if glass and (inset.top ~= top or inset.right ~= right) then
-		glass.inset = (top or right) and { top = top, right = right } or nil
+	local want
+	if state.chips[f] then
+		local l, _, t, b = ChipIcons(f)
+		local fl, ft, fb = f:GetLeft(), f:GetTop(), f:GetBottom()
+		local m = Tokens.Size(BADGE.chip)
+		if l and Plain(fl) and Plain(ft) and Plain(fb) then
+			local side = Widgets.Snap(f, l - fl - m)
+			want = { left = side, right = side, top = Widgets.Snap(f, ft - t - m), bottom = Widgets.Snap(f, b - fb - m) }
+		end
+	else
+		local rise = TitleRise(f, title)
+		local top = rise > 0 and -(rise + Tokens.Size(TITLE_AIR)) or nil
+		local right = CaptionReach(f, title)
+		want = (top or right) and { top = top, right = right } or nil
+	end
+	local inset, have = glass and type(glass.inset) == "table" and glass.inset or {}, want or {}
+	if glass and (inset.top ~= have.top or inset.right ~= have.right or inset.left ~= have.left or inset.bottom ~= have.bottom) then
+		glass.inset = want
 		glass:Restyle()
 	end
 end
@@ -2008,7 +2066,14 @@ local function IconControls(frame, known)
 			if type(path) == "string" and not Widgets.IsSecret(path) then
 				if path:find("rxp%-btn%-close") then
 					CloseButton(child)
-				else
+				elseif not done[child] then
+					if path:find("icon%-btn%-") then
+						child:SetSize(BADGE.button, BADGE.button)
+					elseif path:find("rxp%-icon%-cog") then
+						normal:ClearAllPoints()
+						normal:SetPoint("TOPLEFT", child, "TOPLEFT", BADGE.inset, -BADGE.inset)
+						normal:SetPoint("BOTTOMRIGHT", child, "BOTTOMRIGHT", -BADGE.inset, BADGE.inset)
+					end
 					IconControl(child, normal)
 				end
 			end
@@ -2045,6 +2110,9 @@ local function Option(widget)
 	if IsTable(note) and type(note.SetTextColor) == "function" then
 		Label(note, "caption")
 		note:SetTextColor(Style.Accent())
+		local _, _, _, _, y = widget.text:GetPoint(1)
+		local want = Shown(note) and -BADGE.noteDrop or 0
+		if Plain(y) and y ~= want then widget.text:AdjustPointsOffset(0, want - y) end
 	end
 	local checkbg = widget.checkbg
 	if not IsTable(checkbg) or type(checkbg.GetRegions) ~= "function" then

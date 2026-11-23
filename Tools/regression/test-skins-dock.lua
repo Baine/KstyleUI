@@ -158,6 +158,13 @@ do
 	-- at the first mode tab, below the header band, instead of running up between the title and the close glyph.
 	local gap = K.Widgets.Snap(f, K.Tokens.Size("gapMedium"))
 	local pane = Rect(f.RightPaneHost, root)
+	-- The mode column keeps its medium gap to the glass's right edge; only the spellbook's tabs take the window's
+	-- inset there (review of #773, finding 10).
+	local column = 0
+	for _, tab in ipairs(f.ModeTabs.Tabs) do
+		column = math.max(column, Rect(tab, root).right)
+	end
+	Same(window.right + dock.reach.RIGHT, column + gap, "the glass's gutter ends a medium gap right of the mode column")
 	local first
 	for i = 1, 3 do
 		local tab = env["PaperDollSidebarTab" .. i]
@@ -293,10 +300,16 @@ for _, key in ipairs({ "communities", "spellbook", "professions", "legacy" }) do
 		assert(seam and seam:IsShown(), key .. ": a seam marks the gutter on the " .. edge)
 	end
 	assert(#tabs > 0, key .. " has side tabs")
+	local column = 0
 	for i, tab in ipairs(tabs) do
 		if tab:IsShown() then
 			Inside(Rect(tab, root), glass, key .. " side tab " .. i .. " stands inside the glass")
+			column = math.max(column, Rect(tab, root).right)
 		end
+	end
+	if key == "spellbook" then
+		-- The spec tabs keep the window's content inset from the glass's edge (polish audit B #32).
+		Same(Rect(f, root).right + dock.reach.RIGHT, column + K.Widgets.Snap(f, K.Widgets.WindowInset(dock.panel)), "the spellbook's tabs keep a window inset from the glass's edge")
 	end
 	assert(#env._errors == 0, key .. ": " .. tostring(env._errors[1]))
 end

@@ -419,15 +419,13 @@ local function ExtraWindows(R)
 	Bar(feedback.children[1].children[1].scrollBar)
 	Bar(env.RESTEDXP_BRANDED_EXPORT.obj.children[1].scrollBar)
 	local configurator = rxp.ui.v2.configurator.ui
-	-- GuideConfigurator.lua:478-479,1075-1106: close, settings, import and help controls.
+	-- GuideConfigurator.lua:478-479: the close control. The fake places the settings, import and help buttons itself,
+	-- before the skin resizes them, as RestedXP does.
 	for _, child in ipairs({ configurator.frame:GetChildren() }) do
 		local normal = child:GetNormalTexture()
 		local path = type(normal) == "table" and tostring(normal:GetTexture()) or ""
-		if path:find("rxp%-icon%-cog") then at(child, configurator.frame, 284, 24, 24, 24)
-		elseif path:find("icon%-btn%-import") then at(child, configurator.frame, 252, 21, 30, 30)
-		elseif path:find("icon%-btn%-help") then at(child, configurator.frame, 220, 21, 30, 30) end
 		-- The game stretches a button's normal texture over the button; the fake leaves it without points.
-		if path ~= "" and not path:find("rxp%-btn%-close") then normal:SetAllPoints(child) end
+		if path ~= "" and not path:find("rxp%-btn%-close") and normal:GetNumPoints() == 0 then normal:SetAllPoints(child) end
 	end
 	local items = rxp.activeItemFrame
 	at(items, env.UIParent, 18, 790, items:GetWidth(), items:GetHeight())
@@ -613,6 +611,40 @@ local function Others(R, x, itemsTop)
 		-- name frame at the same place: 4 left of the button, which is 44 from the frame's right and 21 wide.
 		v2.title:SetPoint("TOPRIGHT", v2.guideNameFrame, "TOPRIGHT", -69, -6)
 		at(v2.guideSteps.scroll.scrollbar, v2.guideStepsFrame, WIDTH - 16, 6, 10, 200)
+		-- UI/V2/Core.lua 1788-1914 and 1918-2053: the steps are RXPV2GuideStepsItem rows 8 apart, each a backdrop in the
+		-- theme's common colours with its text 4 in and 5 down and, in its bottom right corner, a 16-unit number badge
+		-- (wider when the number needs it) with its own edge, the number centred in the title colour on the current
+		-- step and inactivePartyTab on the others (1841-1847, 1870-1878, 1900-1907).
+		-- The fake builds none and the skin reaches them only through the theme, so the scene draws three from it, read
+		-- as Themes.lua:448-452 reads it: the v2 theme named by the run-time activeTheme the skin sets.
+		local theme = rxp.v2.themes[rxp.activeTheme and rxp.activeTheme.name] or rxp.v2:GetTheme()
+		local size = (rxp.settings.profile.guideFontSize or 9) + 2
+		local y = 6
+		for i, step in ipairs({ "Accept Your Place In The World", "Talk to Kaltunk\nAccept Cutting Teeth", "Kill Mottled Boars\nMottled Boar slain: 3/10" }) do
+			local row, h = env.CreateFrame("Frame", nil, v2.guideStepsFrame), step:find("\n") and 42 or 30
+			at(row, v2.guideStepsFrame, 6, y, WIDTH - 30, h)
+			local badge = env.CreateFrame("Frame", nil, row)
+			for _, part in ipairs({ { row, step, "TOPLEFT", 4, -5, size, theme.textColor.common, theme.backgroundColors.common }, { badge, tostring(i + 11), "CENTER", 0, 0, size - 1, i == 2 and theme.textColor.title or theme.textColor.inactivePartyTab, theme.backgroundColors.activeStepCheckbox } }) do
+				local frame = part[1]
+				local edge, back = frame:CreateTexture(nil, "BACKGROUND"), frame:CreateTexture(nil, "BORDER")
+				edge:SetAllPoints(frame)
+				edge:SetColorTexture(unpack(theme.borderColors.commonEdge))
+				back:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -1)
+				back:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
+				back:SetColorTexture(unpack(part[8]))
+				local label = frame:CreateFontString(nil, "OVERLAY")
+				label:SetFont(theme.font, part[6], "")
+				label:SetJustifyH(part[3] == "CENTER" and "CENTER" or "LEFT")
+				text(label, part[2], part[3], frame, part[3], part[4], part[5])
+				label:SetTextColor(unpack(part[7]))
+				if frame == badge then
+					badge:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT")
+					badge:SetSize(math.max((label:GetStringWidth() or 0) + 6, 16), 16)
+				end
+			end
+			row:SetAlpha(i == 1 and 0.5 or 1)
+			y = y + h + 8
+		end
 	end
 	local configurator = rxp.ui.v2.configurator.ui
 	local x3 = x + WIDTH + GAP
@@ -625,7 +657,9 @@ local function Others(R, x, itemsTop)
 		at(button, configurator.frame, 16 + (i - 1) * 100, 240 - 44, 88, 26)
 		text(button.text, ({ "Back", "Reset", "Submit" })[i], "CENTER", button)
 	end
-	at(configurator.scrollContainer.scrollbar, configurator.frame, 320 - 20, 50, 10, 140)
+	-- GuideConfigurator.lua:528-530 starts the content 48 under the top and ends it 38 over the bottom; UI/V2/Core.lua
+	-- 838-846 hangs the bar one 16-unit button inside each end, so its up arrow sits under the header icons.
+	at(configurator.scrollContainer.scrollbar, configurator.frame, 320 - 20, 48 + 17, 10, 240 - 48 - 38 - 2 * 17)
 	ConfiguratorRows(env, rxp, configurator)
 end
 
