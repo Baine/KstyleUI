@@ -111,6 +111,20 @@ local function Find(graph, start, goal, speed, flights, timeOnly)
 			end
 		end
 	end
+	return goal == nil and costs or nil
+end
+
+function Roads.Times(graph, x, y, mounted, flights)
+	Index(graph)
+	local start, first = Roads.Snap(graph, x, y)
+	if not start then return end
+	local speed = mounted and 14 or 7
+	local costs = Find(graph, start.id, nil, speed, flights, true)
+	return function(tx, ty)
+		local node, last = Roads.Snap(graph, tx, ty)
+		local cost = node and costs[node.id]
+		return cost and cost + (first + last) / speed
+	end
 end
 
 function Roads.Solve(graph, x, y, tx, ty, mounted, flights)
