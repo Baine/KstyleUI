@@ -52,12 +52,9 @@ local function Frame()
 	if not IsTable(f) or not IsTable(f.GuideName) or not IsTable(f.CurrentStepFrame) then
 		return nil
 	end
-	if IsTable(rxp.v2) and type(rxp.v2.IsGuideWindowEnabled) == "function" then
-		local ok, v2 = pcall(rxp.v2.IsGuideWindowEnabled, rxp.v2)
-		if ok and v2 == true then
-			LogOnce("rail v2", "RestedXP's v2 guide window is on; the guide card places only the v1 guide window")
-			return nil
-		end
+	if RestedXP.V2On(rxp) then
+		LogOnce("rail v2", "RestedXP's v2 guide window is on; the guide card places only the v1 guide window")
+		return nil
 	end
 	return f
 end
@@ -154,27 +151,13 @@ local function Docking()
 	return On() and ns.Skins.Setting(KEY, DOCK) == true
 end
 
-local function Box(which)
-	local rxp = state.rxp
-	if not IsTable(rxp) then
-		return nil
-	end
-	local box
-	if which == "items" then
-		box = rxp.activeItemFrame
-	elseif IsTable(rxp.targeting) then
-		box = rxp.targeting.activeTargetFrame
-	end
-	return IsTable(box) and type(box.GetPoint) == "function" and box or nil
-end
-
 local function Boxes()
 	local out = {}
 	if not Docking() then
 		return out
 	end
 	for _, which in ipairs(BOXES) do
-		local box = Box(which)
+		local box = RestedXP.Box(state.rxp, which)
 		if box and box:IsShown() then
 			out[#out + 1] = box
 		end
@@ -207,8 +190,10 @@ local function Icons(box)
 	if not Plain(left) then
 		return need
 	end
+	local title = RestedXP.Widget(box).title
 	for _, child in ipairs({ box:GetChildren() }) do
-		local right = child ~= box.title and child:GetObjectType() == "Button" and child:IsShown() and child:GetRight()
+		local shown = child:IsShown()
+		local right = child ~= title and child:GetObjectType() == "Button" and not Widgets.IsSecret(shown) and shown and child:GetRight()
 		if Plain(right) then
 			need = math.max(need, right - left + BOX_PAD)
 		end
@@ -750,7 +735,7 @@ end
 
 local function Drifted()
 	for _, which in ipairs(BOXES) do
-		local box = Box(which)
+		local box = RestedXP.Box(state.rxp, which)
 		local entry = box and state.boxes[box]
 		if box then
 			local shown = box:IsShown() == true
@@ -789,11 +774,13 @@ local function WatchBox(box)
 	end
 	box:HookScript("OnShow", Watch)
 	box:HookScript("OnHide", Watch)
+	hooksecurefunc(box, "SetScale", Schedule)
 	box:HookScript("OnMouseDown", Pressed)
 	box:HookScript("OnMouseUp", Dropped)
-	if IsTable(box.title) and type(box.title.HookScript) == "function" then
-		box.title:HookScript("OnMouseDown", Pressed)
-		box.title:HookScript("OnMouseUp", Dropped)
+	local title = RestedXP.Widget(box).title
+	if IsTable(title) and type(title.HookScript) == "function" then
+		title:HookScript("OnMouseDown", Pressed)
+		title:HookScript("OnMouseUp", Dropped)
 	end
 end
 
@@ -831,6 +818,7 @@ function Dock(f, path, band)
 		RestedXP.Chrome.IconInset(box)
 		local reach = Reach(box)
 		local left = (slot.left + slot.width) / scale - reach.right - width
+		if slot.left == band.left then left = math.min(left, slot.left / scale + reach.left) end
 		local y = (top - slot.drop) / scale - reach.top
 		local x = left + K.Scale.Origin() / scale
 		local point, relative, relativePoint, px, py = box:GetPoint(1)
@@ -906,7 +894,7 @@ function Rail.Start(rxp)
 	Holder()
 	Hook(f)
 	for _, which in ipairs(BOXES) do
-		local box = Box(which)
+		local box = RestedXP.Box(state.rxp, which)
 		if box then
 			WatchBox(box)
 		end
