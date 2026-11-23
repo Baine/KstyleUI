@@ -47,6 +47,7 @@ Widgets.TEXTURE_TEXELS = {
 	lumenShadow = 128,
 	medActionSlab = 128,
 	medUnitSlab = 128,
+	medUnitSlabCap = 128,
 	medCardEdge = 128,
 	medAuraBorder = 64,
 	medGroupTile = 64,
@@ -1427,6 +1428,8 @@ local function PaintSlice(p, name)
 		p[5]:Hide()
 	end
 end
+
+Widgets.PaintSlice = PaintSlice
 
 local function AnchorRuns(p, thickness)
 	thickness = thickness or false
