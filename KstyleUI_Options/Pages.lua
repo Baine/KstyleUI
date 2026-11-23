@@ -541,6 +541,9 @@ local function GeneralItems()
 	add({ kind = "button", label = L["Clear search picks"], help = L["Forgets the settings remembered from your searches."],
 		buttons = { { label = L["Clear"], onClick = function() K.Store.Account().optionsSearchPicks = nil; ns.Changed() end } } })
 	add({ label = L["Double-click the header to fold"], help = L["Double-click the window's header to fold it to its header; again to open it."] }, "optionsFold", false)
+	add({ label = L["Search takes you there"], help = L["Press Enter or click a result's name to open its page at that setting; words such as hp find health. Off restores the previous search."] }, "optionsSearchJump", true)
+	add({ label = L["Previews on Elements and Profiles"], help = L["Shows where elements sit on screen and your profile's text. Off hides the preview there."] }, "optionsPreviewAll", true)
+	add({ label = L["One motion style"], help = L["Menus, page changes and Layout Mode use the window timing. Off restores their previous motion."] }, "motionOneStyle", true)
 	add({ kind = "header", level = 1, label = L["Game menu"] })
 	add({ label = L["KstyleUI settings button"], help = L["Adds a button under the game menu that opens these settings."] }, "gameMenuOptions", false, function() K.OptionsEntry.GameMenu() end)
 	add({ label = L["Layout Mode button"], help = L["Adds a button under the game menu that opens Layout Mode."] }, "gameMenuLayout", false, function() K.OptionsEntry.GameMenu() end)
@@ -568,6 +571,7 @@ local function ResetGeneral()
 	account.optionsSearchPage, account.optionsRailSections, account.gameFont, account.gameTextScale, account.combatFont = nil, nil, nil, nil, nil
 	account.nameFont, account.combatTextScale, account.optionsSearchMemory, account.optionsFold = nil, nil, nil, nil
 	account.gameMenuOptions, account.gameMenuLayout, account.optionsRailFolded = nil, nil, nil
+	account.optionsSearchJump, account.optionsPreviewAll, account.motionOneStyle = nil, nil, nil
 	K.Appearance.ApplyGameText()
 	K.OptionsEntry.GameMenu()
 	for _, section in ipairs(Pages.GENERAL_SECTIONS) do
@@ -1244,7 +1248,7 @@ function Pages.List()
 	local pages = {
 		{ id = "General", label = L["General"], Items = GeneralItems, reset = ResetGeneral, builtinPreview = GeneralPreview },
 		{
-			id = "Elements", label = L["Elements"], Items = ElementsItems,
+			id = "Elements", label = L["Elements"], Items = ElementsItems, builtinPreview = function() return K.Store.Account().optionsPreviewAll ~= false and Pages.HasLayout() and ns.Preview.Screen or nil end,
 			reset = function()
 				ResetElements(nil)
 				Model.ResetSchema("Rest", K.Options.Get("Rest"))
@@ -1258,7 +1262,7 @@ function Pages.List()
 	for _, module in ipairs(ModuleNames()) do
 		pages[#pages + 1] = { id = module, module = module, label = Pages.ModuleLabel(module), Items = ModuleItems, reset = ResetModule }
 	end
-	pages[#pages + 1] = { id = "Profiles", label = L["Profiles"], Items = ProfileItems }
+	pages[#pages + 1] = { id = "Profiles", label = L["Profiles"], Items = ProfileItems, builtinPreview = function() return K.Store.Account().optionsPreviewAll ~= false and ns.Preview.Sample or nil end }
 	pages[#pages + 1] = { id = "About", label = L["About"], Items = AboutItems }
 	return pages
 end
