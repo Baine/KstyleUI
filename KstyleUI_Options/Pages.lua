@@ -13,7 +13,7 @@ Pages.WINDOW_KEY = "Options.Window"
 Pages.GENERAL_SECTIONS = { "HudStyle", "Appearance", "Medallions", "Widgets", "ColorVision", "Integrations", "Setup", "OptionControls", "OptionsPresentation" }
 Pages.ELEMENTS_SECTION = "Layout"
 local APPLY_ON_RELEASE = { ["Appearance.uiScale"] = true }
-local HIDDEN_MODULES = { Options = true, ProfileTools = true, LayoutControls = true }
+local HIDDEN_MODULES = { Options = true, ProfileTools = true, LayoutControls = true, Rest = true }
 local MODULE_ORDER = {
 	"UnitFrames", "GroupFrames", "ActionBars", "Cooldowns", "Auras", "Nameplates", "CombatText",
 	"Minimap", "Chat", "Bags", "Tooltips", "DataBars", "Meters", "Skins", "QoL",
@@ -582,6 +582,11 @@ local function ElementsItems()
 	if schema then
 		Append(items, Model.SchemaItems(Pages.ELEMENTS_SECTION, schema, "Elements"))
 	end
+	local rest = Model.SchemaItems("Rest", K.Options.Get("Rest"), "Elements")
+	for _, item in ipairs(rest) do
+		item.percent = item.kind == "slider"
+	end
+	Append(items, rest)
 	Append(items, Model.SchemaItems("LayoutControls", K.Options.Get("LayoutControls"), "Elements"))
 	items[#items + 1] = { kind = "toggle", page = "Elements", label = L["Double-click movers for settings"],
 		help = L["Opens element settings on double-click. Action bars keep their own shortcut setting."],
@@ -1242,6 +1247,8 @@ function Pages.List()
 			id = "Elements", label = L["Elements"], Items = ElementsItems,
 			reset = function()
 				ResetElements(nil)
+				Model.ResetSchema("Rest", K.Options.Get("Rest"))
+				K.Options.Write("Rest", "enabled", true)
 			end,
 		},
 	}
