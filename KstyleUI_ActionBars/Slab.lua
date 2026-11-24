@@ -210,6 +210,7 @@ local function Grow(g, from, to, duration, order)
 	s:SetOrder(order or 1)
 	return s
 end
+Slab.Grow = Grow
 
 local function Flipbook(g, cells, duration)
 	local f = g:CreateAnimation("FlipBook")
@@ -751,6 +752,7 @@ local function Hide()
 	ns.SlabHawks.Update()
 	ns.SlabStorm.Update()
 	ns.SlabTrackers.Update()
+	ns.SlabTarget.Update()
 	ns.SlabCrown.Update()
 	ns.Totems.Update()
 end
@@ -843,6 +845,7 @@ function Slab.Refresh()
 	ns.SlabHawks.Update()
 	ns.SlabStorm.Update()
 	ns.SlabTrackers.Update()
+	ns.SlabTarget.Update()
 	ns.SlabCrown.Update()
 	ns.Totems.Update()
 	if ns.Travel then ns.Travel.Refresh() end

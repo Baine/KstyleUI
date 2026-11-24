@@ -4,7 +4,7 @@ local Scene = dofile("Tools/render/scene.lua")
 
 local Effects = {}
 
-local STATES = { ready = true, cap = true, levelup = true, cast = true, stopped = true, vignette = true, burst = true, rest = true, jewels = true, hawks = true, storm = true, crest = true }
+local STATES = { ready = true, cap = true, levelup = true, cast = true, stopped = true, vignette = true, burst = true, rest = true, jewels = true, hawks = true, storm = true, crest = true, kill = true, lock = true }
 
 -- The crest story RENDER_FX=crest plays: a target at 0 s, the target lost at 4 s (the crest settles), combat at 10 s.
 -- The hub's loops run at each phase's speed, which the harness's clock does not scale, so the story starts each loop
@@ -42,7 +42,7 @@ function Effects.State()
 	if not state or state == "" then
 		return nil
 	end
-	assert(STATES[state], "RENDER_FX must be one of ready, cap, levelup, cast, stopped, vignette, burst, rest, jewels, hawks, storm or crest")
+	assert(STATES[state], "RENDER_FX must be one of ready, cap, levelup, cast, stopped, vignette, burst, rest, jewels, hawks, storm, crest, kill or lock")
 	local t = tonumber(rawget(_G, "RENDER_FX_T") or os.getenv("RENDER_FX_T") or "")
 	return state, t
 end
@@ -81,7 +81,7 @@ end
 function Effects.Apply(env, module, ns, notes)
 	local state, t = Effects.State()
 	local K = env.KstyleUI
-	if not state or not Medallions(K) then
+	if not state or not (Medallions(K) or state == "kill") then
 		return
 	end
 	local E = K.Effects
@@ -212,6 +212,36 @@ function Effects.Apply(env, module, ns, notes)
 			if hub.sheen.run._playedAt then hub.sheen.run._playedAt = env._time - (at - phase.at) * phase.speed end
 			hub.runes:SetRotation(-math.rad(360 * turn / RUNE_TURN))
 			notes[#notes + 1] = "fx: the crest story " .. at .. " s in: " .. (phase.rest and "at rest" or at >= 10 and "in combat" or "with a target")
+		elseif state == "kill" or state == "lock" then
+			-- A hostile target (RENDER_RANK its classification, elite when unset) at 30% appears 1 s before the crossing; kill
+			-- drops it to 13% RENDER_FX_T seconds ago (1 when unset; a negative time is before the crossing) and samples the
+			-- fade, the wave and the beat there; lock samples the claws RENDER_FX_T seconds after the target (0.12 when unset).
+			Fixtures(env)
+			env.C_SpellBook = env.C_SpellBook or {}
+			local known = env.C_SpellBook.IsSpellKnown or function() return false end
+			env.C_SpellBook.IsSpellKnown = function(id) return id == 20662 or id == 24239 or known(id) end
+			env.UnitCanAttack = function() return true end
+			env.UnitClassification = function() return os.getenv("RENDER_RANK") or "elite" end
+			env._health = 0.3
+			ns.SlabTrackers.Update()
+			env.FireEvent("PLAYER_TARGET_CHANGED")
+			t = t or (state == "kill" and 1 or 0.12)
+			local lock = ns.SlabTarget.lock
+			for _, c in ipairs(lock and lock.claws or {}) do
+				if state == "kill" then c.play:Stop() else Sample(env, c.play, t) end
+			end
+			if state == "kill" and t >= 0 then
+				env._health = 0.13
+				env.FireEvent("UNIT_HEALTH", "target")
+			end
+			for _, k in ipairs(state == "kill" and ns.SlabTarget.kills or {}) do
+				if k:IsVisible() then
+					Sample(env, k.fade.play, math.max(t, 0), k.ripple and k.ripple.play)
+					Sample(env, k.ripple and k.ripple.grow or k.fade.play, math.max(t, 0))
+					Sample(env, k.beat.play, t + 1)
+				end
+			end
+			notes[#notes + 1] = "fx: " .. (state == "kill" and "the kill window " or "the target lock ") .. tostring(t) .. " s in"
 		elseif state == "levelup" then
 			K.Options.Write("Medallions", "motion", "calm")
 			env.FireEvent("PLAYER_LEVEL_UP", 12)
