@@ -419,10 +419,16 @@ function Medals.Socket(parent, spec, level)
 	if lit.container then
 		local timer = Enum and Enum.StatusBarTimerDirection
 		lit:SetDurationBar(s.bar, { direction = timer and timer.RemainingTime or 1 })
-	elseif spec.feed == "cooldown" then
-		s.timer = Timer(lit, level + 1, "dot", "black", 0)
-		s.timer:SetDrawSwipe(false)
+	elseif spec.feed == "cooldown" or spec.feed == "item" then
+		local rim = spec.slot ~= nil
+		s.timer = Timer(lit, level + 1, rim and "ringLine16" or "dot", rim and spec.color or "black", rim and 1 or 0)
+		s.timer:SetDrawSwipe(rim)
 		s.timer:SetScript("OnCooldownDone", function() Medals.Fire(s) end)
+		if rim then
+			s.timer:ClearAllPoints()
+			s.timer:SetPoint("CENTER", parent, "CENTER", 0, 0)
+			add(s.timer, COOLDOWN_RING)
+		end
 	end
 	s.glint = add(Medals.Texture(s.bar, "OVERLAY", 0, "diamond", "white", GLINT, "ADD"))
 	Medals.Flare(s, lit, level + 3, "glow", SETTING * BURST)
@@ -485,7 +491,7 @@ end
 
 function Medals.Size(piece)
 	local px = Widgets.Border(piece)
-	if not piece.parts or piece.sized == px or Medals.Restricted() then
+	if not piece.parts or piece.sized == px or Medals.Locked() then
 		return
 	end
 	piece.sized = px
@@ -581,6 +587,18 @@ local function Cooling(m, id, event)
 	return m.cooling[id] == true
 end
 
+local function Refill(bar, duration)
+	local modes = Enum or {}
+	if duration and bar.SetTimerDuration then
+		local interpolation = modes.StatusBarInterpolation and modes.StatusBarInterpolation.Immediate or 0
+		local direction = modes.StatusBarTimerDirection and modes.StatusBarTimerDirection.ElapsedTime or 0
+		bar:SetTimerDuration(duration, interpolation, direction)
+	else
+		bar:SetMinMaxValues(0, 1)
+		bar:SetValue(1)
+	end
+end
+
 function Medals.Refresh(m, event)
 	local spec = m.spec
 	if spec.feed == "cooldown" then
@@ -592,15 +610,7 @@ function Medals.Refresh(m, event)
 			m.timer:Clear()
 		end
 		if m.bar then
-			local modes = Enum or {}
-			if duration and m.bar.SetTimerDuration and Cooling(m, spec.spell, event) then
-				local interpolation = modes.StatusBarInterpolation and modes.StatusBarInterpolation.Immediate or 0
-				local direction = modes.StatusBarTimerDirection and modes.StatusBarTimerDirection.ElapsedTime or 0
-				m.bar:SetTimerDuration(duration, interpolation, direction)
-			else
-				m.bar:SetMinMaxValues(0, 1)
-				m.bar:SetValue(1)
-			end
+			Refill(m.bar, duration and Cooling(m, spec.spell, event) and duration)
 		end
 		return
 	end
@@ -631,25 +641,46 @@ function Medals.Refresh(m, event)
 	end
 	if spec.feed == "item" then
 		local item = C_Item
-		local id
-		for _, each in ipairs(spec.items) do
+		local id, start, duration, enable, gcd
+		if spec.slot and type(GetInventoryItemID) == "function" and type(GetInventoryItemCooldown) == "function" then
+			id = GetInventoryItemID("player", spec.slot)
+			id = not IsSecret(id) and id or nil
+			start, duration, enable, gcd = GetInventoryItemCooldown("player", spec.slot)
+		end
+		for _, each in ipairs(spec.items or NONE) do
 			local count = item and item.GetItemCount and item.GetItemCount(each)
 			if not IsSecret(count) and type(count) == "number" and count > 0 then
 				id = each
+				start, duration = item.GetItemCooldown(each)
 				break
 			end
 		end
 		m.lit:SetShown(id ~= nil)
 		if id then
-			m.lit.icon:SetTexture(item.GetItemIconByID and item.GetItemIconByID(id) or spec.texture)
-			local start, duration = item.GetItemCooldown(id)
-			local cooling = not (IsSecret(start) or IsSecret(duration)) and type(duration) == "number" and duration > 0
+			local icon = m.lit.icon
+			if icon then
+				icon:SetTexture(item.GetItemIconByID and item.GetItemIconByID(id) or spec.texture)
+			end
+			local cooling = not (IsSecret(start) or IsSecret(duration) or IsSecret(enable) or IsSecret(gcd)) and type(duration) == "number" and duration > 0
+				and enable ~= 0 and gcd ~= true
 			if cooling then
 				m.timer:SetCooldown(start, duration)
 			else
 				m.timer:Clear()
 			end
-			m.lit.icon:SetDesaturated(cooling)
+			if icon then
+				icon:SetDesaturated(cooling)
+			end
+			if m.bar then
+				local util = C_DurationUtil
+				if cooling and not m.span and util and type(util.CreateDuration) == "function" then
+					m.span = util.CreateDuration()
+				end
+				if cooling and m.span then
+					m.span:SetTimeFromStart(start, duration)
+				end
+				Refill(m.bar, cooling and m.span)
+			end
 		end
 		return
 	end
