@@ -199,6 +199,9 @@ local function Build(form, name, key, spec)
 		return nil
 	end
 	piece.spec = piece.spec or spec
+	if spec.families then
+		ns.SlabUnleashed.Dress(piece, spec, name)
+	end
 	form.pieces[key] = piece
 	return piece
 end
@@ -366,6 +369,7 @@ local function Stop()
 	end
 	state.form = nil
 	Listen(false)
+	ns.SlabUnleashed.Paint()
 	for _, event in ipairs(HOOKS[ns.class] and HOOKS[ns.class].update or {}) do
 		if state.enabled then
 			K.Events.Register(OWNER, event, Trackers.Update)
