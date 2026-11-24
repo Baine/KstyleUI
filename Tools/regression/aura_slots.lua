@@ -14,7 +14,7 @@
 --   Slots.Install(env)                                   -- in an env's setup, before the addon loads
 --   Slots.Set(env, "target", { { id = 7386, count = 3, harmful = true } })   -- feeds every slot; nil clears
 --
--- SetIcon, SetDurationCooldown, SetApplicationCount and SetDurationBar take regions the button owns and show the aura's icon, its stacks above one and its
+-- SetAuraSlotEnabled(key, false) stops a slot reading auras. SetIcon, SetDurationCooldown, SetApplicationCount and SetDurationBar take regions the button owns and show the aura's icon, its stacks above one and its
 -- { start, finish } duration (an aura's start and duration, seconds); AddItemEnchantment's button shows the enchant
 -- Slots.Enchant gives its slot, as Blizzard_CustomAuraContainer.lua:488-507 does. A slot or group sorted by
 -- AuraInstanceIDOnly, Reverse takes the newest matching aura first (the last in the unit's list); AddAuraGroup makes
@@ -53,7 +53,7 @@ local function Feed(env, c)
 		local aura
 		if c._enabled == true and slot.enchant then
 			aura = env._slotEnchants[slot.enchant]
-		elseif c._enabled == true then
+		elseif c._enabled == true and not slot.disabled then
 			for _, a in ipairs(env._slotAuras[c._unit] or {}) do
 				if Matches(a, slot.filter, slot.candidates) then
 					aura = aura and not slot.newest and aura or a
@@ -223,6 +223,17 @@ function Slots.Install(env)
 			Slots.Feed(env, self)
 		end
 		function c.UpdateAllAuras(self) Slots.Feed(env, self) end
+		function c.SetAuraSlotEnabled(self, key, on)
+			self._slots[key].disabled = not on
+			Slots.Feed(env, self)
+		end
+		-- A container with an aura group forbids untrusted layout scripts, so no container without one may anchor to it
+		-- (Blizzard_CustomAuraContainer.lua:317-324).
+		local point = c.SetPoint
+		function c.SetPoint(self, at, other, ...)
+			assert(not (type(other) == "table" and other._forbidLayout and not self._forbidLayout), "anchor target forbids untrusted layout scripts")
+			return point(self, at, other, ...)
+		end
 		function c.AddAuraSlot(self, key, filter, options)
 			assert(type(key) == "string" and key ~= "" and not self._slots[key], "aura slot keys are unique non-empty strings")
 			local button = Button(env, self, create("Frame", nil, self))
@@ -243,7 +254,7 @@ function Slots.Install(env)
 				if options.initializeFrame then options.initializeFrame(button) end
 				group.frames[i], group.slots[i] = button, { frame = button }
 			end
-			self._groups[key] = group
+			self._groups[key], self._forbidLayout = group, true
 			Slots.Feed(env, self)
 		end or nil
 		function c.AddItemEnchantment(self, slot)
