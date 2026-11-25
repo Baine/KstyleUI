@@ -159,6 +159,7 @@ do
 	for i, b in ipairs(rim.sigils) do
 		assert(not b.at or math.abs(b.at[1]) + 7 <= 25 and b.at[2] - 7 >= -44, i .. ": clear of the lower Inner Fire flames (x 32.5 and out) and the feet")
 	end
+	assert(not rim.sigils[1].loop and rim.sigils[1]._regions[1]._state.VertexColor[1] == 0, "a sigil keeps #809's dark shade: the healers' bloom and flash are theirs alone")
 	Slots.Set(env, "player", { { id = 1719, count = 0, icon = 1, start = 0, duration = 15 }, { id = 871, count = 0, icon = 2, start = 0, duration = 10 } })
 	assert(rim.lit:IsShown() and AB.W.LastCall(rim.timer, "SetCooldownFromDurationObject")[1].finish == 10, "the newest cooldown burns on the rim")
 	assert(rim.sigils[1]:IsShown() and rim.sigils[2]:IsShown() and not rim.sigils[3]:IsShown(), "each running family lights its sigil")

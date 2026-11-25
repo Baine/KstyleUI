@@ -88,7 +88,7 @@ end
 function Trackers.Register(class, rows, hooks)
 	if not CLASSES[class] and MANA[class] then
 		CLASSES[class] = { { key = "crestFiveSecond", seat = "plaque", feed = "fiveSecond", known = Always, color = "hudMana", texture = 136053,
-			build = FiveSecondPiece, place = PlacePlaque, choices = { { forms = hooks and hooks.fiveSecondForms } } } }
+			build = hooks and hooks.figures and Medals.Plaque or FiveSecondPiece, place = PlacePlaque, choices = { { forms = hooks and hooks.fiveSecondForms } } } }
 	end
 	CLASSES[class] = CLASSES[class] or {}
 	local cooldowns
@@ -98,7 +98,8 @@ function Trackers.Register(class, rows, hooks)
 	end
 	HOOKS[class] = hooks or HOOKS[class]
 	for slot = 13, cooldowns and 14 or 0 do
-		table.insert(CLASSES[class], { key = "crestTrinkets", seat = { slot == 13 and -TRINKET or TRINKET, 0 }, slot = slot, feed = "item", known = Trinket, color = cooldowns.color })
+		table.insert(CLASSES[class], { key = "crestTrinkets", seat = { slot == 13 and -TRINKET or TRINKET, 0 }, slot = slot, feed = "item", known = Trinket, color = cooldowns.color,
+			build = hooks and hooks.figures and Medals.Socket or nil })
 	end
 end
 
