@@ -103,7 +103,7 @@ function Effects.Apply(env, module, ns, notes)
 			local b = ns.actionButtons[4]
 			b.realCooldown = true
 			b:FlashReady()
-			t = Sample(env, b.medReady.anim, t)
+			t = Sample(env, b.medReady.anim, t, b.medReady.wash.anim)
 			notes[#notes + 1] = "fx: slot 4's ready flash " .. t .. " s after its cooldown ended"
 		elseif state == "cap" then
 			Fixtures(env)
@@ -186,9 +186,10 @@ function Effects.Apply(env, module, ns, notes)
 			notes[#notes + 1] = "fx: the crest jewels " .. from .. " to " .. to .. ", " .. (t or 0) .. " s in"
 		elseif state == "hawks" then
 			-- A hunter who knows Summon Hawk, RENDER_FX_T seconds into the HAWKS story (10 when unset): every totem
-			-- update so far goes through the addon's own handler, and each perch's flare or fade is sampled from its last.
+			-- update so far goes through the addon's own handler at its own time on the clock, so each animation it plays,
+			-- and none it stopped, is sampled from that update.
 			local at = t or 10
-			local totems, last = {}, {}
+			local totems = {}
 			env.C_SpellBook = env.C_SpellBook or {}
 			env.C_SpellBook.IsSpellKnown = function(id) return id == 1293241 end
 			env.GetTotemInfo = function(slot)
@@ -203,19 +204,17 @@ function Effects.Apply(env, module, ns, notes)
 			if os.getenv("RENDER_HAWK_PERCHES") == "off" then
 				K.Options.Write("ActionBars", "crestHawks", false)
 			end
+			-- RENDER_HAWKS_MOTION sets Medallions motion, so Calm and Off show what each keeps of the story.
+			local motion = os.getenv("RENDER_HAWKS_MOTION")
+			if motion and motion ~= "" then
+				K.Options.Write("Medallions", "motion", motion)
+			end
 			ns.SlabHawks.Update()
 			for _, e in ipairs(HAWKS) do
 				if e.at <= at then
-					totems[e.slot] = e.summon and { start = env._time - (at - e.at), spell = e.slot == 2 and 1293248 or 1312637 } or nil
+					env._now = env._time - (at - e.at)
+					totems[e.slot] = e.summon and { start = env._now, spell = e.slot == 2 and 1293248 or 1312637 } or nil
 					env.FireEvent("PLAYER_TOTEM_UPDATE", e.slot)
-					last[e.slot] = e.at
-				end
-			end
-			for _, p in ipairs(ns.SlabHawks.state.perches) do
-				for _, group in ipairs({ p.flare.fade, p.was.fade }) do
-					if group._playedAt and last[p.slot] then
-						group._playedAt = env._time - (at - last[p.slot])
-					end
 				end
 			end
 			notes[#notes + 1] = "fx: the hawk perches " .. at .. " s into the story"

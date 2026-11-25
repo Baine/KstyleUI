@@ -11,6 +11,7 @@ ns.SlabEffects = Fx
 local OWNER = "SlabEffects"
 local READY, READY_RISE = 0.3, 0.25
 local READY_SHARE = 1 / 0.7
+local READY_WASH = 0.6
 local CAP_AT = 0.995
 local CAP_LOW, CAP_BREATH, CAP_HALO = 0.55, 1.1, 1.3
 local TIDE_BREATH, TIDE_BAND, TIDE_OUTER, BAND_ALPHA, OUTER_ALPHA = 2.1, 146, 220, 0.5, 0.75
@@ -64,17 +65,41 @@ local function ReadyParts(b)
 			flash:SetAlpha(0)
 		end)
 		flash.anim = group
+		local wash = b:CreateTexture(nil, "OVERLAY")
+		wash:SetColorTexture(Color("steelLit", "textEmphasis"))
+		wash:SetBlendMode("ADD")
+		wash:SetAllPoints(b.icon)
+		if b.mask then
+			wash:AddMaskTexture(b.mask)
+		end
+		wash:SetAlpha(0)
+		local washes = wash:CreateAnimationGroup()
+		wash.rise = Fade(washes, 0, READY_WASH, 1, 1)
+		wash.fall = Fade(washes, READY_WASH, 0, 1, 2)
+		washes:SetScript("OnFinished", function()
+			wash:SetAlpha(0)
+		end)
+		wash.anim = washes
+		flash.wash = wash
 		flash.stop = function()
 			group:Stop()
+			washes:Stop()
 			flash:SetAlpha(0)
+			wash:SetAlpha(0)
 		end
+		K.Motion.TrackGroup(group, flash.stop)
+		K.Motion.TrackGroup(washes, flash.stop)
 		b.medReady = flash
 	end
 	local polished = ns.Config("procTransitions") == true
-	flash.rise:SetDuration(polished and 0.06 or READY * READY_RISE)
-	flash.fall:SetDuration(polished and 0.18 or READY * (1 - READY_RISE))
+	local rise, fall = polished and 0.06 or READY * READY_RISE, polished and 0.18 or READY * (1 - READY_RISE)
+	flash.rise:SetDuration(rise)
+	flash.fall:SetDuration(fall)
+	flash.wash.rise:SetDuration(rise)
+	flash.wash.fall:SetDuration(fall)
 	flash.rise:SetToAlpha(polished and 0.45 or 1)
 	flash.fall:SetFromAlpha(polished and 0.45 or 1)
+	flash.washed = polished
 	local side = SlotSize(b) * (polished and 1.15 or READY_SHARE)
 	if polished then
 		local snapped = Widgets.Snap(flash, side)
@@ -98,7 +123,11 @@ function Fx.Ready(b)
 	local r, g, bl = Color("steelLit", "textEmphasis")
 	flash:SetVertexColor(r, g, bl, 1)
 	flash.anim:Stop()
+	flash.wash.anim:Stop()
 	flash.anim:Play()
+	if flash.washed then
+		flash.wash.anim:Play()
+	end
 	return true
 end
 
@@ -267,12 +296,19 @@ local function ClassFile()
 	return class
 end
 
+local function Urgent(result)
+	if result then
+		ns.SlabHawks.Yield()
+	end
+	return result
+end
+
 function Fx.Proc(hub)
 	if not (hub and Effects.Active()) then
 		return false
 	end
 	local class = ClassFile()
-	return Effects.Burst("hub", P.proc, hub, class or "", (ns.Slab.RING or hub:GetWidth()) * PROC_SHARE, PROC_SECONDS, nil, nil)
+	return Urgent(Effects.Burst("hub", P.proc, hub, class or "", (ns.Slab.RING or hub:GetWidth()) * PROC_SHARE, PROC_SECONDS, nil, nil))
 end
 
 function Fx.LevelUp(hub, play2D, stop2D)
@@ -283,7 +319,7 @@ function Fx.LevelUp(hub, play2D, stop2D)
 		return false
 	end
 	local priority = ns.Config("procTransitions") and P.levelUp or P.proc
-	return Effects.Burst("hub", priority, hub, "levelUp", (ns.Slab.RING or hub:GetWidth()) * LEVEL_SHARE, LEVEL_SECONDS, play2D, stop2D, true)
+	return Urgent(Effects.Burst("hub", priority, hub, "levelUp", (ns.Slab.RING or hub:GetWidth()) * LEVEL_SHARE, LEVEL_SECONDS, play2D, stop2D, true))
 end
 
 local listening = false
