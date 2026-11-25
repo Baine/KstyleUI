@@ -256,6 +256,7 @@ local function Lit(piece, spec, level)
 	piece.lit = piece.lit or lit
 	return lit
 end
+Medals.Lit = Lit
 
 function Medals.Medal(parent, spec, level)
 	local size = spec.size or SIZE
@@ -724,8 +725,15 @@ function Medals.Refresh(m, event)
 		else
 			m.timer:Clear()
 		end
-		if m.bar then
-			Refill(m.bar, duration and Cooling(m, spec.spell, event) and duration)
+		local cooling = (m.bar or m.ready) and duration and Cooling(m, spec.spell, event) or false
+		if cooling ~= m.cooled then
+			m.cooled = cooling
+			if m.bar then
+				Refill(m.bar, cooling and duration)
+			end
+			if m.ready then
+				m.ready:SetShown(not cooling)
+			end
 		end
 		return
 	end
@@ -786,6 +794,9 @@ function Medals.Refresh(m, event)
 			if icon then
 				icon:SetDesaturated(cooling)
 			end
+			if m.ready then
+				m.ready:SetShown(not cooling)
+			end
 			if m.bar then
 				local util = C_DurationUtil
 				if cooling and not m.span and util and type(util.CreateDuration) == "function" then
@@ -814,11 +825,11 @@ function Medals.Refresh(m, event)
 		end
 	end
 	if lit ~= m.usable then
-		if lit then
+		if lit and m.lit.icon then
 			m.lit.icon:SetTexture(api.GetSpellTexture and api.GetSpellTexture(lit) or spec.texture)
-			if not m.usable then
-				Medals.Fire(m)
-			end
+		end
+		if lit and not m.usable then
+			Medals.Fire(m)
 		end
 		m.lit:SetShown(lit ~= nil)
 		m.usable = lit
