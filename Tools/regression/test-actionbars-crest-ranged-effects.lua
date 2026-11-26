@@ -66,6 +66,19 @@ local function Art(region)
 	return ((region._barTexture or region)._state.Texture or {})[1]
 end
 
+-- Drawn(frame, file, add) -> the frame's own region drawing that file, additive or solid.
+local function Drawn(frame, file, add)
+	for _, region in ipairs(frame._regions) do
+		local state = region._state or {}
+		if state.Texture and tostring(state.Texture[1]):find(file, 1, true) and ((state.BlendMode or {})[1] == "ADD") == add then return region end
+	end
+end
+
+-- Same(what, { r, g, b }, er, eg, eb): the expected colour last.
+local function Same(what, rgb, er, eg, eb)
+	assert(math.abs(rgb[1] - er) < 1e-4 and math.abs(rgb[2] - eg) < 1e-4 and math.abs(rgb[3] - eb) < 1e-4, what .. ": " .. table.concat(rgb, ", "))
+end
+
 -- Kinds(piece, field) -> how many different arts its lights draw in that field.
 local function Kinds(p, field)
 	local seen, n = {}, 0
@@ -113,7 +126,43 @@ do
 	assert(Shown(lit, lit.flare.play) and Shown(lit, lit.loop), "the fuse's mark ignites and its head flickers as the engine's animations")
 	local r, g, b = lit.mark:GetVertexColor()
 	assert(r + g + b < 2.6, "the serpent keeps its colour rather than burning white")
-	assert(#lit._regions + #lit.head._regions == 0 and #lit.head._kids[1]._regions == 2, "the head is the flame and the mark alone, no glow or flare of its own")
+	local burn, seat = lit.head._kids[1], lit.head._kids[2]
+	assert(#lit._regions + #lit.head._regions == 0 and #burn._regions == 1 and #burn._kids == 0, "the head's flicker holds the flame alone")
+	-- A Sting's mark cannot be read at 16 units over the ring's runes, so it draws at 24 units,
+	-- moved 14 units in from the fuse onto a dark shade, steady while the flame flickers; at that size the gold rule applies.
+	local whole = lit.mark:GetParent()
+	local body = Drawn(whole, "Serpent.png", false)
+	assert(body.units == 24 and select(4, seat:GetPoint(1)) == -14 and whole:GetParent() == seat, "Serpent Sting's mark is 24 units, 14 in from the fuse's head")
+	Same("its body is gold, coinGold f0c75e", { body:GetVertexColor() }, 0xf0 / 255, 0xc7 / 255, 0x5e / 255)
+	Same("its halo is the Sting's colour, schoolNature 6fdc5a", { Drawn(whole, "Glow.png", true):GetVertexColor() }, 0x6f / 255, 0xdc / 255, 0x5a / 255)
+	assert(#seat._regions == 2 and Drawn(seat, "Glow.png", false) and not Drawn(seat, "Glow.png", true), "it sits on a soft dark shade, never a socket")
+	assert(lit.mark:GetAlpha() == 0.15 and lit.flare.play:GetParent() == whole, "the lit pass is a sheen and the ignition grows the whole mark")
+	Same("Wyvern Sting's halo is schoolFire ff8a3d, apart from Black Arrow's violet", { Drawn(sting.lits[4].mark:GetParent(), "Glow.png", true):GetVertexColor() }, 0xff / 255, 0x8a / 255, 0x3d / 255)
+	Same("Black Arrow's halo is schoolShadow 9d7bff", { Drawn(sting.lits[6].mark:GetParent(), "Glow.png", true):GetVertexColor() }, 0x9d / 255, 0x7b / 255, 0xff / 255)
+	assert(aspect.rest:GetAlpha() == 0.85, "an unlit forged Aspect rests at 0.85 so its outline shows on the ring")
+	-- The unlit mark never hides, so a lit Aspect other than the Hawk blacks it out; the backing must hold still while the figure breathes and blooms.
+	local function Backing(slot)
+		for _, kid in ipairs(slot._kids) do
+			local t = Drawn(kid, "Hawk.png", false)
+			if t and t:GetVertexColor() == 0 then return t, kid end
+		end
+	end
+	local monkey = aspect.lits[2]
+	local cover, steady = Backing(monkey)
+	local figure = monkey.art:GetParent()
+	assert(cover and cover.units == 35, "a lit Monkey blacks out the unlit hawk behind it at its 35 units (the 28-unit perch at the look's 1.25)")
+	Same("the backing is black", { cover:GetVertexColor() }, 0, 0, 0)
+	assert(select(4, cover:GetVertexColor()) == 1 and cover:GetAlpha() == 1 and steady:GetAlpha() == 1, "and opaque")
+	assert(steady:GetParent() == monkey and steady ~= figure and steady ~= figure:GetParent(), "it sits on the aura slot itself, outside the breathing light and the blooming figure")
+	assert(not Backing(aspect.lits[1]) and not Drawn(aspect.lits[1].art:GetParent(), "Monkey.png", false), "the lit Hawk covers the unlit hawk itself and draws no backing")
+	-- The captain's answer on the plan: a lit mark is a gold body with the spell's colour as a halo behind it (24 units and above).
+	Slots.Set(env, "player", { { id = 415423, start = 0 } })
+	local viper = aspect.lits[7]
+	local cast = viper.art:GetParent()
+	Same("Aspect of the Viper's body is gold, coinGold f0c75e", { Drawn(cast, "Viper.png", false):GetVertexColor() }, 0xf0 / 255, 0xc7 / 255, 0x5e / 255)
+	Same("its halo is the spell's colour, magic 5aa9ff", { Drawn(cast, "Glow.png", true):GetVertexColor() }, 0x5a / 255, 0xa9 / 255, 0xff / 255)
+	assert(viper:IsShown() and viper.art:GetAlpha() == 0.15 and viper.flare.play:GetParent() == cast, "the lit pass is a sheen over the body and the landing grows the whole mark")
+	Slots.Set(env, "player", nil)
 	assert(lit._pandemicAnimations[1] == lit.flicker and not lit.flicker:IsPlaying(), "the ending blink waits for the pandemic window")
 	Pandemic(env, "target", serpent)
 	assert(lit.flicker:IsPlaying(), "inside the pandemic window the fuse blinks")
@@ -149,6 +198,8 @@ do
 	local counter = shot.shots[shot.spec.shots[19306]]
 	assert(counter:IsShown() and not multi:IsShown() and Art(counter._regions[2]):find("Counter"), "Counterattack after a parry crosses two crimson blades over the emblem")
 	assert(shot.flare == counter and counter.play:IsPlaying() and #AB.W.Calls(counter.play, "Play") == 1, "the parry's opening double-flashes even with Multi-Shot already up")
+	local bite = shot.shots[shot.spec.shots[1495]]
+	assert(Drawn(counter, "Counter.png", false).units == 36 and Drawn(bite, "Mongoose.png", false).units == 36, "the forged shots' solid bodies are 36 units, 0.45 of the 80-unit emblem, so its painting shows round them")
 	local writes = #AB.W.Calls(counter, "Show") + #AB.W.Calls(counter, "Hide") + #AB.W.Calls(multi, "Show") + #AB.W.Calls(multi, "Hide")
 	for _ = 1, 50 do
 		env.FireEvent("SPELL_UPDATE_USABLE")
@@ -171,6 +222,12 @@ do
 		"a strike on cooldown runs an unseen timer, no ring round the emblem")
 	raptor.timer:GetScript("OnCooldownDone")(raptor.timer)
 	assert(raptor.ready:IsShown() and raptor.flare.play:IsPlaying(), "and flashes the moment it is ready")
+	-- The approved plan for the crest marks puts the flash under the forged rule: the flash is all a strike shows on the crest.
+	Same("Raptor Strike's flash is the gold talon, coinGold f0c75e", { Drawn(raptor.flare, "Raptor.png", false):GetVertexColor() }, 0xf0 / 255, 0xc7 / 255, 0x5e / 255)
+	Same("haloed in its colour, gilt d3b574", { Drawn(raptor.flare, "Glow.png", true):GetVertexColor() }, 0xd3 / 255, 0xb5 / 255, 0x74 / 255)
+	assert(math.abs(Drawn(raptor.flare, "Raptor.png", false).units - 41.4) < 1e-6, "at 41.4 units (the 36-unit flash at the orb look's 1.15), so the painted emblem shows round it")
+	assert(#arcane.flare._regions == 1 and arcane.flare._regions[1]._state.BlendMode[1] == "ADD", "Arcane Shot's flat orb still flashes as one additive texture")
+	Same("in white, not its spell's colour", { arcane.flare._regions[1]:GetVertexColor() }, 1, 1, 1)
 	Clean(env, K)
 end
 
@@ -210,6 +267,28 @@ do
 	local blinking = 0
 	for _, each in ipairs(fire.lits) do blinking = blinking + (each.flicker and each.flicker:IsPlaying() and 1 or 0) end
 	assert(blinking == 5, "the five embers blink as Fire Vulnerability runs out (" .. blinking .. ")")
+	Clean(env, K)
+end
+
+-- A forged cooldown sigil must read on its medal's face: a white solid body, never the medal's colour, under the lit pass at 0.6.
+do
+	local env, K, ns = New("HUNTER", { known = { 3045 } })
+	local volley = Piece(ns, "crestCooldowns").sigils[1]
+	Same("Rapid Fire's forged sigil has a white body", { Drawn(volley, "Volley.png", false):GetVertexColor() }, 1, 1, 1)
+	assert(Drawn(volley, "Volley.png", true):GetAlpha() == 0.6, "its lit pass stays at 0.6")
+	Clean(env, K)
+end
+
+-- The approved plan keeps the forged rule behind a per-texture flag: a class still on flat art draws as before.
+do
+	local env, K, ns = New("MAGE", { known = { 118, 12042 } })
+	Slots.Set(env, "target", { { id = 118, harmful = true, start = 0, duration = 50 } })
+	local lit = Piece(ns, "crestYourSpell", 3).lit
+	local burn = lit.mark:GetParent()
+	assert(lit:IsShown() and burn == lit.head._kids[1] and #burn._regions == 2 and #burn._kids == 0, "Polymorph's flat mark is one additive texture beside the flame, no body and no layer of its own")
+	assert(lit.mark:GetAlpha() == 1 and lit.mark._state.BlendMode[1] == "ADD" and lit.flare.play:GetParent() == lit.mark, "it keeps its full light and its own ignition")
+	local arcane = Piece(ns, "crestCooldowns").sigils[1]
+	assert(Drawn(arcane, "Arcane.png", true):GetAlpha() == 1 and not Drawn(arcane, "Arcane.png", false), "a flat cooldown sigil is its one additive texture at full light, with no solid body")
 	Clean(env, K)
 end
 

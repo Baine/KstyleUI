@@ -76,11 +76,11 @@ def blade(p, x0, y0, x1, y1):
     p.line((gx + nx * 0.09, gy + ny * 0.09), (gx - nx * 0.09, gy - ny * 0.09))
 
 
-def arrow(p, x0, y0, x1, y1, head=0.12):
-    p.line((x0, y0), (x1, y1))
+def arrow(p, x0, y0, x1, y1, head=0.12, width=WIDTH):
+    p.line((x0, y0), (x1, y1), width=width)
     a = math.atan2(y1 - y0, x1 - x0)
     for side in (-1, 1):
-        p.line((x1, y1), (x1 - head * math.cos(a + side * 0.55), y1 - head * math.sin(a + side * 0.55)))
+        p.line((x1, y1), (x1 - head * math.cos(a + side * 0.55), y1 - head * math.sin(a + side * 0.55)), width=width)
 
 
 def eye(p, cx=0.5, cy=0.5, w=0.34, h=0.2):
@@ -290,22 +290,21 @@ def Ghost(p):
 # Hunter
 @glyph
 def Volley(p):
-    for x in (0.28, 0.5, 0.72):
-        arrow(p, x, 0.84, x, 0.18, 0.11)
+    for x, y, half in ((0.13, 0.44, 0.13), (0.5, 0.04, 0.25), (0.87, 0.44, 0.13)):
+        p.fill((x - half, y + half * 1.6), (x, y), (x + half, y + half * 1.6))
+        p.line((x, y + half), (x, 0.92), width=half * 0.6)
 
 
 @glyph
 def Deflect(p):
-    p.arc(0.94, 0.5, 0.34, 140, 220)
-    p.line((0.14, 0.26), (0.58, 0.5))
-    arrow(p, 0.58, 0.5, 0.2, 0.8, 0.13)
+    p.poly((0.19, 0.17), (0.81, 0.17), (0.81, 0.48), (0.5, 0.84), (0.19, 0.48), width=0.19)
 
 
 @glyph
 def Paw(p):
-    p.curve(lambda t: (0.5 + 0.18 * math.cos(t), 0.64 + 0.15 * math.sin(t)), 0, 2 * math.pi)
-    for x, y in ((0.26, 0.42), (0.4, 0.28), (0.6, 0.28), (0.74, 0.42)):
-        p.dot(x, y, 0.07)
+    p.dot(0.5, 0.68, 0.19)
+    for x, y in ((0.14, 0.44), (0.36, 0.2), (0.64, 0.2), (0.86, 0.44)):
+        p.dot(x, y, 0.1)
 
 
 # Mage
@@ -586,6 +585,10 @@ def sheet(images, path, cell=64):
     out.save(path)
 
 
+# Drawn here, written as Blender-forged metal by Tools/media/forge/marks.py.
+FORGED = {"Volley", "Deflect", "Paw"}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=OUT)
@@ -594,6 +597,8 @@ def main(argv=None):
     args.out.mkdir(parents=True, exist_ok=True)
     images = {}
     for name, draw in GLYPHS.items():
+        if name in FORGED:
+            continue
         images[name] = render(draw)
         path = args.out / f"{name}.png"
         Image.fromarray(np.clip(images[name] * 255 + 0.5, 0, 255).astype(np.uint8), "RGBA").save(path, optimize=True)
