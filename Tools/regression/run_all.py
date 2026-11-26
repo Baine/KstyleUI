@@ -87,6 +87,7 @@ class Children:
     def __init__(self):
         self.lock = threading.Lock()
         self.children = set()
+        self.peak = 0
         self.stopping = False
 
     def start(self, args, out, env=None):
@@ -95,6 +96,7 @@ class Children:
                 raise KeyboardInterrupt
             child = subprocess.Popen(args, stdout=out, stderr=subprocess.STDOUT, start_new_session=not runner_platform.WINDOWS, env=env)
             self.children.add(child)
+            self.peak = max(self.peak, len(self.children))
             return child
 
     def done(self, child):
@@ -168,12 +170,16 @@ class Slots:
             self.held.pop(token).close()
 
 
+def default_slots():
+    """A third of the CPUs, held to 6, or to 10 for the release gate (KSTYLEUI_RELEASE=1, which gate.sh release sets)."""
+    return max(2, min((os.cpu_count() or 2) // 3, 10 if os.environ.get("KSTYLEUI_RELEASE") == "1" else 6))
+
+
 def make_slots():
     """Return the Slots for this run, or (None, why) when the limit is off or its folder cannot be made."""
     if os.environ.get("CI") == "true" and os.environ.get("RUNNER_ENVIRONMENT") != "self-hosted":
         return None, "worker slots: off in CI"
-    cpus = os.cpu_count() or 2
-    count = int(os.environ.get("KSTYLEUI_SLOTS") or max(2, cpus // 3))
+    count = int(os.environ.get("KSTYLEUI_SLOTS") or default_slots())
     if count <= 0:
         return None, "worker slots: off (KSTYLEUI_SLOTS=0)"
     folder = Path(os.environ.get("KSTYLEUI_SLOT_DIR") or Path.home() / ".cache" / "kstyleui")
@@ -358,7 +364,7 @@ def plan_affected(tests, base):
         merge_base, changes = affected.changed_files(base)
     except (OSError, RuntimeError) as error:
         return tests, ["affected: cannot compare with {0} ({1}); running every test file".format(base, error)], None
-    chosen, notes = affected.select(tests, changes, affected.load_cache(affected.cache_path()))
+    chosen, notes = affected.select(tests, changes, affected.load_records())
     lines = ["affected: {0} files changed against {1} (merge base {2})".format(len(changes), base, merge_base[:9])]
     lines += ["affected: " + note for note in notes]
     run = [test for test in tests if test in chosen]
@@ -400,8 +406,7 @@ def jobs_for(args):
     explicit = os.environ.get("JOBS")
     if explicit:
         return int(explicit)
-    cpus = os.cpu_count() or 2
-    return max(2, cpus // 3) if args.affected else cpus
+    return default_slots() if args.affected or os.environ.get("KSTYLEUI_RELEASE") == "1" else os.cpu_count() or 2
 
 
 def main(argv):
@@ -470,7 +475,7 @@ def main(argv):
     order = sorted(tests, key=lambda test: -expected[test])
 
     start = time.monotonic()
-    records = {}
+    records, hashes = {}, {}
     with tempfile.TemporaryDirectory() as logs:
         progress_lock = threading.Lock()
         completed = 0
@@ -517,6 +522,11 @@ def main(argv):
                         records[path] = dict(affected.record_from_trace(trace.read(), os.getcwd()), sha=affected.fingerprint(path))
                 except OSError:
                     pass
+                else:
+                    try:
+                        records[path]["seen"] = affected.seen(records[path], memo=hashes)
+                    except (OSError, RuntimeError):
+                        pass
             for line in lines:
                 print(line)
             if result["ok"] and not any(line.startswith("FAIL ") for line in lines):
@@ -540,7 +550,7 @@ def main(argv):
 
     if records:
         try:
-            affected.save_cache(affected.cache_path(), records)
+            affected.save_records(records)
         except OSError as error:
             print("affected: could not save what the tests load to {0}: {1}".format(affected.cache_path(), error))
 
@@ -560,6 +570,7 @@ def main(argv):
                 fmt(result["load"]), Path(path).stem))
     total = sum(result["seconds"] for result in results.values())
     print("total {0:.1f} s of test time in {1:.1f} s, {2} at a time".format(total, wall, jobs))
+    print("peak: at most {0} test processes alive at once".format(CHILDREN.peak))
     loads = [result["load"] for result in results.values() if result["load"] is not None]
     seen = "machine load {0} at the start, {1} at the end, {2} at most when a test started".format(
         fmt(start_load), fmt(load_now()), fmt(max(loads, default=start_load)))

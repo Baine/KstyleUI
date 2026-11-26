@@ -59,6 +59,16 @@ class PortableRunnerTest(unittest.TestCase):
         self.assertEqual(self.runner.shard(tests, 1, 2, weights), ["a", "d"])
         self.assertEqual(self.runner.shard(tests, 2, 2, weights), ["b", "c"])
 
+    def test_worker_slots_stop_at_six_and_only_the_release_gate_gets_ten(self):
+        # Intent: the approved faster-gate plan. Forcing a busy pull request run (KSTYLEUI_FULL=1) must not widen it.
+        for cpus, environment, expected in ((32, {}, 6), (32, {"KSTYLEUI_FULL": "1"}, 6), (32, {"KSTYLEUI_RELEASE": "1"}, 10),
+                                            (12, {"KSTYLEUI_RELEASE": "1"}, 4), (2, {}, 2)):
+            with self.subTest(cpus=cpus, environment=environment), mock.patch.dict(os.environ, environment, clear=True),                     mock.patch.object(self.runner.os, "cpu_count", return_value=cpus):
+                self.assertEqual(self.runner.default_slots(), expected)
+                self.assertEqual(self.runner.jobs_for(SimpleNamespace(margins=False, affected=None)),
+                                 expected if environment.get("KSTYLEUI_RELEASE") else cpus,
+                                 "the release gate's own pool keeps its ceiling where the slot locks are off")
+
     def test_python_picker_exports_the_selected_executable_without_a_cr(self):
         env = dict(os.environ, KSTYLEUI_PYTHON=sys.executable, RUNNER_SCRIPT=(REGRESSION / "run-all.sh").as_posix())
         result = subprocess.run([BASH, "-c", 'source "$RUNNER_SCRIPT"; pick_python || exit; printf "%s" "$KSTYLEUI_PYTHON"'],
@@ -395,6 +405,7 @@ class RunAllTest(unittest.TestCase):
         result = self.run_all(JOBS="2")
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertTrue(result.stdout.rstrip().endswith("passed 2, failed 0"))
+        self.assertIn("\npeak: at most 2 test processes alive at once\n", result.stdout)
 
     def test_reports_failures_in_file_order(self):
         for name in ("test-c.lua", "test-a.lua", "test-b.lua"):
@@ -610,6 +621,7 @@ finally:
         self.assertEqual(self.overlaps(), 2)
         self.assertIn("worker slots: 2 for every run on this machine", result.stdout)
         self.assertRegex(result.stdout, r"\ntotal [\d.]+ s of test time in [\d.]+ s, 2 at a time\n")
+        self.assertIn("\npeak: at most 2 test processes alive at once\n", result.stdout, "six workers asked, two slots")
 
     def test_two_runs_share_the_slots(self):
         self.timed_tests(4)

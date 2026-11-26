@@ -1,5 +1,7 @@
 """Tests for Tools/regression/affected.py and run-all.sh --affected: picking the Lua tests a change can reach."""
 
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -8,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REGRESSION = Path(__file__).resolve().parents[1] / "regression"
 sys.path.insert(0, str(REGRESSION))
@@ -21,8 +24,11 @@ GIT_ENV = {
 }
 
 
-def record(files=(), listings=(), names=(), sha=""):
-    return {"files": sorted(files), "listings": sorted(listings), "names": sorted(names), "sha": sha}
+def record(files=(), listings=(), names=(), sha="", idle=(), seen=None):
+    made = {"files": sorted(files), "idle": sorted(idle), "listings": sorted(listings), "names": sorted(names), "sha": sha}
+    if seen is not None:
+        made["seen"] = seen
+    return made
 
 
 def lua():
@@ -41,6 +47,13 @@ class RecordFromTraceTest(unittest.TestCase):
             ])
             result = affected.record_from_trace(text, root)
         self.assertEqual(result["files"], ["Core/Init.lua", "Core/Scale.lua"])
+
+    def test_a_language_file_run_with_no_game_language_is_idle_unless_the_test_also_reads_it(self):
+        # Intent: the approved faster-gate plan, a language file change runs only the tests it can reach.
+        text = "\n".join(["s Core/Locales/deDE.lua", "s Core/Locales/frFR.lua", "f Core/Locales/frFR.lua", "f Core/Init.lua"])
+        result = affected.record_from_trace(text, "/work/repo")
+        self.assertEqual(result["idle"], ["Core/Locales/deDE.lua"])
+        self.assertEqual(result["files"], ["Core/Init.lua", "Core/Locales/frFR.lua"])
 
     def test_a_listing_records_its_folder_and_glob(self):
         text = "\n".join([
@@ -124,6 +137,17 @@ class SelectTest(unittest.TestCase):
         chosen, _ = affected.select(many, {"KstyleUI_X/X.lua": "M"}, few, ())
         self.assertEqual(len(chosen), 3, "a file few tests load selects only those tests")
 
+    def test_a_language_file_selects_its_readers_and_not_the_tests_where_it_stayed_idle(self):
+        # Intent: the approved faster-gate plan; before it, a language file every test loads ran every test.
+        many = ["Tools/regression/test-{0}.lua".format(i) for i in range(20)]
+        cache = {test: record(["Core/Locales/deDE.lua"] if i < 2 else ["Core/Init.lua"], idle=[] if i < 2 else ["Core/Locales/deDE.lua"])
+                 for i, test in enumerate(many)}
+        chosen, notes = affected.select(many, {"Core/Locales/deDE.lua": "M"}, cache, ())
+        self.assertEqual(sorted(chosen), many[:2])
+        self.assertEqual(notes, [])
+        chosen, _ = affected.select(many, {"Core/Locales/deDE.lua": "D"}, cache, ())
+        self.assertEqual(len(chosen), 20, "load_files.lua fails on a language file that is gone, so its deletion reaches every loader")
+
     def test_a_few_readers_of_a_small_suite_do_not_count_as_shared(self):
         cache = self.cache()
         chosen, _ = self.choose({"Core/Init.lua": "M"}, cache)
@@ -199,6 +223,55 @@ class CacheTest(unittest.TestCase):
         self.path.write_text("two")
         self.assertNotEqual(first, affected.fingerprint(self.path))
         self.assertEqual(affected.fingerprint(self.path.parent / "missing"), "")
+
+    def test_each_working_copy_keeps_its_own_records_and_a_new_one_starts_from_the_shared_copy(self):
+        # Intent: the approved faster-gate plan, another working copy's run must not replace this one's records.
+        # resolve(): git names the macOS temp folder by its real /private/var path.
+        root = Path(self._tmp.name).resolve()
+        one, two = root / "one", root / "two"
+        environment = {key: value for key, value in os.environ.items() if key != "KSTYLEUI_DEPS_CACHE"}
+        environment.update(GIT_ENV, XDG_CACHE_HOME=str(root / "cache"))
+        with mock.patch.dict(os.environ, environment, clear=True):
+            affected.git("init", "-q", str(one))
+            affected.git("commit", "-q", "--allow-empty", "-m", "base", cwd=one)
+            affected.git("worktree", "add", "-q", str(two), cwd=one)
+            self.assertEqual(affected.cache_path(one), one / ".git" / "kstyleui-regression-deps.json")
+            self.assertEqual(affected.cache_path(two), one / ".git" / "worktrees" / "two" / "kstyleui-regression-deps.json")
+            for folder in (one, two):
+                (folder / "x").write_text("same in both")
+                (folder / "y").write_text("made in " + folder.name)
+                (folder / "z").write_text("z")
+            (one / "kind").mkdir()
+            (two / "more").write_text("only in two")
+            affected.git("add", "more", cwd=two)
+
+            def made(**parts):
+                return record(seen=affected.seen(record(**parts), one), **parts)
+
+            affected.save_records({"a": made(files=["x"]), "b": made(files=["y"]), "c": record(["x"]),
+                                   "d": made(files=["x"], listings=["m*"]), "e": made(files=["x"], names=["m*"]),
+                                   "f": made(files=["x"], listings=["z*"], names=["*.lua"]), "g": made(listings=["sub/*"]),
+                                   "h": made(listings=["kind"])}, one)
+            (two / "sub").mkdir()
+            (two / "sub" / "missing").write_text("a file named like the word for no folder")
+            (two / "kind").write_text("a file where the record saw a folder")
+            self.assertEqual(sorted(affected.load_records(two)), ["a", "f"],
+                             "a new working copy takes only the shared records whose files, listings and tracked names it holds")
+            affected.save_records({"a": record(["z"], seen=affected.seen(record(["z"]), two)), "f": record(["z"])}, two)
+            self.assertEqual(affected.load_records(one)["a"]["files"], ["x"], "the other working copy's run left these records alone")
+            self.assertEqual({name: entry["files"] for name, entry in affected.load_records(two).items()}, {"a": ["z"], "f": ["z"]})
+
+    def test_a_folder_that_cannot_be_read_is_not_a_missing_folder(self):
+        # Intent: the approved faster-gate plan, a shared record is reused only where the working copy provably matches.
+        listed = record(listings=["gone/*"])
+        missing = affected.seen(listed, self._tmp.name)
+        with mock.patch.object(affected.os, "scandir", side_effect=PermissionError("denied")):
+            with self.assertRaises(PermissionError):
+                affected.seen(listed, self._tmp.name)
+            with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": self._tmp.name, "KSTYLEUI_DEPS_CACHE": ""}), \
+                    mock.patch.object(affected, "cache_path", return_value=self.path):
+                affected.save_cache(affected.shared_path(), {"a": dict(listed, seen=missing)})
+                self.assertEqual(affected.load_records(self._tmp.name), {}, "an unread folder matches no record")
 
     def test_the_path_follows_the_environment(self):
         old = os.environ.get("KSTYLEUI_DEPS_CACHE")
@@ -291,7 +364,7 @@ class RunAllAffectedTest(GitRepoCase):
         super().setUp()
         regression = self.repo / "Tools" / "regression"
         regression.mkdir(parents=True)
-        for name in ("run-all.sh", "run_all.py", "runner_platform.py", "affected.py", "trace.lua", "fs.lua"):
+        for name in ("run-all.sh", "run_all.py", "runner_platform.py", "affected.py", "trace.lua", "fs.lua", "load_files.lua"):
             shutil.copy(REGRESSION / name, regression / name)
         self.commit({
             "Mod/a.lua": "return 1\n",
@@ -341,6 +414,20 @@ class RunAllAffectedTest(GitRepoCase):
         self.assertIn("Mod/a.lua changed", result.stdout)
         self.assertTrue(result.stdout.rstrip().endswith("(affected mode: 2 of 4 test files ran; the other 2 did not; bash scripts/gate.sh release runs them all)"))
 
+    def test_a_language_file_change_runs_the_test_that_sets_a_language_and_not_the_one_that_does_not(self):
+        # Intent: the approved faster-gate plan. A language file returns on its first line where GetLocale is unset.
+        language = 'if not GetLocale or GetLocale() ~= "deDE" then\n\treturn\nend\nlocal _, ns = ...\nns.German = true\n'
+        load = 'local Load = dofile("Tools/regression/load_files.lua")\nlocal env = Load({ "Core/Locales/deDE.lua" }, setmetatable({ %s }, { __index = _G }))\n'
+        self.commit({
+            "Core/Locales/deDE.lua": language,
+            "Tools/regression/test-english.lua": load % "" + "assert(not env._addons.KstyleUI.German)\n",
+            "Tools/regression/test-german.lua": load % 'GetLocale = function() return "deDE" end' + "assert(env._addons.KstyleUI.German)\n",
+        }, "language file")
+        first = self.affected()
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.write({"Core/Locales/deDE.lua": language + "ns.More = true\n"})
+        self.assertEqual(self.ran(self.affected()), ["test-german"])
+
     def test_a_new_file_in_a_listed_folder_selects_the_test_that_lists_it(self):
         self.affected()
         self.write({"Mod/new.lua": "return 3\n"})
@@ -352,6 +439,32 @@ class RunAllAffectedTest(GitRepoCase):
         result = self.affected()
         self.assertEqual(self.ran(result), ["test-a", "test-b", "test-c", "test-d"])
         self.assertIn("is shared by the whole suite", result.stdout)
+
+    def test_a_run_that_cannot_look_at_the_working_copy_afterwards_still_finishes_and_seeds_no_other_working_copy(self):
+        # Intent: the approved faster-gate plan, records are a speed-up and never decide whether the gate passes.
+        import run_all
+        shared = tempfile.TemporaryDirectory()
+        self.addCleanup(shared.cleanup)
+        environment = {key: value for key, value in os.environ.items() if key not in ("CI", "KSTYLEUI_DEPS_CACHE")}
+        environment.update(GIT_ENV, LUA=lua(), JOBS="2", KSTYLEUI_SLOTS="0", XDG_CACHE_HOME=shared.name)
+        output, start = io.StringIO(), os.getcwd()
+        with mock.patch.dict(os.environ, environment, clear=True):
+            os.chdir(self.repo)
+            try:
+                with mock.patch.object(affected, "seen", side_effect=RuntimeError("git stopped")), \
+                        contextlib.redirect_stdout(output):
+                    status = run_all.main(["--affected", "HEAD"])
+            finally:
+                os.chdir(start)
+            self.assertEqual(status, 0, output.getvalue())
+            self.assertIn("passed 4, failed 0 (affected mode: 4 of 4", output.getvalue())
+            saved = affected.load_cache(affected.shared_path())
+            self.assertEqual(sorted(saved), ["Tools/regression/test-{0}.lua".format(letter) for letter in "abcd"])
+            self.assertEqual([name for name, entry in saved.items() if "seen" in entry], [])
+            other = Path(shared.name) / "other"
+            self.git("worktree", "add", "-q", str(other))
+            self.assertEqual(affected.load_records(other), {}, "a record with no look at its working copy seeds none")
+            self.assertEqual(sorted(affected.load_records(self.repo)), sorted(saved), "the run's own working copy keeps them")
 
     def test_a_failing_test_is_reported_and_not_recorded_as_known(self):
         self.write({"Tools/regression/test-e.lua": 'dofile("Mod/a.lua")\nerror("boom")\n'})
@@ -368,9 +481,9 @@ class RunAllAffectedTest(GitRepoCase):
         self.assertIn("cannot compare with origin/nowhere", result.stdout)
         self.assertIn("passed 4, failed 0", result.stdout)
 
-    def test_the_jobs_default_to_a_third_of_the_cpus_so_two_runs_fit_one_machine(self):
+    def test_the_jobs_default_to_a_third_of_the_cpus_and_never_more_than_six(self):
         result = self.affected(jobs="")
-        expected = max(2, (os.cpu_count() or 2) // 3)
+        expected = max(2, min((os.cpu_count() or 2) // 3, 6))
         self.assertRegex(result.stdout, r"in [\d.]+ s, {0} at a time".format(expected))
 
 

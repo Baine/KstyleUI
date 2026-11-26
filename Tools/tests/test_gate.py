@@ -122,9 +122,9 @@ class GateTest(unittest.TestCase):
             "Tools/locale/strings.py check",
             "scripts/check-suppressions.sh",
             "Tools/regression/run-all.sh",
-            "unittest discover -s Tools/tests",
         ):
             self.assertIn(needle, text)
+        self.assertRegex(text, r'(?m)^\s*step "python suite" .*"\$\{py\[@\]\}" Tools/tests/run_suite\.py "\$base"$')
         self.assertIn("env -u SKIP pre-commit run --all-files", text)
         self.assertNotIn('step "luacheck"', text)
         self.assertNotIn('step "check_toc"', text)
@@ -148,7 +148,7 @@ class GateTest(unittest.TestCase):
             (root / "scripts/gate.sh").write_bytes(GATE.read_bytes())
             log = 'echo "$(basename "$0") $*" >> gate.log\n[ "${GATE_FAIL:-}" != "$(basename "$0")" ]\n'
             version = '[ "$1" = --version ] && { echo "%s"; exit 0; }\n'
-            suite = 'case "$*" in *unittest*) echo "py-stub $* wording=${PR_TITLE-unset},${PR_BODY-unset},${PR_LABELS-unset}" >> gate.log; exit 0 ;; esac\n'
+            suite = 'case "$*" in *run_suite.py*) echo "py-stub $* wording=${PR_TITLE-unset},${PR_BODY-unset},${PR_LABELS-unset}${KSTYLEUI_RELEASE:+ release}" >> gate.log; exit 0 ;; esac\n'
             stubs = {"bin/luacheck": version % versions[0], "bin/pre-commit": version % versions[1] + log, "bin/py-stub": suite + log,
                      "scripts/check-suppressions.sh": log, "Tools/hooks/check-pr.sh": 'echo "$(basename "$0") $* title=$PR_TITLE" >> gate.log\n'}
             for name, body in stubs.items():
@@ -157,7 +157,7 @@ class GateTest(unittest.TestCase):
             (root / "Tools/regression/run-all.sh").write_text(
                 'pick_python() { py=(py-stub); }\n'
                 'if [ "${BASH_SOURCE[0]}" = "$0" ]; then\n'
-                '\techo "run-all.sh [$*] KSTYLEUI_FULL=${KSTYLEUI_FULL:-unset} LUA=${LUA-unset}" >> gate.log\n'
+                '\techo "run-all.sh [$*] KSTYLEUI_FULL=${KSTYLEUI_FULL:-unset} KSTYLEUI_RELEASE=${KSTYLEUI_RELEASE:-unset} LUA=${LUA-unset}" >> gate.log\n'
                 'fi\n', encoding="utf-8", newline="\n")
             (root / ".gitignore").write_text("gate.log\n", encoding="utf-8", newline="\n")
             git(root, "init", "-q")
@@ -167,7 +167,7 @@ class GateTest(unittest.TestCase):
                 (root / "scripts/check-suppressions.sh").write_text("#!/usr/bin/env bash\n" + log + "# edited\n", encoding="utf-8", newline="\n")
             commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
             env = {key: value for key, value in os.environ.items()
-                   if key not in ("KSTYLEUI_FULL", "GATE_BASE", "PR_TITLE", "PR_BODY", "PR_BODY_FILE", "PR_LABELS")}
+                   if key not in ("KSTYLEUI_FULL", "KSTYLEUI_RELEASE", "GATE_BASE", "PR_TITLE", "PR_BODY", "PR_BODY_FILE", "PR_LABELS")}
             env.update(PATH=str(root / "bin") + os.pathsep + env["PATH"], LUA="luajit", GATE_FAIL=failing, **pr)
             result = subprocess.run(["bash", "scripts/gate.sh", *args], cwd=root, env=env, capture_output=True, text=True)
             logged = root / "gate.log"
@@ -185,8 +185,8 @@ class GateTest(unittest.TestCase):
             "pre-commit run --all-files --show-diff-on-failure",
             "py-stub Tools/locale/strings.py check",
             "check-suppressions.sh origin/staging",
-            "run-all.sh [] KSTYLEUI_FULL=1 LUA=unset",
-            "py-stub -m unittest discover -s Tools/tests wording=unset,unset,unset",
+            "run-all.sh [] KSTYLEUI_FULL=1 KSTYLEUI_RELEASE=1 LUA=unset",
+            "py-stub Tools/tests/run_suite.py origin/staging wording=unset,unset,unset release",
         ])
         self.assertEqual((code, lines[-1]), (0, "gate passed (release) at <commit>"))
 
@@ -223,7 +223,7 @@ class GateTest(unittest.TestCase):
     def test_the_python_suite_does_not_inherit_the_pull_request_wording(self):
         # The suite's own check-pr.sh tests set their own wording; the gate's must not leak into them.
         _, _, commands = self.run_gate("python", PR_TITLE="Not a title", PR_BODY="body", PR_LABELS="release")
-        self.assertEqual(commands, ["py-stub -m unittest discover -s Tools/tests wording=unset,unset,unset"])
+        self.assertEqual(commands, ["py-stub Tools/tests/run_suite.py origin/staging wording=unset,unset,unset"])
 
 
 if __name__ == "__main__":
