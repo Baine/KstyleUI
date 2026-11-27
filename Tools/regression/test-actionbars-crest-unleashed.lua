@@ -35,7 +35,7 @@ local function Clean(env, K, what)
 	assert(#env._errors == 0 and K.ErrorCount() == 0, what .. ": " .. AB.Errors(env))
 end
 
--- The game stops a slot's shown groups when it hides it; the stub's Hide runs no script, so the tests run it by hand, with the scripts read before combat forbids the slot.
+-- The stub's aura slots do not play or stop the shown groups the engine drives with the slot's aura, so the tests run those scripts by hand.
 local function Hidden(set)
 	local watch = assert(set.watch, "the hot line's slot tells the crest through its shown group when the game hides it")
 	set.hidden = assert(watch._scripts.OnStop, "its stop telling the crest the slot is lit no more")
