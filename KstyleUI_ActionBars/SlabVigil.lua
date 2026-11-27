@@ -24,7 +24,6 @@ local OILS, OILED = { 20744, 20745, 20746, 20747, 20748, 20749, 20750 }, {}
 for _, id in ipairs({ 2623, 2624, 2625, 2626, 2627, 2628, 2629, 2685 }) do OILED[id] = true end
 local FLAMES, PER, CHARGES, DIM = { 315, 225, 135, 45 }, 5, 20, 0.5
 local ORBIT, FLAME, STUD, WELL, PIN, PERCH, FOOT = 54, 26, 12, 10, 4, 30, 22
-local FLICKER = { { 1, 0.45, 0.06 }, { 0.45, 0.9, 0.05 }, { 0.9, 0.35, 0.07 }, { 0.35, 1, 0.08 } }
 
 local CAST = {}
 for _, id in ipairs(INNER_FIRE) do CAST[id] = true end
@@ -55,7 +54,7 @@ local function Fire(parent, spec, level, form)
 		r.lits[#r.lits + 1] = lit
 		r.ring[k] = seat
 	end
-	r.flicker = Medals.Steps(r.ring[1], FLICKER, true)
+	r.flicker = ns.Slab.Flicker(r.ring[1])
 	state.fire = r
 	return r
 end
@@ -71,8 +70,10 @@ local function Ring(piece, anchor, form, _, n)
 	end
 	for _, seat in ipairs(piece.ring) do
 		local a = rad(seat.angle)
-		seat:ClearAllPoints()
-		seat:SetPoint("CENTER", anchor, "CENTER", Widgets.Snap(anchor, ORBIT * sin(a)), Widgets.Snap(anchor, ORBIT * cos(a)))
+		for _, each in ipairs({ seat, seat.twin }) do
+			each:ClearAllPoints()
+			each:SetPoint("CENTER", anchor, "CENTER", Widgets.Snap(anchor, ORBIT * sin(a)), Widgets.Snap(anchor, ORBIT * cos(a)))
+		end
 	end
 	return n
 end
@@ -132,13 +133,7 @@ local function Motion()
 	local resting = ns.Slab.Resting()
 	local still, last = resting or not Effects.Allows("ambient"), n ~= nil and n > 0 and n <= PER
 	Medals.Still(r, still, last and DIM or 1)
-	if last and not resting and Effects.Allows("pulse") then
-		if not r.flicker:IsPlaying() then
-			r.flicker:Play()
-		end
-	else
-		r.flicker:Stop()
-	end
+	ns.Slab.Warn(r.flicker, last and not resting)
 end
 
 local function Read()

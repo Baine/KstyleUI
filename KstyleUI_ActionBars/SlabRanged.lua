@@ -21,8 +21,6 @@ local STEEL, LIGHT, GROOVE, PERCH, GEM, SHOT, FLASH, HEAD = 0.45, 0.8, 0.35, 28,
 local MOODS, NONE = { "hostile", "neutral", "friendly" }, {}
 local BREATH = { { 0.6, 1, 0.9 }, { 1, 0.6, 0.9 } }
 local GLEAM = { { 0.8, 1, 0.7 }, { 1, 0.8, 0.7 } }
-local BURN = { { 1, 0.7, 0.1 }, { 0.7, 1, 0.08 }, { 1, 0.8, 0.12 }, { 0.8, 1, 0.1 } }
-local BLINK = { { 1, 0.2, 0.1 }, { 0.2, 1, 0.1 } }
 local MARK, MARK_IN, MARK_BACK, REST_FORGED, SHOT_FLAT, SHOT_FORGED = 24, 14, 2.6, 0.85, 0.82, 0.45
 local OPENING = { { 0, 1, 0.06 }, { 1, 0.3, 0.1 }, { 0.3, 1, 0.08 }, { 1, 0.3, 0.1 }, { 0.3, 1, 0.1 } }
 local GROW = { { 0, 1, 0.6 } }
@@ -93,10 +91,12 @@ local function Lift(color, white)
 end
 
 local function Bloom(texture, from)
-	local group = texture:CreateAnimationGroup()
-	ns.Slab.Grow(group, from, 1, 0.5, 1, "OUT")
+	local group, still = texture:CreateAnimationGroup(), texture:CreateAnimationGroup()
+	ns.Slab.Grow(group, from, 1, 0.5)
 	ns.Slab.Fade(group, 0, 1, 0.15)
-	return { play = group }
+	ns.Slab.Grow(still, from, from, 0.5)
+	group.held, still.held = 0.5, 0.5
+	return { play = group, still = still }
 end
 
 local function Light(p, each, level, look)
@@ -188,8 +188,9 @@ local function Spot(p, parent, art, color, size, x, y, layer)
 end
 
 local function Flare(p, lit, level, size, x, y)
-	Medals.Flare(p, lit, level, "glow", size)
-	p.parts[#p.parts]:SetPoint("CENTER", p, "CENTER", x, y)
+	for _, flare in ipairs(Medals.Flare(p, lit, level, "glow", size)) do
+		flare:SetPoint("CENTER", p, "CENTER", x, y)
+	end
 end
 
 local function Groove(p, band, k)
@@ -204,7 +205,7 @@ local function Band(p, each, level, band, horizontal, white, k)
 	lit.art:SetStatusBarColor(Lift(each.color, white))
 	lit.art:SetPoint("CENTER", p, "CENTER", 0, 0)
 	Timed(lit, lit.art)
-	lit.flicker = Medals.Steps(blink, BLINK, true)
+	lit.flicker = ns.Slab.Flicker(blink)
 	return lit, light
 end
 
@@ -236,7 +237,7 @@ local function Fuse(parent, spec, level, form)
 		end
 		local mark, cast = Medals.Mark(p, seat, each.glyph, size, each.color, r, g, b, level + (seat == burn and 3 or 4))
 		lit.mark = mark
-		lit.loop = Medals.Steps(burn, BURN, true)
+		lit.loop = ns.Slab.Flicker(burn)
 		lit.flare = Bloom(cast, 1.5)
 	end
 	return p
@@ -275,7 +276,7 @@ local function Mark(parent, spec, level, form)
 	lit.art = p.add(Medals.Texture(light, "ARTWORK", 0, band[1], "white", band[4] * k, "ADD"))
 	lit.art:SetVertexColor(Lift(spec.color, 0.2))
 	lit.loops = { Medals.Steps(light, GLEAM, true), Bloom(lit.art, 1.25).play }
-	lit.flicker = Medals.Steps(blink, BLINK, true)
+	lit.flicker = ns.Slab.Flicker(blink)
 	return p
 end
 
@@ -291,13 +292,13 @@ local function Stacks(parent, spec, level, form)
 		pcall(slot.EnableMouse, slot, false)
 		slot:SetAllPoints(p)
 		slot:SetFrameLevel(level + 3)
-		slot.container = lit.container
+		slot.container, slot.hold = lit.container, lit.hold
 		local ember = p.add(Bar(slot, spec.ember, "white", "ADD"), 16 * h)
 		ember:SetStatusBarColor(Lift(spec.color))
 		local x, y = Polar(67, 166 + (n - 1) * 10)
 		ember:SetPoint("CENTER", p, "CENTER", (x - band[2]) * k, (y - band[3]) * k)
 		slot:SetApplicationBar(ember, { minApplications = n - 1, maxApplications = n })
-		slot.flicker = Medals.Steps(ember, BLINK, true)
+		slot.flicker = ns.Slab.Flicker(ember)
 		p.lits[#p.lits + 1] = slot
 	end
 	Flare(p, lit, level + 6, 40 * k, -3 * k, 0)
@@ -409,7 +410,7 @@ local function Pet(parent, spec, level, form)
 		for i = 0, 5 do
 			Spot(m, light, "trackerFlame", spec.color, 24 * k, Off(69, 162 + 8 * i)):SetDesaturated(true)
 		end
-		lit.loop = Medals.Steps(light, BURN, true)
+		lit.loop = ns.Slab.Flicker(light)
 		for n, demon in ipairs(spec.demons) do
 			local slot = lit.container:AddAuraSlot("fel" .. n, "HELPFUL", { candidateFilters = { includeSpellIDs = { [demon[3]] = true } } })
 			pcall(slot.EnableMouse, slot, false)
@@ -475,7 +476,8 @@ local function Ward(parent, spec, level, form)
 end
 
 local function Gust(r, spec, level)
-	local feed = Medals.Feed(r, spec, level + 3)
+	local feed = Medals.Feed(r.lit.hold or r, spec, level + 3)
+	feed.hold = r.lit.hold
 	local gust = Medals.Layer(feed, level + 3)
 	r.gust = Medals.Texture(gust, "OVERLAY", 0, "trackerGust", spec.color, nil, "ADD")
 	local loop = gust:CreateAnimationGroup()
@@ -509,8 +511,10 @@ end
 local function Ring(piece, anchor, form, _, n)
 	if form == "crest" then
 		Medals.Place(piece, anchor, 0, 0)
-		if piece.gust and not Medals.Restricted() then
-			Widgets.Size(piece.gust, INNER, 28)
+		for _, face in ipairs(Medals.Restricted() and {} or { piece, unpack(piece.twins or {}) }) do
+			if face.gust then
+				Widgets.Size(face.gust, INNER, 28)
+			end
 		end
 		return n
 	end
@@ -618,7 +622,7 @@ local function Spire(p, container, i, s, angle, level)
 		pcall(b.EnableMouse, b, false)
 		b:SetAllPoints(t.spire)
 		b:SetFrameLevel(level + sublevel)
-		b.container = container
+		b.container, b.hold = container, p.hold
 		local bar = t.spire.add(Bar(b, art .. angle, color, blend), size)
 		bar:SetPoint("CENTER", t.spire, "CENTER", 0, 0)
 		Timed(b, bar)
@@ -629,7 +633,7 @@ local function Spire(p, container, i, s, angle, level)
 	local lit = Slot("lit", "pipSpire", "white", nil, SPIRE, 2)
 	lit.spec = { feed = "aura", unit = "target", filter = "HARMFUL|PLAYER", spells = s.spells }
 	t.lit:SetStatusBarColor(Lift(s.color, 0.55))
-	lit.flicker = Medals.Steps(t.lit, BLINK, true)
+	lit.flicker = ns.Slab.Flicker(t.lit)
 	Slot("core", "pipSpireCore", s.color, "ADD", SPIRE, 3)
 	t.rune = lit:CreateTexture(nil, "OVERLAY")
 	t.rune:SetTexture((Tokens.Texture(s.glyph)))
@@ -650,7 +654,8 @@ local function Spires(parent, spec, level, form)
 	local p = CreateFrame("Frame", nil, parent)
 	p:SetFrameLevel(level)
 	p.spires, p.lits = {}, {}
-	p.container = CreateFrame("AuraContainer", nil, p, "CustomAuraContainerTemplate")
+	p.hold = Medals.Layer(p, level)
+	p.container = CreateFrame("AuraContainer", nil, p.hold, "CustomAuraContainerTemplate")
 	Widgets.KeepOut(p.container)
 	p.container:SetUnit("target")
 	for i, s in ipairs(spec.spires) do
@@ -662,7 +667,7 @@ end
 local function PlaceSpires(p, anchor, form, _, n)
 	local line = math.ceil(n / Medals.LINE) * Medals.LINE
 	local count = 0
-	for _, t in ipairs(p.spires) do
+	for k, t in ipairs(p.spires) do
 		local known = Medals.Known(t.def.spells) ~= nil
 		t.base:SetShown(known)
 		t.spire:SetShown(known)
@@ -673,8 +678,11 @@ local function PlaceSpires(p, anchor, form, _, n)
 			end
 			count = count + 1
 			local reach = BASE / 2 + LIFT + SPIRE / 2
-			Medals.Place(t.base, anchor, sx, sy)
-			Medals.Place(t.spire, anchor, sx + reach * cos(rad(t.angle)), sy + reach * sin(rad(t.angle)))
+			for _, face in ipairs({ p, unpack(p.twins or {}) }) do
+				local each = face.spires[k]
+				Medals.Place(each.base, anchor, sx, sy)
+				Medals.Place(each.spire, anchor, sx + reach * cos(rad(t.angle)), sy + reach * sin(rad(t.angle)))
+			end
 		end
 	end
 	return line + count
@@ -788,12 +796,17 @@ local function PaintWisps(w, moving)
 	w.count = n
 	w.number:SetShown(total > WISPS)
 	w.number:SetText(total)
+	local claimed = moving and n < was and Medals.Claim(function()
+		for _, s in ipairs(w.seats) do
+			s.flare.play:Stop()
+		end
+	end) ~= nil
 	for i, s in ipairs(w.seats) do
 		s.wisp:SetShown(i <= n)
 		s.come:Stop()
 		if moving and i > was and i <= n then
 			s.come:Play()
-		elseif moving and i <= was and i > n then
+		elseif claimed and i <= was and i > n then
 			s.flare.play:Stop()
 			s.flare.play:Play()
 		end

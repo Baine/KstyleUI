@@ -144,6 +144,7 @@ local function Fade(target, from, to, duration, order)
 	a:SetToAlpha(to)
 	a:SetDuration(duration)
 	a:SetOrder(order or 1)
+	a:SetSmoothing(ns.Slab.Ease(target.anim, from, to))
 	return a
 end
 
@@ -158,11 +159,7 @@ local function Spire(parent, e)
 	s.gate:SetAllPoints(s)
 	s.flicker = CreateFrame("Frame", nil, s.gate)
 	s.flicker:SetAllPoints(s)
-	Fade(s.flicker, 1, 0.4, 0.06)
-	Fade(s.flicker, 0.4, 1, 0.08, 2)
-	Fade(s.flicker, 1, 0.7, 0.05, 3)
-	Fade(s.flicker, 0.7, 1, 0.06, 4):SetEndDelay(0.16)
-	s.flicker.anim:SetLooping("REPEAT")
+	s.flicker.anim = ns.Slab.Flicker(s.flicker)
 	s.glow = Bar(s.flicker, color, "pipSpireGlow" .. angle, "ADD")
 	s.glow:SetPoint("CENTER", s, "CENTER", 0, 0)
 	s.lit = Bar(s.flicker, "white", "pipSpire" .. angle)
@@ -205,23 +202,23 @@ local function Skin(s, angle)
 end
 
 local function Flicker(s, slot, have, start, duration)
-	s.flicker.anim:Stop()
+	ns.Slab.Warn(s.flicker.anim, false)
 	if IsSecret(have) or IsSecret(start) or IsSecret(duration) or have ~= true or type(duration) ~= "number" or duration <= 0
-		or type(GetTime) ~= "function" or not Effects.Allows("pulse") then
+		or type(GetTime) ~= "function" or not Effects.Allows("flare") then
 		s.fifth = nil
 		return
 	end
 	local due = start + duration * (1 - FIFTH)
 	if due <= GetTime() then
 		s.fifth = nil
-		s.flicker.anim:Play()
+		ns.Slab.Warn(s.flicker.anim, true)
 	elseif s.fifth ~= due and C_Timer and C_Timer.After then
 		s.fifth = due
 		C_Timer.After(due - GetTime(), function()
 			if s.fifth ~= due then return end
 			s.fifth = nil
 			local up = GetTotemInfo(slot)
-			if state.listening and not IsSecret(up) and up == true then s.flicker.anim:Play() end
+			if state.listening and not IsSecret(up) and up == true then ns.Slab.Warn(s.flicker.anim, true) end
 		end)
 	end
 end
@@ -235,6 +232,17 @@ local function Rest(b)
 		b.icon:SetAlphaFromBoolean(have, 1, IDLE_ICON)
 	end
 end
+
+local function Hush()
+	for _, b in ipairs(state.sockets) do
+		local s = b.spire
+		s.flare.anim:Stop()
+		s.flare:Hide()
+		s.ignite:Stop()
+	end
+end
+
+local Claimed = Medals.Ensemble(Hush)
 
 local function PaintSpire(b, moving)
 	local s, slot = b.spire, b.element.slot
@@ -257,7 +265,7 @@ local function PaintSpire(b, moving)
 	s.flare.anim:Stop()
 	s.flare:Hide()
 	s.ignite:Stop()
-	if moving and (IsSecret(have) or have == true) then
+	if moving and (IsSecret(have) or have == true) and Claimed() then
 		Gate(s.flareGate, have)
 		s.flare:Show()
 		s.flare.anim:Play()

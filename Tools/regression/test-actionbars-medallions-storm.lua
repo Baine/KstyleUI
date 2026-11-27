@@ -92,9 +92,18 @@ local function Playing(ns)
 		n = n + (s.orbit:IsPlaying() and 1 or 0) + (s.ignite.play:IsPlaying() and 1 or 0) + (s.strike.play:IsPlaying() and 1 or 0)
 	end
 	for _, loop in ipairs(state.loops) do
-		n = n + (loop.group:IsPlaying() and 1 or 0)
+		n = n + (loop.group:IsPlaying() and loop.button:GetEffectiveAlpha() > 0 and 1 or 0)
 	end
 	return n + (state.flicker:IsPlaying() and 1 or 0) + (state.blast.play:IsPlaying() and 1 or 0) + (state.crackle.play:IsPlaying() and 1 or 0)
+end
+
+-- The halo's clouds and each orb's spark exist twice, a moving copy the engine loops and a still one, each under a layer of the addon's own: "moving" or "still" names
+-- the copy on screen, so a motion level takes effect by lighting one layer and darkening the other, in combat too.
+local function Copy(ns)
+	local state, moving, still = ns.SlabStorm.state, 0, 0
+	for _, layer in ipairs(state.moving) do moving = moving + layer:GetAlpha() end
+	for _, layer in ipairs(state.still) do still = still + layer:GetAlpha() end
+	return moving == #state.moving and still == 0 and "moving" or still == #state.still and moving == 0 and "still" or "mixed"
 end
 
 local function Registered(ns)
@@ -132,7 +141,8 @@ do
 	local state = ns.SlabStorm.state
 	local seats = state.seats
 	assert(#seats == 3 and state.holder:IsShown() and state.listening, "a shaman who knows any rank gets three orbs over three studs")
-	assert(#state.containers == 5 and state.fed == true, "five aura containers, one for the halo, one per orb and one for Rising heat, all feeding")
+	assert(#state.containers == 12 and state.fed == true, "twelve aura containers: the halo's moving and still copies, an orb and a spark's two copies on each seat, and Rising heat, all feeding")
+	assert(#state.moving == 4 and #state.still == 4, "the halo and each of the three sparks have a moving and a still copy")
 	for i, s in ipairs(seats) do
 		local options = s.orb:GetParent()._applicationBar[2]
 		assert(options.minApplications == i - 1 and options.maxApplications == i, "orb " .. i .. " fills from " .. (i - 1) .. " to " .. i .. " charges")
@@ -140,14 +150,18 @@ do
 	end
 	assert(Lights(env, ns) == 0 and state.count == 0, "no shield: no orb lights and Lua reads zero charges")
 	assert(not seats[1].orbit:IsPlaying() and not state.flicker:IsPlaying(), "no shield: nothing circles or flickers")
-	assert(Registered(ns) == #state.loops, "at Full the halo's and the orbs' loops are the engine's shown animations")
+	assert(Registered(ns) == #state.loops and Copy(ns) == "moving", "at Full the halo's and the orbs' loops are the engine's shown animations, on the copy that shows")
 
 	-- Cast: three orbs light from the aura's own count, the orbs ignite and start circling.
 	Shield(env, 3, RANK1)
 	Cast(env, RANK1)
 	assert(Lights(env, ns) == 3, "three charges light three orbs")
 	assert(Fired(state.blast) and Fired(seats[1].ignite) and Fired(seats[3].ignite), "a cast bursts the crest and ignites every orb")
-	assert(state.count == 3 and seats[1].orbit:IsPlaying() and seats[3].orbit:IsPlaying(), "the orbs circle at Full")
+	-- The crest plan's quiet-loops rule: while the crest rests the orbs stand still in their seats, and circle once it wakes.
+	assert(state.count == 3 and not seats[1].orbit:IsPlaying() and not seats[3].orbit:IsPlaying(), "the resting crest keeps its orbs still")
+	K.Options.Write("Medallions", "restingCrest", false)
+	env.RunTimers()
+	assert(seats[1].orbit:IsPlaying() and seats[3].orbit:IsPlaying(), "the orbs circle at Full once the crest is awake")
 	local halo = state.loops[1]
 	assert(halo.button:IsShown() and halo.group:IsPlaying(), "the halo shows and crackles while the shield is up")
 	Finish(state.blast)
@@ -204,7 +218,7 @@ do
 
 	-- Calm: the orbs hold on their studs and the loops leave the engine; the flares stay.
 	K.Options.Write("Medallions", "motion", "calm")
-	assert(not seats[1].orbit:IsPlaying() and Registered(ns) == 0, "Calm holds the orbs on their studs and drops the loops")
+	assert(not seats[1].orbit:IsPlaying() and Copy(ns) == "still", "Calm holds the orbs on their studs and shows the still halo and sparks")
 	assert(Lights(env, ns) == 3, "Calm keeps every charge lit")
 	Shield(env, 2)
 	Cast(env, STRIKE7)
@@ -222,7 +236,7 @@ do
 	assert(not seats[3].strike:IsShown() and not seats[1].ignite:IsShown(), "Off hides the flourishes")
 	assert(Lights(env, ns) == 2 and seats[3].orb._ease == nil, "Off shows the charges at once")
 	K.Options.Write("Medallions", "motion", "full")
-	assert(Registered(ns) == #state.loops and seats[1].orbit:IsPlaying(), "Full gives the loops back to the engine and circles again")
+	assert(Registered(ns) == #state.loops and Copy(ns) == "moving" and seats[1].orbit:IsPlaying(), "Full shows the looping copy and circles again")
 
 	-- The switch hides everything and drops every event; turning it back on reads the shield again.
 	K.Options.Write("ActionBars", "crestStorm", false)
@@ -259,10 +273,13 @@ do
 	env.FireEvent("SPELLS_CHANGED")
 	assert(state.count == 1 and state.halo:GetAlpha() == 0.5, "the last charge dims the halo in combat")
 	K.Options.Write("Medallions", "motion", "calm")
-	assert(Registered(ns) == #state.loops, "a motion change waits while auras are secret")
+	assert(Registered(ns) == #state.loops and Copy(ns) == "still", "a motion level chosen while auras are secret shows at once: the looping copy is dark, though the engine keeps its loops")
+	K.Options.Write("Medallions", "motion", "full")
+	assert(Copy(ns) == "moving", "and Full, chosen in combat, shows it again")
+	K.Options.Write("Medallions", "motion", "calm")
 	env._aurasSecret = false
 	env.SetCombat(false)
-	assert(Registered(ns) == 0 and state.halo:GetAlpha() == 0.5, "and lands when combat ends")
+	assert(Copy(ns) == "still" and state.halo:GetAlpha() == 0.5, "and it stays when combat ends")
 	assert(#env._errors == 0 and K.ErrorCount() == 0, AB.Errors(env))
 
 	local fresh, FK, fns = New("SHAMAN", { [RANK7] = true })
@@ -427,6 +444,37 @@ for _, size in ipairs(SIZES) do
 		local reach = math.sqrt(dx * dx + dy * dy) + (r - l) / 2
 		assert(reach <= ring * 0.9, at .. "orb " .. i .. " stays inside the rune ring, clear of the shoulder medals: " .. reach .. " of " .. ring)
 	end
+	assert(#env._errors == 0 and K.ErrorCount() == 0, AB.Errors(env))
+end
+
+-- The crest plan's flare rule (the review of part 1): a cast's burst and three ignitions are one ensemble in the crest's one flare place; a flare from elsewhere stops all of
+-- them, and the next cast takes the place back.
+do
+	local env, K, ns = New("SHAMAN", { [RANK1] = true })
+	local state, Effects = ns.SlabStorm.state, K.Effects
+	Shield(env, 3, RANK1)
+	Cast(env, RANK1)
+	assert(Fired(state.blast) and Fired(state.seats[1].ignite) and Fired(state.seats[3].ignite), "the cast's ensemble plays whole")
+	assert(Effects.Holder("crestFlare") == Effects.PRIORITY.ready, "and holds the crest's flare place")
+	local other = ns.SlabMedals.Arbitrate(ns.Slab.hub:CreateAnimationGroup())
+	other:Play()
+	assert(other:IsPlaying() and not Fired(state.blast) and not state.seats[1].ignite:IsShown() and not Fired(state.seats[3].ignite), "a crest flare from elsewhere stops the whole ensemble")
+	env.GetTime = function() return env._now end
+	env._now = 200
+	Cast(env, RANK1)
+	assert(Fired(state.blast) and Fired(state.seats[2].ignite) and not other:IsPlaying(), "and the next cast stops that one in turn")
+	-- A charge spent is a different trigger, not part of the cast's ensemble, even in the frame of the cast with the clock not moved: its strike takes the place and the
+	-- cast's flourish stops.
+	Shield(env, 2, RANK1)
+	assert(Fired(state.seats[3].strike) and not Fired(state.blast) and not Fired(state.seats[1].ignite) and not Fired(state.seats[2].ignite), "a strike in the cast's own frame cancels the cast's burst and ignitions")
+	env.RunTimers()
+	assert(Effects.Holder("crestFlare") == nil, "the place frees itself")
+	-- A change of charges that plays nothing claims nothing.
+	Cast(env, RANK1)
+	env.RunTimers()
+	env._now = 210
+	Shield(env, 1, RANK1)
+	assert(Effects.Holder("crestFlare") == nil and not Fired(state.seats[3].strike) and not Fired(state.crackle), "two charges gone at once play nothing and take no place")
 	assert(#env._errors == 0 and K.ErrorCount() == 0, AB.Errors(env))
 end
 

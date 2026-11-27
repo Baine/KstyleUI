@@ -43,6 +43,7 @@ local function Fade(target, from, to, duration, order)
 	a:SetToAlpha(to)
 	a:SetDuration(duration)
 	a:SetOrder(order or 1)
+	a:SetSmoothing(ns.Slab.Ease(group, from, to))
 	target.fade = group
 	group:SetScript("OnFinished", function()
 		target:Hide()
@@ -59,8 +60,8 @@ end
 
 local function Pop(sigil)
 	local group = sigil:CreateAnimationGroup()
-	Grow(group, LIFT_FROM, LIFT_PEAK, LIFT_UP, 1, "OUT")
-	Grow(group, 1, 1 / LIFT_PEAK, SETTLE, 2, "IN_OUT")
+	Grow(group, LIFT_FROM, LIFT_PEAK, LIFT_UP, 1)
+	Grow(group, 1, 1 / LIFT_PEAK, SETTLE, 2)
 	return group
 end
 
@@ -99,7 +100,7 @@ local function Build(hub, slot)
 	timer:SetDrawBling(false)
 	timer:SetHideCountdownNumbers(true)
 	p.timer = add(timer)
-	add(Medals.Ember(holder, nil, timer, "Band", base + 1, SEAT))
+	timer.ember = add(Medals.Ember(holder, nil, timer, "Band", base + 1, SEAT))
 	local cover = Layer(holder, base + 2)
 	add(Texture(cover, "ARTWORK", 0, "ring", "gilt", SEAT))
 	p.pop = Layer(holder, base + 3)
@@ -111,6 +112,7 @@ local function Build(hub, slot)
 	rise:SetToAlpha(1)
 	rise:SetDuration(LIFT_IN)
 	rise:SetOrder(1)
+	rise:SetSmoothing(Tokens.Smoothing.enter)
 	Move(p.lift, dx, dy, LIFT_UP, 1, "OUT")
 	Move(p.lift, -dx, -dy, SETTLE, 2, "IN_OUT")
 	p.pops = {}
@@ -133,6 +135,7 @@ local function Build(hub, slot)
 	ebb:SetToAlpha(0)
 	ebb:SetDuration(RIPPLE)
 	ebb:SetOrder(1)
+	ebb:SetSmoothing(Tokens.Smoothing.exit)
 	p.ripple.wave = wave
 	p.flareGate = Layer(p.pop, base + 4)
 	p.flare = Layer(p.flareGate, base + 4)
@@ -166,7 +169,7 @@ local function BuildPair(hub)
 		a:SetFromAlpha(0)
 		a:SetToAlpha(1)
 		a:SetDuration(PAIR_FADE)
-		a:SetSmoothing("OUT")
+		a:SetSmoothing(Tokens.Smoothing.enter)
 		pair.dawn[i] = group
 	end
 	pair.breath = pair.glow:CreateAnimationGroup()
@@ -175,7 +178,7 @@ local function BuildPair(hub)
 	a:SetFromAlpha(1)
 	a:SetToAlpha(ns.SlabEffects.CAP_LOW)
 	a:SetDuration(ns.SlabEffects.CAP_BREATH)
-	a:SetSmoothing("IN_OUT")
+	a:SetSmoothing(Tokens.Smoothing.loop)
 	state.pair = pair
 	return pair
 end
@@ -217,6 +220,31 @@ local function Gate(frame, value)
 	end
 end
 
+local function Still(p)
+	for _, group in ipairs(p.pops) do
+		group:Stop()
+	end
+	p.lift:Stop()
+	p.sink:Stop()
+	p.ripple.wave:Stop()
+	p.ripple:SetAlpha(0)
+end
+
+local function Hush()
+	for _, p in ipairs(state.perches) do
+		for _, frame in ipairs({ p.was, p.flare }) do
+			frame.fade:Stop()
+			frame:Hide()
+		end
+		Still(p)
+	end
+	for _, group in ipairs(state.pair and state.pair.dawn or {}) do
+		group:Stop()
+	end
+end
+
+local Claimed = Medals.Ensemble(Hush, LIFT_UP + SETTLE + 0.05)
+
 local function Pair(moving)
 	local pair, first, second = state.pair, state.perches[1], state.perches[2]
 	local plain = not (IsSecret(first.have) or IsSecret(second.have))
@@ -226,7 +254,7 @@ local function Pair(moving)
 	pair:SetShown(pair:IsShown() and pair.inner:IsShown())
 	pair.both = plain and pair:IsShown()
 	for _, group in ipairs(pair.dawn) do
-		if moving and pair.both and not was then
+		if moving and pair.both and not was and Claimed() then
 			group:Stop()
 			group:Play()
 		elseif not (moving and pair.both) then
@@ -252,16 +280,6 @@ local function Steel(p, have)
 	end
 end
 
-local function Still(p)
-	for _, group in ipairs(p.pops) do
-		group:Stop()
-	end
-	p.lift:Stop()
-	p.sink:Stop()
-	p.ripple.wave:Stop()
-	p.ripple:SetAlpha(0)
-end
-
 local function Lift(p, have, was)
 	Still(p)
 	if was then
@@ -283,9 +301,13 @@ local function Paint(p, moving, full)
 	Gate(p.lit, have)
 	Steel(p, have)
 	local object = GetTotemDuration and GetTotemDuration(p.slot)
+	local known = not (IsSecret(have) or IsSecret(start) or IsSecret(duration)) and have == true
 	if object then
 		p.timer:SetCooldownFromDurationObject(object)
-	elseif not (IsSecret(have) or IsSecret(start) or IsSecret(duration)) and have == true then
+		if known then
+			p.timer.ember.Light(start, duration)
+		end
+	elseif known then
 		p.timer:SetCooldown(start, duration)
 	else
 		p.timer:Clear()
@@ -298,13 +320,15 @@ local function Paint(p, moving, full)
 	if moving then
 		Gate(p.flareGate, have)
 		Gate(p.wasGate, p.have)
+		local any
 		for _, frame in ipairs({ p.was, p.flare }) do
-			if frame:GetParent():IsShown() then
+			if frame:GetParent():IsShown() and Claimed() then
+				any = true
 				frame:Show()
 				frame.fade:Play()
 			end
 		end
-		if full then
+		if full and any then
 			Lift(p, have, p.was:IsShown())
 		end
 	end

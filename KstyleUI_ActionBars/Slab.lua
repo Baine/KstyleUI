@@ -198,9 +198,48 @@ local function Fade(g, from, to, duration, order, delay)
 	if delay then
 		a:SetStartDelay(delay)
 	end
+	a:SetSmoothing(Slab.Ease(g, from, to))
 	return a
 end
 Slab.Fade, Slab.Group = Fade, Group
+
+function Slab.Ease(g, from, to)
+	local loop = g:GetLooping()
+	local s = Tokens.Smoothing
+	return (loop == "REPEAT" or loop == "BOUNCE") and s.loop or to < from and s.exit or s.enter
+end
+
+function Slab.Flicker(target, alpha)
+	local f, g = Tokens.Flicker, Group(target, "REPEAT")
+	alpha = alpha or 1
+	Fade(g, alpha, alpha * f.low, f.step, 1)
+	Fade(g, alpha * f.low, alpha, f.step, 2)
+	g.target, g.low = target, alpha * f.low
+	return g
+end
+
+function Slab.Still(g)
+	if not g.still then
+		g.still = Group(g.target, "REPEAT")
+		Fade(g.still, g.low, g.low, 1)
+	end
+	return g.still
+end
+
+function Slab.Warn(g, on)
+	local move = on and K.Effects.Allows("pulse")
+	local hold = on and not move and K.Effects.Allows("flare")
+	if not move then
+		g:Stop()
+	elseif not g:IsPlaying() then
+		g:Play()
+	end
+	if not hold then
+		if g.still then g.still:Stop() end
+	elseif not Slab.Still(g):IsPlaying() then
+		g.still:Play()
+	end
+end
 
 local function Grow(g, from, to, duration, order, smoothing)
 	local s = g:CreateAnimation("Scale")
@@ -208,9 +247,7 @@ local function Grow(g, from, to, duration, order, smoothing)
 	s:SetScaleTo(to, to)
 	s:SetDuration(duration)
 	s:SetOrder(order or 1)
-	if smoothing then
-		s:SetSmoothing(smoothing)
-	end
+	s:SetSmoothing(smoothing or Slab.Ease(g, from, to))
 	return s
 end
 Slab.Grow = Grow

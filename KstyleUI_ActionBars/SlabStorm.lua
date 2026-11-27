@@ -1,4 +1,4 @@
--- SlabStorm.lua: the Medallions crest's storm orbs for shamans who know Lightning Shield: three ball-lightning orbs circle the emblem inside the rune ring, one per charge, over three steel studs, with a storm halo while the shield is up; Blizzard's aura slots light each orb and the halo from the aura's own charge count (an application bar per orb), so Lua never reads or compares a secret, and Lua's own count, read from the aura while it is readable and counted from the player's own casts while it is secret, only chooses where the flourishes play: a cast ignites the orbs, each spent charge throws a bolt from its orb, one charge left dims the halo and flickers the last orb, and the halo crackles out when the shield ends.
+-- SlabStorm.lua: the Medallions crest's storm orbs for shamans who know Lightning Shield: three ball-lightning orbs circle the emblem inside the rune ring, one per charge, over three steel studs (standing still in their seats while the crest rests), with a storm halo while the shield is up; Blizzard's aura slots light each orb and the halo from the aura's own charge count (an application bar per orb), so Lua never reads or compares a secret, and Lua's own count, read from the aura while it is readable and counted from the player's own casts while it is secret, only chooses where the flourishes play: a cast ignites the orbs, each spent charge throws a bolt from its orb, one charge left dims the halo and flickers the last orb, and the halo crackles out when the shield ends.
 local _, ns = ...
 
 local K = KstyleUI
@@ -21,8 +21,7 @@ local IGNITE = { { 0, 1, 0.05 }, { 1, 0, 0.4 } }
 local STRIKE = { { 0, 1, 0.03 }, { 1, 0, 0.32 } }
 local BLAST = { { 0, 0.4, 0.05 }, { 0.4, 0, 0.5 } }
 local CRACKLE = { { 0.8, 0.2, 0.12 }, { 0.2, 0.7, 0.1 }, { 0.7, 0, 0.5 } }
-local FLICKER = { { 1, 0.45, 0.06 }, { 0.45, 0.9, 0.05 }, { 0.9, 0.35, 0.07 }, { 0.35, 1, 0.08 } }
-local SHIMMER = { { 1, 0.15, 0.13 }, { 0.15, 1, 0.13 } }
+local CLAIM = 0.72
 
 local CAST = {}
 for _, id in ipairs(RANKS) do CAST[id] = true end
@@ -50,6 +49,17 @@ local function Layer(parent, level, steps)
 	frame:Hide()
 	state.flares[#state.flares + 1] = frame
 	return frame
+end
+
+local function Hush()
+	for _, f in ipairs(state.flares) do
+		f.play:Stop()
+		f:Hide()
+	end
+end
+
+local function Claim()
+	return Medals.Claim(Hush, CLAIM) ~= nil
 end
 
 local function Fire(frame)
@@ -106,10 +116,12 @@ local function Build(hub)
 	ring:SetPoint("CENTER", hub, "CENTER", 0, 0)
 	ring.units = HALO
 	state.halo = Medals.Layer(holder, base)
-	local halo = Slot(Container(state.halo), "halo", ring)
+	state.moving, state.still = { Medals.Layer(state.halo, base) }, { Medals.Layer(state.halo, base) }
+	local halo, calm = Slot(Container(state.moving[1]), "halo", ring), Slot(Container(state.still[1]), "halo", ring)
 	state.crackle = Layer(ring, base + 1, CRACKLE)
 	for k, cell in ipairs(CLOUDS) do
 		state.loops[#state.loops + 1] = { button = halo, group = Medals.Flip(Medals.Cloud(halo, "medAmbientShaman", cell), "medAmbientShaman", 1 + (k - 1) / 3) }
+		Medals.Cloud(calm, "medAmbientShaman", cell)
 		Medals.Cloud(state.crackle, "medAmbientShaman", cell)
 	end
 	state.blast = Layer(holder, base + 6, BLAST)
@@ -125,10 +137,14 @@ local function Build(hub)
 		seat:SetAllPoints(pin)
 		seat:SetFrameLevel(base + 3)
 		local s = { frame = seat, pin = pin, orbit = Orbit(seat, angle) }
-		local container = Container(seat)
-		s.orb = select(2, Slot(container, "orb", seat, i - 1, "stormOrb", true))
-		local spark, bar = Slot(container, "spark", seat, i - 1, "stormOrbSpark", false)
-		state.loops[#state.loops + 1] = { button = spark, group = Steps(bar, SHIMMER, true) }
+		s.orb = select(2, Slot(Container(seat), "orb", seat, i - 1, "stormOrb", true))
+		for n, set in ipairs({ state.moving, state.still }) do
+			set[#set + 1] = Medals.Layer(seat, base + 4)
+			local spark, bar = Slot(Container(set[#set]), "spark", seat, i - 1, "stormOrbSpark", false)
+			if n == 1 then
+				state.loops[#state.loops + 1] = { button = spark, group = ns.Slab.Flicker(bar) }
+			end
+		end
 		s.ignite = Layer(seat, base + 6, IGNITE)
 		add(Medals.Texture(s.ignite, "ARTWORK", 0, "glow", "jewelStormCore", FLARE, "ADD"))
 		s.strike = add(Layer(holder, base + 6, STRIKE))
@@ -137,8 +153,11 @@ local function Build(hub)
 		s.bolt = add(Medals.Texture(s.strike, "OVERLAY", 0, "stormBolt", "white", BOLT, "ADD"))
 		state.seats[i] = s
 	end
+	for _, loop in ipairs(state.loops) do
+		loop.button:AddAuraShownAnimation(loop.group)
+	end
 	ns.SlabHeat.Fed(Container(holder), "HELPFUL", SLOT, CHARGES, state.feeds)
-	state.flicker = Steps(state.seats[1].frame, FLICKER, true)
+	state.flicker = ns.Slab.Flicker(state.seats[1].frame)
 	state.holder = holder
 end
 
@@ -159,6 +178,13 @@ local function Place(hub)
 end
 
 local function Engine(on, loops, eased)
+	for _, layer in ipairs(state.moving) do
+		layer:SetAlpha(loops and 1 or 0)
+	end
+	for _, layer in ipairs(state.still) do
+		layer:SetAlpha(loops and 0 or 1)
+	end
+	state.looping = loops
 	if Restricted() then
 		return
 	end
@@ -171,17 +197,6 @@ local function Engine(on, loops, eased)
 			})
 		end
 		state.eased = eased
-	end
-	if state.looping ~= loops then
-		for _, loop in ipairs(state.loops) do
-			if loops then
-				loop.button:AddAuraShownAnimation(loop.group)
-			else
-				loop.button:RemoveAuraShownAnimation(loop.group)
-				loop.group:Stop()
-			end
-		end
-		state.looping, state.fed = loops, nil
 	end
 	if state.fed ~= on then
 		for _, container in ipairs(state.containers) do
@@ -196,21 +211,16 @@ end
 
 local function Motion()
 	local moving, last = Effects.Allows("ambient") and state.count ~= 0, state.count == 1
+	local turning = moving and not ns.Slab.Resting()
 	for _, s in ipairs(state.seats) do
-		if not moving then
+		if not turning then
 			s.orbit:Stop()
 		elseif not s.orbit:IsPlaying() then
 			s.orbit:Play()
 			state.orbitAt = GetTime and GetTime()
 		end
 	end
-	if moving and last then
-		if not state.flicker:IsPlaying() then
-			state.flicker:Play()
-		end
-	else
-		state.flicker:Stop()
-	end
+	ns.Slab.Warn(state.flicker, last)
 	state.halo:SetAlpha(last and DIM or 1)
 end
 
@@ -264,7 +274,7 @@ end
 
 local function Spend(n)
 	local was = state.count
-	if was and n < was and Effects.Allows("flare") then
+	if was and n < was and (was - n == 1 or n == 0) and Effects.Allows("flare") and Claim() then
 		if was - n == 1 then
 			Strike(was)
 		end
@@ -280,7 +290,7 @@ local function OnCast(_, _, _, spellID)
 		return
 	end
 	if CAST[spellID] then
-		if Effects.Allows("flare") then
+		if Effects.Allows("flare") and Claim() then
 			Fire(state.blast)
 			for _, s in ipairs(state.seats) do
 				Fire(s.ignite)
@@ -312,7 +322,7 @@ local function Stop()
 		for _, s in ipairs(state.seats) do
 			s.orbit:Stop()
 		end
-		state.flicker:Stop()
+		ns.Slab.Warn(state.flicker, false)
 		state.holder:Hide()
 		Engine(false, state.looping, state.eased)
 	end
@@ -350,10 +360,7 @@ function Storm.Update()
 	local flare = Effects.Allows("flare")
 	Engine(true, Effects.Allows("ambient"), flare)
 	if not flare then
-		for _, f in ipairs(state.flares) do
-			f.play:Stop()
-			f:Hide()
-		end
+		Hush()
 	end
 	state.count = Read() or state.count
 	Motion()
@@ -364,6 +371,10 @@ function Storm.Recheck()
 		Storm.Update()
 	end
 end
+
+Medals.OnRest(function()
+	if state.listening then Motion() end
+end)
 
 function Storm.SetEnabled(on)
 	state.enabled = on

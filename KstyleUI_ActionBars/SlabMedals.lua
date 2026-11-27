@@ -14,13 +14,14 @@ local RIM, INNER, SETTING, LIP, GEM, GLINT = 150, 112, 12, 10, 8, 2
 local COOLDOWN_RING, STACK, STACK_GAP, STACK_DROP, ROW_SIGIL, SIGIL, ABOVE = 118, 14, 4, 30, 12, 0.86, 20
 local SPARK, BLOOM, GLOW_LIT, FLARE_MAX = 0.3, 2.4, 0.75, 30
 local FORGED, HALO, HALO_LIT, SHEEN, SHEEN_SMALL = 24, 1.7, 0.7, 0.15, 0.6
-local FLASH, BREATH, FADE_IN = { { 0.75, 1, 0.05 }, { 1, 0.75, 0.4 } }, { { 0.75, 1, 0.8 }, { 1, 0.75, 0.8 } }, { { 0, 1, 0.12 } }
+local FLASH, BREATH, FADE_IN = { { 0, 0.25, 0.05 }, { 0.25, 0, 0.4 } }, { { 0.75, 1, 0.8 }, { 1, 0.75, 0.8 } }, { { 0, 1, 0.12 } }
 local SEATS = {
 	left = { -1, 75.9, 24.8 }, right = { 1, 75.9, 24.8 }, top = { 1, 96, 90 }, topGem = { 1, 60, 90 }, lowerLeft = { -1, 62, -35 }, lowerRight = { 1, 62, -35 },
 	leftHip = { 1, 76, 218 }, rightHip = { 1, 76, 322 }, footLeft = { 1, 67.5, 247 }, footRight = { 1, 67.5, 293 },
 }
 local PIP, PIP_ARC, GLOW, SPARK_LAP = 4, 22, 0.35, 1.6
 local FLARE = { { 0, 1, 0.05 }, { 1, 0, 0.4 } }
+local HELD = FLARE[1][3] + FLARE[2][3]
 local OWNER = "ActionBars.SlabMedals"
 local refreshed, rims, watchers, gates, breaths, NONE = {}, {}, {}, {}, {}, {}
 local REFRESH = { target = { "PLAYER_TARGET_CHANGED" }, pet = { "UNIT_PET", "player" }, focus = { "PLAYER_FOCUS_CHANGED" } }
@@ -103,12 +104,9 @@ function Medals.Layer(holder, level)
 end
 
 function Medals.Steps(target, steps, looping)
-	local group = target:CreateAnimationGroup()
+	local group = ns.Slab.Group(target, looping and "REPEAT")
 	for i, s in ipairs(steps) do
 		ns.Slab.Fade(group, s[1], s[2], s[3], i)
-	end
-	if looping then
-		group:SetLooping("REPEAT")
 	end
 	return group
 end
@@ -239,8 +237,8 @@ function Medals.Feed(parent, spec, level, share)
 	return button
 end
 
-local function Mirror(piece, lit, level)
-	local share = lit.share and lit.share.awake
+local function Mirror(piece, lit, level, key)
+	local share = key ~= false and lit.share and lit.share[key or "awake"]
 	local gate = share or Medals.Layer(piece, level)
 	gate.lit = Medals.Feed(gate, setmetatable({}, { __index = lit.spec }), level, share and share.lit)
 	lit.mirrors = lit.mirrors or {}
@@ -249,26 +247,166 @@ local function Mirror(piece, lit, level)
 end
 Medals.Mirror, Medals.Timer = Mirror, Timer
 
-function Medals.Flare(piece, lit, level, token, size, lua, color)
-	if lit.container and not lua then
-		lit.awake = lit.awake or Mirror(piece, lit, level)
-	end
-	local gate = not lua and lit.awake or Medals.Layer(lit.container and piece or lit, level)
-	local flare = Medals.Layer(gate.lit or gate, level)
-	gate:SetAlpha(ns.Slab.Resting() and 0 or 1)
-	gates[#gates + 1] = gate
-	lit.flareGate = gate
-	if color and select(4, Tokens.Texture(token)) then
-		Medals.Mark(piece, flare, token, size, color)
+function Medals.Gate(gate, alpha)
+	gate.base = alpha or gate.base
+	local face = gate.face
+	if (face or gate).hushed then
+		gate:SetAlpha(face and not gate.lit.full and 1 or 0)
 	else
-		piece.add(Medals.Texture(flare, "ARTWORK", 0, token, "white", size, "ADD"))
+		gate:SetAlpha(gate.base or 1)
 	end
-	flare:SetAlpha(0)
-	flare.play = Medals.Steps(flare, FLARE)
-	if gate.lit or not lit.container then
-		(gate.lit or lit).flare = flare
+end
+
+local function Hush(gate, mark, owner)
+	local hush = gate.face or gate
+	hush.hushed, hush.owner = mark, owner or hush.owner
+	for _, each in ipairs(hush.gates or { gate }) do
+		Medals.Gate(each)
 	end
-	piece.flare = piece.flare or flare
+end
+
+local function Now()
+	return type(GetTime) == "function" and GetTime() or 0
+end
+
+local function Dim(gate, seconds)
+	local mark = {}
+	Hush(gate, mark)
+	if C_Timer and C_Timer.After then
+		C_Timer.After(seconds, function()
+			if (gate.face or gate).hushed == mark then
+				Hush(gate)
+			end
+		end)
+	end
+end
+
+function Medals.Reveal(gate, alpha)
+	local left = alpha == 1 and (gate.base == 0 or not gate:IsVisible()) and gate.late and gate.late - Now() or 0
+	Medals.Gate(gate, alpha)
+	if left > 0 then
+		Dim(gate, left)
+	end
+end
+
+function Medals.Awake(piece, lit, level)
+	lit.awake = lit.awake or Mirror(piece, lit, level)
+	if lit.flareGate and not lit.awake.gated then
+		lit.awake.gated = true
+		Medals.Gate(lit.awake, ns.Slab.Resting() and 0 or 1)
+		gates[#gates + 1] = lit.awake
+	end
+	return lit.awake
+end
+
+function Medals.Flare(piece, lit, level, token, size, lua, color)
+	local fed, made = lit.container and not lua, {}
+	if fed and Medals.twin then
+		return made
+	end
+	for i = 1, fed and 2 or 1 do
+		local gate = fed and Mirror(piece, lit, level, false) or Medals.Layer(lit.container and piece or lit, level)
+		local flare = Medals.Layer(gate.lit or gate, level)
+		flare.gate = gate
+		Medals.Gate(gate, ns.Slab.Resting() and 0 or 1)
+		gates[#gates + 1] = gate
+		if color and select(4, Tokens.Texture(token)) then
+			made[i] = Medals.Mark(piece, flare, token, size, color)
+		else
+			made[i] = piece.add(Medals.Texture(flare, "ARTWORK", 0, token, "white", size, "ADD"))
+		end
+		flare:SetAlpha(0)
+		flare.play = Medals.Steps(flare, FLARE)
+		if fed then
+			gate.lit.alt = i
+		end
+		if i == 2 then
+			gate.lit.flare = flare
+			lit.flareGate.other = gate
+		else
+			lit.flareGate = gate
+			if lit.awake then
+				Medals.Awake(piece, lit, level)
+			end
+			if gate.lit or not lit.container then
+				(gate.lit or lit).flare = flare
+			end
+			piece.flare = piece.flare or flare
+		end
+	end
+	return made
+end
+
+local function Slotted(part, twin, keep)
+	while part and part ~= twin do
+		if keep[part] or part.container then
+			return true
+		end
+		part = part:GetParent()
+	end
+	return false
+end
+
+local function Bare(frame, twin, keep)
+	for _, region in ipairs({ frame:GetRegions() }) do
+		region:Hide()
+	end
+	for _, child in ipairs({ frame:GetChildren() }) do
+		if keep[child] then
+			Bare(child, twin, keep)
+		elseif not Slotted(child, twin, keep) then
+			child:Hide()
+		end
+	end
+end
+
+function Medals.Cued(piece)
+	for _, lit in ipairs(piece.lits or NONE) do
+		if lit.container and lit.hold and (lit.loop or lit.loops or lit.flicker or lit.flare and not lit.flare.gate) then
+			return true
+		end
+	end
+	return false
+end
+
+function Medals.Twins(piece, build)
+	local faces = { piece }
+	for i = 1, 2 do
+		Medals.twin = true
+		local twin = build()
+		Medals.twin = nil
+		if not twin or #twin.lits ~= #piece.lits then
+			for k = 2, #faces do
+				faces[k]:Hide()
+			end
+			return (twin and twin:Hide())
+		end
+		twin:ClearAllPoints()
+		twin:SetPoint("CENTER", piece, "CENTER", 0, 0)
+		local keep = {}
+		for _, lit in ipairs(twin.lits) do
+			local frame = lit.container and lit:GetParent()
+			while frame and frame ~= twin do
+				keep[frame] = true
+				frame = frame:GetParent()
+			end
+		end
+		Bare(twin, twin, keep)
+		faces[i + 1] = twin
+	end
+	piece.twins = { faces[2], faces[3] }
+	for n, lit in ipairs(piece.lits) do
+		if lit.hold and not lit.hold.face then
+			local face = { gates = {} }
+			for i, each in ipairs(faces) do
+				local hold = each.lits[n].hold
+				hold.face, hold.lit = face, each.lits[n]
+				face.gates[i] = hold
+			end
+			lit.hold.art = true
+			gates[#gates + 1] = lit.hold
+		end
+	end
 end
 
 function Medals.Piece(parent, level, units)
@@ -285,7 +423,9 @@ function Medals.Piece(parent, level, units)
 end
 
 local function Lit(piece, spec, level, share)
-	local lit = Medals.Feed(piece, spec, level, share)
+	local hold = spec.feed == "aura" and (share and share.hold or Medals.Layer(piece, level))
+	local lit = Medals.Feed(hold or piece, spec, level, share)
+	lit.hold = hold or nil
 	piece.lits[#piece.lits + 1] = lit
 	piece.lit = piece.lit or lit
 	return lit
@@ -409,7 +549,7 @@ function Medals.Figure(parent, spec, level)
 		elseif lit.container and not each.steady then
 			local timer = Enum and Enum.StatusBarTimerDirection
 			lit:SetDurationBar(bar, { direction = timer and timer.RemainingTime or 1 })
-			lit.flicker = Medals.Steps(bar, { { alpha, alpha * 0.6, 0.25 }, { alpha * 0.6, alpha, 0.25 } }, true)
+			lit.flicker = ns.Slab.Flicker(bar, alpha)
 		elseif each.feed == "cooldown" then
 			f.timer, f.bar = Timer(lit, level + 1, "dot", "black", 0), bar
 			f.timer:SetDrawSwipe(false)
@@ -465,7 +605,8 @@ function Medals.Rim(parent, spec, level)
 	return r
 end
 
-local function Sigil(r, container, key, family, color, size, bloom)
+local function Sigil(r, lit, key, family, color, size, bloom)
+	local container = lit.container
 	local ids = {}
 	for _, id in ipairs(family.spells) do
 		ids[id] = true
@@ -478,7 +619,30 @@ local function Sigil(r, container, key, family, color, size, bloom)
 	r.add(button, size)
 	local back = r.add(Medals.Texture(button, "BACKGROUND", 0, "glow", bloom or "black", size * (bloom and BLOOM or SHADE), bloom and "ADD"))
 	back:SetAlpha(bloom and GLOW_LIT or 0.7)
-	button.loop = bloom and Medals.Steps(back, FLASH)
+	if bloom then
+		if not lit.flash then
+			lit.flash = Mirror(r, lit, r:GetFrameLevel() + ABOVE, false)
+			lit.flash.moving = true
+			gates[#gates + 1] = lit.flash
+		end
+		local slot = lit.flash.lit.container:AddAuraSlot(key, "HELPFUL", options)
+		pcall(slot.EnableMouse, slot, false)
+		slot:SetPoint("CENTER", r, "CENTER", 0, 0)
+		slot:SetFrameLevel(button:GetFrameLevel())
+		r.add(slot, size)
+		local glow = r.add(Medals.Texture(slot, "BACKGROUND", 0, "glow", bloom, size * BLOOM, "ADD"))
+		glow:SetAlpha(0)
+		button.flash, button.flashed = Medals.Steps(glow, FLASH), slot
+		slot.container = lit.flash.lit.container
+		slot:AddAuraShownAnimation(button.flash)
+		button.flash:SetScript("OnPlay", function()
+			local gate, length = lit.flash, FLASH[1][3] + FLASH[2][3]
+			gate.late = gate:GetAlpha() == 0 and Now() + length or nil
+			if gate.late and gate.base == 1 then
+				Dim(gate, length)
+			end
+		end)
+	end
 	r.add(Medals.Texture(button, "BACKGROUND", 1, "dot", "black", size)):SetAlpha(0.85)
 	local art = "sigil" .. family.sigil
 	local pale = select(4, Tokens.Texture(art)) and 1 or nil
@@ -487,7 +651,7 @@ local function Sigil(r, container, key, family, color, size, bloom)
 	button.timer = Timer(button, button:GetFrameLevel() + 1, "orbRing", color)
 	button.timer:SetAllPoints(button)
 	button:SetDurationCooldown(button.timer)
-	button.ember = Medals.EmberSlot(r, container, "ember" .. key, options, size, r:GetFrameLevel() + ABOVE + 2)
+	button.ember = Medals.EmberSlot(r, lit, family, size, r:GetFrameLevel() + ABOVE + 2)
 	button.container, button.key, button.family = container, key, family
 	r.sigils[#r.sigils + 1] = button
 end
@@ -523,7 +687,7 @@ function Medals.CooldownRim(parent, spec, level, form)
 			Medals.Flare(r, lit, base + 3, spec.burst or "glow", RIM)
 		end
 		for k, family in ipairs(each.families) do
-			Sigil(r, lit.container, "sigil" .. k, family, spec.color, size, spec.bloom)
+			Sigil(r, lit, "sigil" .. k, family, spec.color, size, spec.bloom)
 		end
 	end
 	r.timer = r.lit.timer
@@ -627,6 +791,9 @@ function Medals.Size(piece)
 	for _, part in ipairs(piece.parts) do
 		Medals.Even(part)
 	end
+	for _, twin in ipairs(piece.twins or NONE) do
+		Medals.Size(twin)
+	end
 	if piece.glint then
 		local at = Widgets.Snap(piece, 1)
 		piece.glint:SetPoint("CENTER", piece.bar, "CENTER", -at, at)
@@ -639,10 +806,15 @@ local function Arrange(r)
 		local f = b.family
 		local on = f.known and not f.known[1] or Medals.Known(f.known or f.spells) ~= nil
 		b.container:SetAuraSlotEnabled(b.key, on)
-		b.container:SetAuraSlotEnabled(b.ember.key, on and ns.Config("crestEmber") ~= false)
+		if b.flashed then
+			b.flashed.container:SetAuraSlotEnabled(b.key, on)
+		end
+		for _, slot in ipairs(b.ember.slots) do
+			slot.container:SetAuraSlotEnabled("lit", on and ns.Config("crestEmber") ~= false)
+		end
 		b.at = on and { r.left + n % r.per * r.pitch, r.first + floor(n / r.per) * r.rise } or nil
 		if b.at then
-			for _, slot in ipairs({ b, b.ember }) do
+			for _, slot in ipairs({ b, b.ember, b.flashed }) do
 				slot:ClearAllPoints()
 				slot:SetPoint("CENTER", r, "CENTER", Widgets.Snap(r, b.at[1]), Widgets.Snap(r, b.at[2]))
 			end
@@ -660,28 +832,102 @@ function Medals.Place(piece, anchor, x, y)
 	end
 end
 
-function Medals.Fire(piece)
-	if piece.flare and Effects.Allows("ambient") and not ns.Slab.Resting() then
-		piece.flare.play:Stop()
-		piece.flare.play:Play()
+local function Hold(flare)
+	if not flare.still then
+		flare.still = ns.Slab.Group(flare)
+		ns.Slab.Fade(flare.still, 1, 1, HELD)
+	end
+	return flare.still
+end
+
+function Medals.Claim(stop, seconds)
+	return Effects.ClaimFor("crestFlare", Effects.PRIORITY.ready, seconds or HELD, stop)
+end
+
+function Medals.Ensemble(hush, seconds)
+	local held, at
+	local function stop()
+		held = nil
+		hush()
+	end
+	return function()
+		local now = Now()
+		if not (held and at == now) then
+			held = Medals.Claim(stop, seconds) ~= nil
+			at = now
+		end
+		return held == true
 	end
 end
 
-local function Animate(button, full)
-	if button.full == full then
+function Medals.Arbitrate(group, engine, gate)
+	group.engine, group.gate = group.engine or engine, group.gate or gate
+	if group.claims then
+		return group
+	end
+	group.claims = true
+	local claiming
+	local function stop()
+		local hide = group.gate
+		if claiming then
+			return
+		elseif not (group.engine and Medals.Restricted()) then
+			group:Stop()
+		elseif hide and (hide.face or hide).owner == group then
+			Dim(hide, group.held or HELD)
+		end
+	end
+	group:SetScript("OnPlay", function()
+		local own = group.gate
+		if own then
+			if own.base == 0 or not own:IsVisible() then
+				own.late = Now() + (group.held or HELD)
+				return
+			end
+			Hush(own, nil, group)
+		end
+		claiming = true
+		Medals.Claim(stop, group.held)
+		claiming = false
+	end)
+	return group
+end
+
+function Medals.Fire(piece)
+	local flare = piece.flare
+	if flare and Effects.Allows("flare") and not ns.Slab.Resting() then
+		local play = Effects.Allows("ambient") and flare.play or Hold(flare)
+		flare.play:Stop()
+		if flare.still then flare.still:Stop() end
+		Medals.Arbitrate(play):Play()
+	end
+end
+
+local function Wanted(button, mode)
+	local flare, flicker = button.flare, button.flicker
+	local gate = flare and (flare.gate or button.hold and button.hold.face and button.hold)
+	return {
+		AuraShown = mode == true and (button.loops or { button.loop }) or NONE,
+		AuraAssigned = { flare and (mode == true and Medals.Arbitrate(flare.play, true, gate) or mode == "calm" and Hold(flare) and Medals.Arbitrate(flare.still, true, gate)) or nil },
+		PandemicActive = { flicker and (mode == true and flicker or mode == "calm" and ns.Slab.Still(flicker)) or nil },
+	}
+end
+
+local function Animate(button, mode)
+	mode = mode or false
+	local was = button.full or false
+	if was == mode then
 		return false
 	end
-	for kind, groups in pairs({ AuraShown = button.loops or { button.loop }, AuraAssigned = { button.flare and button.flare.play }, PandemicActive = { button.flicker } }) do
-		for _, group in ipairs(groups) do
-			if full then
-				button["Add" .. kind .. "Animation"](button, group)
-			elseif button.full then
-				button["Remove" .. kind .. "Animation"](button, group)
-				group:Stop()
+	for verb, state in pairs({ Remove = was, Add = mode }) do
+		for kind, groups in pairs(state and Wanted(button, state) or NONE) do
+			for _, group in ipairs(groups) do
+				button[verb .. kind .. "Animation"](button, group)
+				if verb == "Remove" then group:Stop() end
 			end
 		end
 	end
-	button.full = full
+	button.full = mode
 	return true
 end
 
@@ -701,22 +947,31 @@ local function Drive(button, on, full, armed)
 	button.fed = on
 end
 
+local OTHERS = { [true] = { "calm", false }, calm = { true, false }, [false] = { true, "calm" } }
+local FLARES = { [true] = { true, "calm" }, calm = { "calm", true }, [false] = { true, "calm" } }
+
 function Medals.Engine(pieces, on, full)
 	if Medals.Restricted() then
 		return false
 	end
 	local armed = {}
-	for _, p in ipairs(pieces) do
+	local function Bind(p, mode)
 		for _, button in ipairs(p.sigils or NONE) do
-			Animate(button, full)
+			Animate(button, mode)
 		end
 		for _, button in ipairs(p.lits or { p.lit }) do
 			if button.container then
-				Drive(button, on, full, armed)
+				Drive(button, on, mode, armed)
 			end
 			for _, mirror in ipairs(button.mirrors or NONE) do
-				Drive(mirror, on, full, armed)
+				Drive(mirror, on, mirror.alt and FLARES[mode or false][mirror.alt] or mode, armed)
 			end
+		end
+	end
+	for _, p in ipairs(pieces) do
+		Bind(p, full)
+		for i, twin in ipairs(p.twins or NONE) do
+			Bind(twin, OTHERS[full or false][i])
 		end
 	end
 	return true
@@ -736,8 +991,25 @@ function Medals.Rest()
 	for _, r in ipairs(rims) do
 		Medals.Still(r, still, 1)
 	end
+	local dark, mode = not Effects.Allows("flare") or ns.Slab.Resting(), Effects.Allows("ambient") or Effects.Allows("flare") and "calm" or false
 	for _, gate in ipairs(gates) do
-		gate:SetAlpha(still and 0 or 1)
+		local bound = gate.lit and gate.lit.full
+		if gate.art then
+			local pick = gate
+			for _, each in ipairs(gate.face.gates) do
+				if (each.lit.full or false) == mode then
+					pick = each
+					break
+				end
+			end
+			for _, each in ipairs(gate.face.gates) do
+				Medals.Reveal(each, each == pick and 1 or 0)
+			end
+		elseif gate.moving then
+			Medals.Reveal(gate, mode == true and 1 or 0)
+		else
+			Medals.Reveal(gate, (dark or bound ~= nil and bound ~= mode) and 0 or 1)
+		end
 	end
 	for _, loop in ipairs(breaths) do
 		if still or not loop:GetParent():IsVisible() then

@@ -391,12 +391,12 @@ do
 	for _, p in ipairs({ ambush, vanish }) do
 		assert((p:GetWidth() or 0) > 0 and (p.lit.bar:GetWidth() or 0) > 0 and ((p.ghost or p.lit.glow):GetWidth() or 0) > 0, "and each is sized, its object too")
 	end
-	local mirror = Pieces(ns)[8].lit.awake.lit
+	local mirror = (Pieces(ns)[8].lit.awake or Pieces(ns)[8].lit.flareGate).lit
 	K.Options.Write("Medallions", "motion", "calm")
 	assert(mirror.full == true, "the engine keeps its fire while auras are secret")
 	env._aurasSecret = false
 	env.FireEvent("ADDON_RESTRICTION_STATE_CHANGED", 1, 0)
-	assert(mirror.full == false, "and takes the change once the restriction ends, still in combat")
+	assert(mirror.full == "calm", "and takes the change once the restriction ends, still in combat: Calm keeps the flares and drops the fire")
 	Clean(env, K, "auras secret")
 end
 
@@ -745,7 +745,7 @@ end
 do
 	local env, K, ns = New("WARRIOR", { 6673 })
 	local lit = Pieces(ns)[1].lit
-	local flare = lit.awake.lit.flare
+	local flare = lit.flareGate.lit.flare
 	Slots.Set(env, "player", { { id = 6673, count = 0 } })
 	assert(flare.play:IsPlaying(), "the first shout flares")
 	flare.play:Stop()

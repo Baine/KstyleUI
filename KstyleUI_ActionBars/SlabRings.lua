@@ -1,4 +1,4 @@
--- SlabRings.lua: the crest's ring-edge timing layers (docs/medallions-effects.md#ring-edge-timers): Expiring ember, a second swipe on every timer ring's own duration whose art lights only the last fifth amber and the last twelfth red (a bright band just outside a medal or sigil, the ring's own line on a rim), with a flicker through that fifth and a gilt fade to steel while auras are readable out of combat; the melee swing ring, a fine steel line inside the rune band with a bright head and a soft white halo at each hit (a hunter's Auto Shot ring keeps its own look); the cast ring, a white-hot stroke in a gilt bloom round the crest's edge with a bright head, flashing and pulsing the crest when your own cast lands and shaking red when it is stopped; and the global cooldown spark, the same head alone round that edge.
+-- SlabRings.lua: the crest's ring-edge timing layers (docs/medallions-effects.md#ring-edge-timers): Expiring ember, an amber and a red swipe on every timer ring's own duration, each on an aura slot of its own, that stay dark until the timer's last fifth, then show amber, and red in its place in its last twelfth (a bright band just outside a medal or sigil, the ring's own line on a rim; delayed alpha animations armed from a start and length Lua could read, dark again when the timer changes under hidden values), with the token's flicker through that fifth while auras are readable out of combat and a gilt fade to steel from the game timer's own end; the melee swing ring, a fine steel line inside the rune band with a bright head and a soft white halo at each hit (a hunter's Auto Shot ring keeps its own look); the cast ring, a white-hot stroke in a gilt bloom round the crest's edge with a bright head, flashing and pulsing the crest when your own cast lands and shaking red when it is stopped; and the global cooldown spark, the same head alone round that edge.
 local _, ns = ...
 
 local K = KstyleUI
@@ -12,10 +12,9 @@ local Rings = {}
 ns.SlabRings = Rings
 
 local ART = "Interface\\AddOns\\KstyleUI\\Media\\Textures\\Medallions\\Trackers\\"
-local FIFTH, FADE, LATE, BAND = 0.2, 0.4, 0.5, 0.853
+local FIFTH, TWELFTH, FADE, LATE, BAND = 0.2, 1 / 12, 0.4, 0.5, 0.853
 local INNER, SWING, EDGE, HALO = 112, 102, 145, 0.975 / 0.8
 local TICK, FLASH, PULSE, SHAKE, FALL = 0.2, 0.25, 0.35, { 3, -5, 2 }, 0.3
-local FLICKER = { { 1, 0.5, 0.12 }, { 0.5, 1, 0.12 } }
 local GCD_SPELL = 29515
 local OWNER = "ActionBars.SlabRings"
 local MELEE = { WARRIOR = true, PALADIN = true, ROGUE = true, SHAMAN = true, DRUID = { 1, 5, 8 } }
@@ -25,12 +24,12 @@ local CAST_EVENTS = {
 	UNIT_SPELLCAST_STOP = "clear",
 }
 local NONE = {}
-local state = { embers = {}, watched = {}, units = {} }
+local state = { embers = {}, lates = {}, watched = {}, units = {} }
 Rings.state = state
 
-local function Pop(region, seconds, smoothing)
+local function Pop(region, seconds)
 	local group = region:CreateAnimationGroup()
-	ns.Slab.Fade(group, 1, 0, seconds):SetSmoothing(smoothing)
+	ns.Slab.Fade(group, 1, 0, seconds)
 	return group
 end
 
@@ -45,9 +44,9 @@ local function Head(c, scale)
 	c:SetDrawEdge(true)
 end
 
-function Medals.Warn(piece, spec, ghost)
-	ghost:SetAlpha(0)
-	local e = { piece = piece, spec = spec, unit = spec.unit or "player", ids = {}, fade = Pop(ghost, FADE, "IN_OUT"), flicker = Medals.Steps(piece, FLICKER, true) }
+local function Track(piece, spec, ghost)
+	local e = { piece = piece, spec = spec, unit = spec.unit or "player", ids = {}, fade = ghost and Pop(ghost, FADE), flicker = ghost and ns.Slab.Flicker(piece) }
+	if ghost then ghost:SetAlpha(0) end
 	for _, id in ipairs(spec.spells or NONE) do
 		e.ids[id] = true
 	end
@@ -56,24 +55,124 @@ function Medals.Warn(piece, spec, ghost)
 		state.units[e.unit], state.listening = true, nil
 		if state.enabled then Rings.Update() end
 	end
+	return e
+end
+
+Medals.Warn = Track
+
+local function Delayed(frame, from, to)
+	local group = frame:CreateAnimationGroup()
+	group.fade = ns.Slab.Fade(group, from, to, 0)
+	group:SetToFinalAlpha(true)
+	return group
+end
+
+local function Late(parent, level)
+	local late = Medals.Layer(parent, level)
+	late:SetAlpha(0)
+	late.show = Delayed(late, 0, 1)
+	return late
+end
+
+local function Swipes(late, amber, red, art, level, first, second)
+	red:SetAlpha(0)
+	late.amber, late.red, late.leave, late.turn = amber, red, Delayed(amber, 1, 0), Delayed(red, 0, 1)
+	local hot = Medals.Timer(first or amber, level, nil, "white", nil, ART .. "Ember" .. art .. "Amber.png")
+	hot.red = Medals.Timer(second or red, level, nil, "white", nil, ART .. "Ember" .. art .. "Red.png")
+	state.lates[#state.lates + 1] = late
+	return hot
+end
+
+local function Arm(group, frame, wait, fade, final)
+	if wait + fade > 0 then
+		group.fade:SetStartDelay(math.max(wait, 0))
+		group.fade:SetDuration(math.min(fade, wait + fade))
+		group:Play()
+	else
+		frame:SetAlpha(final)
+	end
+end
+
+local function Light(late, start, length)
+	late.show:Stop()
+	late.leave:Stop()
+	late.turn:Stop()
+	late:SetAlpha(0)
+	late.start, late.length = start, length
+	if start then
+		late.amber:SetAlpha(1)
+		late.red:SetAlpha(0)
+		local left, step = start + length - (type(GetTime) == "function" and GetTime() or 0), Effects.Allows("flare") and Tokens.Flicker.step or 0
+		local turn = left - length * TWELFTH
+		local fade, last = math.min(step, length * (FIFTH - TWELFTH) / 4), math.min(step, length * TWELFTH / 4)
+		Arm(late.show, late, left - length * FIFTH, fade, 1)
+		Arm(late.leave, late.amber, turn - fade, fade, 0)
+		Arm(late.turn, late.red, turn, last, 1)
+	end
+end
+
+local function Known(start, length)
+	return not (IsSecret(start) or IsSecret(length)) and type(start) == "number" and type(length) == "number" and length > 0
+end
+
+local function Douse(e)
+	if e.late and e.lit then
+		e.lit = nil
+		Light(e.late)
+	end
+end
+
+local function Ended(e)
+	Douse(e)
+	if e.fade and not e.fade:IsPlaying() and Effects.Allows("flare") and EmberOn() and e.piece:IsVisible() then
+		e.fade:Play()
+	end
+end
+
+local function Slots(piece, late, lit, spec, art, level, size)
+	local amber, red = Medals.Layer(late, level), Medals.Layer(late, level)
+	local first = Medals.Feed(amber, spec, level)
+	local second = spec.feed == "aura" and Medals.Feed(red, spec, level)
+	lit.mirrors = lit.mirrors or {}
+	lit.mirrors[#lit.mirrors + 1] = first
+	local hot = Swipes(late, amber, red, art, level + 1, first, second)
+	first:SetDurationCooldown(hot)
+	if second then
+		lit.mirrors[#lit.mirrors + 1] = second
+		second:SetDurationCooldown(piece.add(hot.red, size))
+	end
+	hot.slot, hot.slots = first, { first, second or nil }
+	return hot
 end
 
 function Medals.Ember(piece, lit, timer, art, level, units)
 	local band = art == "Band"
-	local path, size = ART .. "Ember" .. art .. ".png", band and (units + 3) / BAND or units
-	local gate, hot
+	local size = band and (units + 3) / BAND or units
+	local gate, late, hot
 	if lit and lit.container then
-		gate = Medals.Mirror(piece, lit, level)
-		hot = Medals.Timer(gate.lit, level, nil, "white", nil, path)
-		gate.lit:SetDurationCooldown(hot)
-		Medals.Warn(piece, lit.spec, piece.add(Medals.Texture(Medals.Layer(piece, level + 1), "OVERLAY", 0, band and "medRing" or "ringLine16", "gilt", units, "ADD")))
+		gate = Medals.Layer(piece, level)
+		late = Late(gate, level)
+		hot = Slots(piece, late, lit, setmetatable({}, { __index = lit.spec }), art, level, size)
+		local e = Track(piece, lit.spec, piece.add(Medals.Texture(Medals.Layer(piece, level + 1), "OVERLAY", 0, band and "medRing" or "ringLine16", "gilt", units, "ADD")))
+		e.late = late
+		hot:SetScript("OnCooldownDone", function() Ended(e) end)
 	else
 		gate = Medals.Layer(timer:GetParent(), timer:GetFrameLevel() + 1)
-		hot = Medals.Timer(gate, gate:GetFrameLevel(), nil, "white", nil, path)
+		late = Late(gate, gate:GetFrameLevel())
+		hot = Swipes(late, Medals.Layer(late, gate:GetFrameLevel()), Medals.Layer(late, gate:GetFrameLevel()), art, gate:GetFrameLevel())
 		hot:ClearAllPoints()
 		hot:SetPoint("CENTER", timer, "CENTER", 0, 0)
+		hot.red:SetAllPoints(hot)
 		for _, method in ipairs({ "SetCooldown", "SetCooldownFromDurationObject", "Clear" }) do
-			hooksecurefunc(timer, method, function(_, ...) hot[method](hot, ...) end)
+			hooksecurefunc(timer, method, function(_, start, length, ...)
+				hot[method](hot, start, length, ...)
+				hot.red[method](hot.red, start, length, ...)
+				if method == "SetCooldown" and Known(start, length) then Light(late, start, length) else Light(late) end
+			end)
+		end
+		hot:SetScript("OnCooldownDone", function() Light(late) end)
+		hot.Light = function(start, length)
+			if Known(start, length) then Light(late, start, length) end
 		end
 	end
 	gate:SetAlpha(EmberOn() and 1 or 0)
@@ -82,16 +181,15 @@ function Medals.Ember(piece, lit, timer, art, level, units)
 	return hot
 end
 
-function Medals.EmberSlot(r, container, key, options, size, level)
-	local slot = container:AddAuraSlot(key, "HELPFUL", options)
-	pcall(slot.EnableMouse, slot, false)
-	slot:SetPoint("CENTER", r, "CENTER", 0, 0)
-	slot:SetFrameLevel(level)
-	r.add(slot, size)
-	slot.key = key
-	slot.timer = r.add(Medals.Timer(slot, slot:GetFrameLevel() + 1, nil, "white", nil, ART .. "EmberBand.png"), (size + 3) / BAND)
-	slot:SetDurationCooldown(slot.timer)
-	return slot
+function Medals.EmberSlot(r, lit, family, size, level)
+	local gate, band = r.add(Medals.Layer(r, level), size), (size + 3) / BAND
+	local late = Late(gate, level)
+	gate.timer = r.add(Slots(r, late, lit, setmetatable({ spells = family.spells, filter = "HELPFUL", newest = false }, { __index = lit.spec }), "Band", level, band), band)
+	gate.slot, gate.slots = gate.timer.slot, gate.timer.slots
+	local e = Track(r, gate.slot.spec)
+	e.late = late
+	gate.timer:SetScript("OnCooldownDone", function() Ended(e) end)
+	return gate
 end
 
 local function Pick(e)
@@ -108,74 +206,125 @@ local function Pick(e)
 end
 
 local function Touches(e, info)
-	if type(info) ~= "table" or IsSecret(info.isFullUpdate) or info.isFullUpdate ~= false then
+	if IsSecret(info) or type(info) ~= "table" or IsSecret(info.isFullUpdate) or info.isFullUpdate ~= false then
 		return true
 	end
 	for _, a in ipairs(info.addedAuras or NONE) do
 		if IsSecret(a.spellId) or e.ids[a.spellId] then return true end
 	end
 	for _, id in ipairs(info.updatedAuraInstanceIDs or NONE) do
-		if id == e.aura then return true end
+		if IsSecret(id) or id == e.aura then return true end
 	end
 	for _, id in ipairs(info.removedAuraInstanceIDs or NONE) do
-		if id == e.aura then return true end
+		if IsSecret(id) or id == e.aura then return true end
 	end
 	return false
 end
 
-local function Watch(e, now, pulse)
+local function Quiet(e)
+	if e.flicker then ns.Slab.Warn(e.flicker, false) end
+	e.ends, e.due, e.calling = nil, nil, nil
+end
+
+local function Call(e, key, due, now)
+	if e.called == key then
+		return
+	elseif due > now then
+		local mark = key .. ":" .. due
+		if e.calling ~= mark and C_Timer and C_Timer.After then
+			e.calling = mark
+			C_Timer.After(due - now, function()
+				if e.calling == mark then
+					e.calling = nil
+					local a = not Medals.Locked() and e.piece:IsVisible() and Pick(e)
+					local ends, length = a and a.expirationTime, a and a.duration
+					if a and not (IsSecret(ends) or IsSecret(length)) and type(ends) == "number" and type(length) == "number"
+						and a.auraInstanceID .. ":" .. ends .. ":" .. ends - length * FIFTH == mark then
+						Call(e, key, due, due)
+					end
+				end
+			end)
+		end
+		return
+	end
+	e.called, e.calling = key, nil
+	e.piece.recall()
+end
+
+local function Watch(e, now, ember)
 	local a = Pick(e)
 	local ends, length = a and a.expirationTime, a and a.duration
 	e.aura = a and a.auraInstanceID
 	if IsSecret(ends) or IsSecret(length) or type(ends) ~= "number" or type(length) ~= "number" or length <= 0 then
-		if e.ends and now >= e.ends - LATE and Effects.Allows("flare") then
+		if e.fade and ember and e.ends and now >= e.ends - LATE and Effects.Allows("flare") then
 			e.fade:Stop()
 			e.fade:Play()
 		end
-		e.ends, e.due = nil, nil
-		e.flicker:Stop()
+		Quiet(e)
+		Douse(e)
 		return
+	end
+	local key = e.aura .. ":" .. ends .. ":" .. length
+	if e.late and e.lit ~= (ember and key or nil) then
+		e.lit = ember and key or nil
+		Light(e.late, ember and ends - length or nil, length)
 	end
 	e.ends = ends
 	local due = ends - length * FIFTH
-	if not pulse then
-		e.flicker:Stop()
+	if e.piece.recall then
+		Call(e, e.aura .. ":" .. ends, due, now)
+	end
+	if not (e.flicker and ember and Effects.Allows("flare")) then
+		if e.flicker then ns.Slab.Warn(e.flicker, false) end
 		e.due = nil
-	elseif e.due ~= due or due <= now and not e.flicker:IsPlaying() then
-		e.flicker:Stop()
+	elseif due <= now then
 		e.due = due
-		if due <= now then
-			e.flicker:Play()
-		elseif C_Timer and C_Timer.After then
+		ns.Slab.Warn(e.flicker, true)
+	elseif e.due ~= due then
+		ns.Slab.Warn(e.flicker, false)
+		e.due = due
+		if C_Timer and C_Timer.After then
 			C_Timer.After(due - now, function()
-				if e.due == due and not (Medals.Locked() or e.flicker:IsPlaying()) and Effects.Allows("pulse") and e.piece:IsVisible() then e.flicker:Play() end
+				if e.due == due and not Medals.Locked() and EmberOn() and e.piece:IsVisible() then
+					ns.Slab.Warn(e.flicker, true)
+				end
 			end)
 		end
 	end
 end
 
+local function Calls()
+	for _, e in ipairs(state.watched) do
+		if e.piece.recall then return true end
+	end
+	return false
+end
+
 local function Readable(event, unit, info)
-	if Medals.Locked() or not EmberOn() then
+	local ember = EmberOn()
+	if Medals.Locked() then
 		if not state.quiet then
 			state.quiet = true
 			for _, e in ipairs(state.watched) do
-				e.flicker:Stop()
-				e.ends, e.due = nil, nil
+				Quiet(e)
+			end
+		end
+		for _, e in ipairs(state.watched) do
+			if not ember or event == "UNIT_AURA" and unit == e.unit and Touches(e, info) or event == "PLAYER_TARGET_CHANGED" and e.unit == "target" then
+				Douse(e)
 			end
 		end
 		return
 	end
 	unit = event == "PLAYER_TARGET_CHANGED" and "target" or unit
-	local full, now, pulse = state.quiet ~= false or unit == nil, type(GetTime) == "function" and GetTime() or 0, Effects.Allows("pulse")
+	local full, now = state.quiet ~= false or unit == nil, type(GetTime) == "function" and GetTime() or 0
 	state.quiet = false
 	for _, e in ipairs(state.watched) do
-		if not e.piece:IsVisible() then
-			if e.due or e.ends then
-				e.flicker:Stop()
-				e.ends, e.due = nil, nil
-			end
+		if not (e.piece:IsVisible() and (ember or e.piece.recall)) then
+			Quiet(e)
+			Douse(e)
 		elseif full or unit == e.unit and (event ~= "UNIT_AURA" or Touches(e, info)) then
-			Watch(e, now, pulse)
+			Watch(e, now, ember)
 		end
 	end
 end
@@ -196,7 +345,7 @@ function Rings.Swing(parent, spec, level, form)
 		r.tick = r.add(Medals.Texture(r.swing, "OVERLAY", 0, "glow", "white", r.units * HALO, "ADD"))
 		r.tick:SetTexture(ART .. "SwingHalo.png")
 		r.tick:SetAlpha(0)
-		r.tick.play = Pop(r.tick, TICK, "OUT")
+		r.tick.play = Pop(r.tick, TICK)
 	end
 	r.color, r.spec = spec.color, spec
 	return r
@@ -250,7 +399,7 @@ local function Build(hub)
 	p.flash = p.add(Medals.Texture(p, "OVERLAY", 0, "ringLine16", "white", EDGE, "ADD"))
 	p.flash:SetTexture(ART .. "CastRing.png")
 	p.flash:SetAlpha(0)
-	p.flash.play = Pop(p.flash, FLASH, "OUT")
+	p.flash.play = Pop(p.flash, FLASH)
 	p.stop = p.cast:CreateAnimationGroup()
 	for i, x in ipairs(SHAKE) do
 		local move = p.stop:CreateAnimation("Translation")
@@ -258,7 +407,7 @@ local function Build(hub)
 		move:SetDuration(FALL / 5)
 		move:SetStartDelay((i - 1) * FALL / 5)
 	end
-	ns.Slab.Fade(p.stop, 1, 0, FALL):SetSmoothing("IN")
+	ns.Slab.Fade(p.stop, 1, 0, FALL)
 	p.stop:SetScript("OnFinished", function()
 		p.cast:Clear()
 		p.cast:SetPaused(false)
@@ -350,7 +499,7 @@ local function Gcd(_, id, _, _, recovery)
 end
 
 local function Listen(cast, spark)
-	local ember, swing = state.enabled and EmberOn() and next(state.units) ~= nil, state.enabled and MELEE_FORMS and ns.Config("crestSwing") ~= false
+	local ember, swing = state.enabled and (EmberOn() or Calls()) and next(state.units) ~= nil, state.enabled and MELEE_FORMS and ns.Config("crestSwing") ~= false
 	local key = table.concat({ tostring(state.enabled), tostring(cast), tostring(spark), tostring(ember), tostring(swing) }, ",")
 	if state.listening == key then
 		return
@@ -429,6 +578,9 @@ local function OnSetting(_, module, key)
 end
 
 local function OnMotion()
+	for _, late in ipairs(state.lates) do
+		if late.start then Light(late, late.start, late.length) end
+	end
 	Readable()
 end
 
