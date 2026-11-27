@@ -6,7 +6,7 @@
 
 **Architecture:** One core addon at the repository root holds the design system and every shared service. Each module is a `KstyleUI_<Module>` addon that depends on the core and talks only to the core's public API, `_G.KstyleUI`. Modules in the same phase are independent and are built in parallel worktrees.
 
-**Tech Stack:** Lua 5.1 (WoW client), XML load files, Python 3.12 for tooling, luacheck 1.2.0, pre-commit 4.x, LuaJIT locally and Lua 5.1 in CI, the BigWigs packager, Higgsfield `gpt_image_2_5` for generated art.
+**Tech Stack:** Lua 5.1 (WoW client), XML load files, Python 3.12 for tooling, the [local gate toolchain](../../DEVELOPING.md#pull-requests-are-checked-locally), LuaJIT for renders, the BigWigs packager, Higgsfield `gpt_image_2_5` for generated art.
 
 **Spec:** [`docs/superpowers/specs/2026-11-07-kstyleui-design.md`](../specs/2026-11-07-kstyleui-design.md)
 
@@ -26,7 +26,7 @@ These apply to every task in every phase:
 - Protected work in combat goes through `KstyleUI.Combat.Queue`.
 - Nothing copied from another addon. Every generated asset gets a row in `Media/PROVENANCE.md`.
 - Branch `<type>/<scope>-<slug>` from `origin/staging`, in its own worktree under `~/KstyleUI.worktrees/`. PR into `staging`, one coherent piece of work with no line limit (waived by the owner on 2026-11-07), title `type(scope): summary`, body with a `## Changelog` line (`Added:`, `Changed:` or `Fixed:`) or the `no changelog` label.
-- Before opening a PR: `bash scripts/gate.sh`, then one cross-family review of the diff against `origin/staging`.
+- For the local gate and the independent review by the latest GPT Sol model, follow [Check and deliver](../../../AGENTS.md#check-and-deliver).
 
 ## Review Focus
 
@@ -99,7 +99,7 @@ KstyleUI.L[key] -> string                         -- locale table
 
 Repository rules, the TOC walker, a loadable addon skeleton, the regression runner and stubs, generated globals and luacheck, pre-commit, the taint scan, the secret-value lint, packaging and CI, the spike addon, the ability data extraction, and one in-game spike session with the owner.
 
-**Exit:** CI is green on a PR, the empty addon loads on Forever, every spike question has a recorded answer, and `Tools/data/abilities.json` exists.
+**Exit:** The local gate passes on the pull request commit, the empty addon loads on Forever, every spike question has a recorded answer, and `Tools/data/abilities.json` exists.
 
 ## Phase 1: Core and settings
 
